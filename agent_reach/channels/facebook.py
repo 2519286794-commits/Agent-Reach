@@ -14,6 +14,7 @@ class FacebookChannel(OpenCLISiteChannel):
     login_hint = "facebook.com"
 
     level = "experimental"
+    login_url = "https://www.facebook.com/login"
     actions = (
         Action(
             "search",

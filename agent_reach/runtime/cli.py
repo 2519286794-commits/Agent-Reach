@@ -19,11 +19,12 @@ from typing import Dict, List, Optional, Sequence
 from agent_reach.channels import get_all_channels
 from agent_reach.channels.base import Action, Channel
 
+from . import browser
 from .dispatch import DEFAULT_TIMEOUT, find_action, run_action
 from .result import BAD_INPUT, NEED_SETUP, SCHEMA_VERSION, UPSTREAM_BROKEN, ReachError, envelope
 from .sessions import clear_session, has_login_state, import_legacy_state, session_env
 
-_TOP_LEVEL = ("channels", "check", "read", "login", "logout")
+_TOP_LEVEL = ("channels", "check", "read", "login", "logout", "browser")
 
 
 def unified_channels() -> List[Channel]:
@@ -128,10 +129,7 @@ def _cmd_channels(_args: Sequence[str]) -> int:
                 "name": ch.name,
                 "description": ch.description,
                 "level": ch.level,
-                "login": None if not ch.session else {
-                    "logged_in": has_login_state(ch.session),
-                    "command": f"agent-reach login {ch.name}",
-                },
+                "login": _login_info(ch),
                 "actions": [
                     {
                         "name": a.name,
@@ -219,30 +217,53 @@ def _cmd_check(args: Sequence[str]) -> int:
     return _emit({"schema_version": SCHEMA_VERSION, "ok": ok, "results": results})
 
 
-def _session_channel(cmd: str, args: Sequence[str]):
+def _login_info(ch: Channel):
+    if ch.login_url:
+        return {"via": "browser", "logged_in": None, "command": f"agent-reach login {ch.name}"}
+    if ch.session:
+        return {"via": "session", "logged_in": has_login_state(ch.session), "command": f"agent-reach login {ch.name}"}
+    return None
+
+
+def _login_channel(cmd: str, args: Sequence[str]):
     parser = _Parser(prog=cmd, add_help=False)
     parser.add_argument("channel")
     if cmd == "login":
         parser.add_argument("--import-existing", action="store_true")
+        parser.add_argument("--sync", action="store_true")
     ns = parser.parse_args(list(args))
     ch = _channel(ns.channel)
     if ch is None:
         raise _ArgError(f"unknown channel: {ns.channel}")
-    if not ch.session:
+    if cmd == "logout" and not ch.session:
+        hint = " Log out in the Agent Reach browser window instead." if ch.login_url else ""
+        raise _ArgError(f"{ch.name} has no login state managed by Agent Reach.{hint}")
+    if cmd == "login" and not (ch.session or ch.login_url):
         raise _ArgError(f"{ch.name} has no login managed by Agent Reach")
     return ch, ns
 
 
 def _cmd_login(args: Sequence[str]) -> int:
     try:
-        ch, ns = _session_channel("login", args)
+        ch, ns = _login_channel("login", args)
     except _ArgError as exc:
         return _bad_input(None, "login", str(exc))
-    if ns.import_existing:
+    if ns.import_existing and ch.session:
         copied = import_legacy_state(ch.session, ch.legacy_state)
         if copied:
             return _emit(envelope(channel=ch.name, action="login", backend=ch.session,
                                   items=[{"imported": copied}]))
+    if ch.login_url and not ns.sync:
+        try:
+            browser.start(ch.login_url)
+        except ReachError as err:
+            return _emit(envelope(channel=ch.name, action="login", error=err))
+        nxt = (
+            f"After the user logs in, run `agent-reach login {ch.name} --sync`."
+            if ch.session else "The user logs in in that window; then retry the action."
+        )
+        return _emit(envelope(channel=ch.name, action="login", backend="agent-reach-browser",
+                              items=[{"opened": ch.login_url, "next": nxt}]))
     exe = shutil.which(ch.login_argv[0])
     if not exe:
         return _emit(envelope(channel=ch.name, action="login",
@@ -259,11 +280,43 @@ def _cmd_login(args: Sequence[str]) -> int:
 
 def _cmd_logout(args: Sequence[str]) -> int:
     try:
-        ch, _ = _session_channel("logout", args)
+        ch, _ = _login_channel("logout", args)
     except _ArgError as exc:
         return _bad_input(None, "logout", str(exc))
     removed = clear_session(ch.session)
     return _emit(envelope(channel=ch.name, action="logout", backend=ch.session, items=[{"removed": removed}]))
+
+
+def _cmd_browser(args: Sequence[str]) -> int:
+    from agent_reach.backends.opencli import OPENCLI_EXTENSION_URL
+
+    parser = _Parser(prog="browser", add_help=False)
+    parser.add_argument("op", choices=("setup", "start", "status"))
+    try:
+        ns = parser.parse_args(list(args))
+    except _ArgError as exc:
+        return _bad_input(None, "browser", f"{exc}; usage: agent-reach browser setup|start|status")
+    action = f"browser {ns.op}"
+    try:
+        if ns.op == "start":
+            browser.start()
+        elif ns.op == "setup":
+            result = browser.bind()
+            if result["status"] == "waiting_for_extension":
+                browser.start(OPENCLI_EXTENSION_URL)
+                raise ReachError(
+                    NEED_SETUP, "waiting for the OpenCLI extension in the Agent Reach browser",
+                    hint="Ask the user to click 'Add to Chrome' in the window that just opened, then run `agent-reach browser setup` again.",
+                )
+            if result["status"] == "ambiguous":
+                raise ReachError(
+                    NEED_SETUP, f"more than one new OpenCLI profile connected: {', '.join(result['candidates'])}",
+                    hint="Ask the user to close other Chrome windows that have the OpenCLI extension, then run setup again.",
+                )
+    except ReachError as err:
+        return _emit(envelope(channel=None, action=action, error=err))
+    return _emit(envelope(channel=None, action=action, backend="agent-reach-browser", items=[browser.status()]))
+
 
 
 def main(argv: Sequence[str]) -> int:
@@ -278,6 +331,8 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_login(rest)
     if head == "logout":
         return _cmd_logout(rest)
+    if head == "browser":
+        return _cmd_browser(rest)
     channel = _channel(head)
     assert channel is not None  # guaranteed by handles()
     return _cmd_action(channel, rest)

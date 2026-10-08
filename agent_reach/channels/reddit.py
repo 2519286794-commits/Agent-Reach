@@ -50,6 +50,7 @@ class RedditChannel(Channel):
     tier = 1  # no zero-config path exists — see module docstring
 
     level = "optional"
+    login_url = "https://www.reddit.com/login/"
     actions = (
         Action(
             "search",

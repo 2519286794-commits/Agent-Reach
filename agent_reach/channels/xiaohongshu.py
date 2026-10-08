@@ -170,6 +170,7 @@ class XiaoHongShuChannel(Channel):
     tier = 1
 
     level = "optional"
+    login_url = "https://www.xiaohongshu.com/explore"
     actions = (
         Action(
             "search",

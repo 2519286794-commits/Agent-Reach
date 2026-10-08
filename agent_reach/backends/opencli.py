@@ -226,12 +226,37 @@ def _opencli_error(text: str, login_hint: str):
     return ReachError(UPSTREAM_BROKEN, f"OpenCLI: {message}")
 
 
+def _dedicated_profile_env() -> dict:
+    """OPENCLI_PROFILE for the Agent Reach browser; fail fast instead of letting OpenCLI hang."""
+    from agent_reach.runtime import browser
+    from agent_reach.runtime.result import NEED_SETUP, ReachError
+
+    ctx = browser.bound_context()
+    if not ctx:
+        raise ReachError(
+            NEED_SETUP, "the Agent Reach browser is not set up",
+            hint="Ask the user to run `agent-reach browser setup` and install the OpenCLI extension in the window it opens.",
+        )
+    if not browser.is_running():
+        raise ReachError(
+            NEED_SETUP, "the Agent Reach browser is not running",
+            hint="Run `agent-reach browser start` (or ask the user to), then retry.",
+        )
+    if ctx not in browser.connected_contexts():
+        raise ReachError(
+            NEED_SETUP, "the Agent Reach browser is running but OpenCLI is not connected to it",
+            hint="Ask the user to check the OpenCLI extension is enabled in the Agent Reach browser window.",
+        )
+    return {"OPENCLI_PROFILE": ctx}
+
+
 def opencli_call(site: str, args, *, timeout: float, login_hint: str = ""):
-    """Run `opencli <site> <args> -f json` and return parsed JSON, or raise ReachError."""
+    """Run `opencli <site> <args> -f json` in the Agent Reach browser and return parsed JSON."""
     from agent_reach.runtime.run import CommandFailed, run_cmd
 
+    env = _dedicated_profile_env()
     try:
-        out = run_cmd(["opencli", site, *args, "-f", "json"], timeout=timeout)
+        out = run_cmd(["opencli", site, *args, "-f", "json"], timeout=timeout, env=env)
     except CommandFailed as exc:
         raise _opencli_error(exc.stdout or exc.stderr, login_hint) from None
     try:

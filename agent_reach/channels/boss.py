@@ -266,6 +266,7 @@ class BossChannel(Channel):
     tier = 2
 
     level = "optional"
+    login_url = "https://www.zhipin.com/web/user/?ka=header-login"
     session = "boss-agent-cli"
     login_argv = ("boss", "--cdp-url", "http://localhost:9222", "login", "--cdp")
     legacy_state = (".boss-agent",)
@@ -372,8 +373,8 @@ class BossChannel(Channel):
         if not cdp_up:
             raise ReachError(
                 NEED_SETUP,
-                "the dedicated Chrome (port 9222) is not running",
-                hint=f"Ask the user to start it with: {_chrome_launch_command()} and log in to zhipin.com themselves.",
+                "the Agent Reach browser (port 9222) is not running",
+                hint="Run `agent-reach login boss`, let the user log in to zhipin.com in that window, then run `agent-reach login boss --sync`.",
             )
         args = ["boss", "--json", "--browser-source", "existing-browser", "--cdp-url", _CDP_URL, "search", query]
         if city:

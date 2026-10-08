@@ -321,8 +321,74 @@ def test_channels_reports_login_status(capsys, session_cli):
 
     _, out = _run(capsys, ["channels"])
     sess = next(c for c in out["channels"] if c["name"] == "sess")
-    assert sess["login"] == {"logged_in": False, "command": "agent-reach login sess"}
+    assert sess["login"] == {"via": "session", "logged_in": False, "command": "agent-reach login sess"}
     assert next(c for c in out["channels"] if c["name"] == "fake")["login"] is None
     (session_dir("fake-tool") / "cookie").write_text("1")
     _, out = _run(capsys, ["channels"])
     assert next(c for c in out["channels"] if c["name"] == "sess")["login"]["logged_in"] is True
+
+
+# ── Agent Reach dedicated browser ──
+
+
+@pytest.fixture
+def fake_browser(monkeypatch, tmp_path):
+    from agent_reach.runtime import browser
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    state = {"contexts": ["daily"], "running": True, "opened": []}
+    monkeypatch.setattr(browser, "connected_contexts", lambda: list(state["contexts"]))
+    monkeypatch.setattr(browser, "is_running", lambda: state["running"])
+    monkeypatch.setattr(browser, "start", lambda url="about:blank": state["opened"].append(url))
+    return state
+
+
+def test_bind_ignores_profiles_that_were_already_connected(fake_browser):
+    from agent_reach.runtime import browser
+
+    assert browser.bind()["status"] == "waiting_for_extension"
+    fake_browser["contexts"].append("dedicated")
+    assert browser.bind() == {"status": "ready", "context": "dedicated"}
+    assert browser.bound_context() == "dedicated"
+
+
+def test_bind_refuses_to_guess_between_two_new_profiles(fake_browser):
+    from agent_reach.runtime import browser
+
+    browser.bind()
+    fake_browser["contexts"] += ["a", "b"]
+    assert browser.bind()["status"] == "ambiguous"
+    assert browser.bound_context() is None
+
+
+def test_opencli_calls_fail_fast_without_dedicated_browser(fake_browser):
+    from agent_reach.backends.opencli import opencli_call
+
+    with pytest.raises(ReachError) as info:
+        opencli_call("reddit", ["search", "x"], timeout=5)
+    assert info.value.code == "NEED_SETUP"
+
+
+def test_opencli_calls_fail_fast_when_dedicated_browser_disconnected(fake_browser):
+    from agent_reach.backends.opencli import opencli_call
+    from agent_reach.runtime import browser
+
+    browser.bind()
+    fake_browser["contexts"].append("dedicated")
+    browser.bind()
+    fake_browser["contexts"].remove("dedicated")
+    with pytest.raises(ReachError) as info:
+        opencli_call("reddit", ["search", "x"], timeout=5)
+    assert info.value.code == "NEED_SETUP"
+    assert "not connected" in info.value.message
+
+
+def test_login_opens_site_in_dedicated_browser(capsys, monkeypatch, fake_browser):
+    class BrowserChannel(FakeChannel):
+        name = "web2"
+        login_url = "https://example.test/login"
+
+    monkeypatch.setattr(unified, "get_all_channels", lambda: [BrowserChannel()])
+    code, out = _run(capsys, ["login", "web2"])
+    assert code == 0
+    assert fake_browser["opened"] == ["https://example.test/login"]

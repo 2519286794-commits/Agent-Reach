@@ -54,6 +54,7 @@ class TwitterChannel(Channel):
     # twitter-cli is not used here: even with explicit credentials it re-reads
     # browser cookies whenever verification fails.
     level = "experimental"
+    login_url = "https://x.com/i/flow/login"
     actions = (
         Action(
             "search",

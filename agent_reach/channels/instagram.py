@@ -14,6 +14,7 @@ class InstagramChannel(OpenCLISiteChannel):
     login_hint = "instagram.com"
 
     level = "experimental"
+    login_url = "https://www.instagram.com/accounts/login/"
     actions = (
         Action(
             "search",

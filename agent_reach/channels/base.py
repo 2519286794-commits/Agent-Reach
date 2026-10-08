@@ -78,6 +78,8 @@ class Channel(ABC):
     #: Directories under the real home where the tool used to keep its login,
     #: copied into the session only when the user asks (`login --import-existing`).
     legacy_state: Tuple[str, ...] = ()
+    #: Page the user logs in on, opened in the Agent Reach browser by `agent-reach login`.
+    login_url: str = ""
 
     #: Backend currently serving this channel; set by check(), None = unavailable.
     active_backend: Optional[str] = None
