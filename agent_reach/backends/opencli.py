@@ -194,3 +194,83 @@ def opencli_summary(st: OpenCLIStatus) -> str:
     if st.daemon_running:
         return "OpenCLI 已安装，等待 Chrome 扩展安装"
     return "OpenCLI 已安装（daemon 未运行，使用时自动启动；需 Chrome 扩展）"
+
+
+# ── unified entry: run one OpenCLI site command ──
+
+_NAV_REJECTED_HINT = (
+    "OpenCLI's browser extension could not open the page. This is a known open "
+    "OpenCLI issue on recent Chrome (github.com/jackwener/opencli/issues/2487); "
+    "retrying a few seconds later sometimes works. Do not retry in a loop."
+)
+
+
+def _opencli_error(text: str, login_hint: str):
+    """Map OpenCLI's YAML error block (printed even with -f json) to a ReachError."""
+    import yaml
+
+    from agent_reach.runtime.result import NEED_LOGIN, UPSTREAM_BROKEN, ReachError
+
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        doc = None
+    err = (doc or {}).get("error") if isinstance(doc, dict) else None
+    code = str((err or {}).get("code", "")).upper()
+    message = str((err or {}).get("message", "") or text.strip()[:300] or "OpenCLI failed")[:300]
+    low = message.lower()
+    if "AUTH" in code or "LOGIN" in code or "login" in low or "登录" in message:
+        return ReachError(NEED_LOGIN, message, hint=login_hint or None)
+    if "navigation rejected" in low:
+        return ReachError(UPSTREAM_BROKEN, message, hint=_NAV_REJECTED_HINT)
+    return ReachError(UPSTREAM_BROKEN, f"OpenCLI: {message}")
+
+
+def opencli_call(site: str, args, *, timeout: float, login_hint: str = ""):
+    """Run `opencli <site> <args> -f json` and return parsed JSON, or raise ReachError."""
+    from agent_reach.runtime.run import CommandFailed, run_cmd
+
+    try:
+        out = run_cmd(["opencli", site, *args, "-f", "json"], timeout=timeout)
+    except CommandFailed as exc:
+        raise _opencli_error(exc.stdout or exc.stderr, login_hint) from None
+    try:
+        data = json.loads(out)
+    except ValueError:
+        raise _opencli_error(out, login_hint) from None
+    if isinstance(data, dict) and data.get("ok") is False:
+        raise _opencli_error(out, login_hint)
+    return data
+
+
+def opencli_items(rows) -> list:
+    """Map OpenCLI result rows to unified items, keeping each row in `raw`."""
+    from agent_reach.runtime.result import make_item
+
+    if isinstance(rows, dict):
+        rows = rows.get("items") or rows.get("data") or [rows]
+    items = []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            continue
+
+        def pick(*keys):
+            for k in keys:
+                v = r.get(k)
+                if isinstance(v, dict):
+                    v = v.get("nickname") or v.get("name") or v.get("username")
+                if v not in (None, ""):
+                    return str(v)
+            return None
+
+        items.append(
+            make_item(
+                title=pick("title", "name"),
+                url=pick("url", "link", "note_url"),
+                author=pick("author", "user", "nickname", "username"),
+                published_at=pick("published_at", "created_at", "time", "date"),
+                text=pick("content", "text", "desc", "description", "body"),
+                raw=r,
+            )
+        )
+    return items

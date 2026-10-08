@@ -16,18 +16,24 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from agent_reach.backends.opencli import opencli_call, opencli_items
+from agent_reach.runtime.result import BAD_INPUT, NOT_FOUND, UPSTREAM_BROKEN, ReachError
 from agent_reach.utils.paths import (
     PrivatePathError,
     read_small_text_no_follow,
 )
 
-from .base import Channel
+from .base import Action, Channel, Param
 from .mcporter import McporterConfigError, inspect_mcporter_config
 
 _MCP_ENDPOINT = "http://localhost:18060/mcp"
 _MCP_INSTALL_URL = "https://github.com/xpzouying/xiaohongshu-mcp"
 _XHS_COOKIE_TTL_SECONDS = 7 * 86400
 _MAX_XHS_COOKIE_BYTES = 1024 * 1024
+_XHS_LOGIN_HINT = (
+    "Ask the user to log in to xiaohongshu.com in their own Chrome (the one with "
+    "the OpenCLI extension). Never log in or read browser cookies for them."
+)
 
 
 def _mcp_service_reachable(timeout: int = 3) -> bool:
@@ -162,6 +168,26 @@ class XiaoHongShuChannel(Channel):
     description = "小红书笔记"
     backends = ["OpenCLI", "xiaohongshu-mcp", "xhs-cli (xiaohongshu-cli)"]
     tier = 1
+
+    level = "optional"
+    actions = (
+        Action(
+            "search",
+            "Search notes",
+            (
+                Param("query", "what to search for"),
+                Param("limit", "max results", required=False, type=int, default=5),
+            ),
+            (("opencli", "_opencli_search"),),
+            live_test={"query": "咖啡", "limit": 2},
+        ),
+        Action(
+            "read",
+            "Read a note (full link including xsec_token, as returned by search)",
+            (Param("target", "full note link with xsec_token"),),
+            (("opencli", "_opencli_read"),),
+        ),
+    )
 
     def can_handle(self, url: str) -> bool:
         from agent_reach.utils.url import host_matches
@@ -303,3 +329,31 @@ class XiaoHongShuChannel(Channel):
             "再用 Cookie-Editor 导出并运行 "
             "agent-reach configure xhs-cookies。"
         )
+
+    # ── unified entry backends ──
+
+    def _opencli_search(self, *, query: str, limit: int, timeout: float) -> list:
+        rows = opencli_call(
+            "xiaohongshu", ["search", query, "--limit", str(limit)],
+            timeout=timeout, login_hint=_XHS_LOGIN_HINT,
+        )
+        items = opencli_items(rows)[:limit]
+        if not items:
+            raise ReachError(
+                UPSTREAM_BROKEN,
+                "OpenCLI returned no notes; the page most likely did not load",
+            )
+        return items
+
+    def _opencli_read(self, *, target: str, timeout: float) -> list:
+        from agent_reach.utils.url import host_matches
+
+        url = str(target).strip()
+        if not host_matches(url, "xiaohongshu.com", "xhslink.com"):
+            raise ReachError(BAD_INPUT, "target must be a full Xiaohongshu note link including xsec_token")
+        items = opencli_items(
+            opencli_call("xiaohongshu", ["note", url], timeout=timeout, login_hint=_XHS_LOGIN_HINT)
+        )
+        if not items:
+            raise ReachError(NOT_FOUND, "note not found")
+        return items[:1]
