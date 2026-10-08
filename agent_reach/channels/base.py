@@ -71,6 +71,13 @@ class Channel(ABC):
     level: str = ""
     #: Unified actions this channel exposes.
     actions: Tuple[Action, ...] = ()
+    #: Tool whose login lives in ~/.agent-reach/sessions/<session>/ ("" = none).
+    session: str = ""
+    #: Interactive command the user runs to log in (run with HOME = session dir).
+    login_argv: Tuple[str, ...] = ()
+    #: Directories under the real home where the tool used to keep its login,
+    #: copied into the session only when the user asks (`login --import-existing`).
+    legacy_state: Tuple[str, ...] = ()
 
     #: Backend currently serving this channel; set by check(), None = unavailable.
     active_backend: Optional[str] = None

@@ -263,3 +263,66 @@ def test_v2ex_topic_id_forms():
     assert _parse_topic_id("https://www.v2ex.com/t/1000#reply3") == 1000
     with pytest.raises(ReachError):
         _parse_topic_id("https://example.com/t/1000")
+
+
+# ── login state under ~/.agent-reach/sessions ──
+
+
+class SessionChannel(FakeChannel):
+    name = "sess"
+    session = "fake-tool"
+    login_argv = ("fake-login",)
+    legacy_state = (".fake-tool",)
+
+
+@pytest.fixture
+def session_cli(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    ch = SessionChannel()
+    monkeypatch.setattr(unified, "get_all_channels", lambda: [ch, FakeChannel()])
+    return tmp_path
+
+
+def test_session_env_points_tool_home_into_agent_reach(session_cli):
+    from agent_reach.runtime.sessions import session_env
+
+    env = session_env("fake-tool")
+    assert env["HOME"] == str(session_cli / ".agent-reach" / "sessions" / "fake-tool")
+
+
+def test_import_existing_copies_old_login_only_on_request(capsys, session_cli):
+    old = session_cli / ".fake-tool"
+    old.mkdir()
+    (old / "credential.json").write_text("{}")
+    code, out = _run(capsys, ["login", "sess", "--import-existing"])
+    assert code == 0
+    assert (session_cli / ".agent-reach" / "sessions" / "fake-tool" / ".fake-tool" / "credential.json").exists()
+    assert old.exists(), "the original login is left untouched"
+
+
+def test_logout_removes_only_that_session(capsys, session_cli):
+    from agent_reach.runtime.sessions import session_dir
+
+    (session_dir("fake-tool") / "x").write_text("1")
+    (session_dir("other") / "y").write_text("1")
+    code, out = _run(capsys, ["logout", "sess"])
+    assert code == 0 and out["items"] == [{"removed": True}]
+    assert not (session_cli / ".agent-reach" / "sessions" / "fake-tool").exists()
+    assert (session_cli / ".agent-reach" / "sessions" / "other" / "y").exists()
+
+
+def test_login_rejects_channels_without_managed_login(capsys, session_cli):
+    code, out = _run(capsys, ["login", "fake"])
+    assert code == 1 and out["error"]["code"] == "BAD_INPUT"
+
+
+def test_channels_reports_login_status(capsys, session_cli):
+    from agent_reach.runtime.sessions import session_dir
+
+    _, out = _run(capsys, ["channels"])
+    sess = next(c for c in out["channels"] if c["name"] == "sess")
+    assert sess["login"] == {"logged_in": False, "command": "agent-reach login sess"}
+    assert next(c for c in out["channels"] if c["name"] == "fake")["login"] is None
+    (session_dir("fake-tool") / "cookie").write_text("1")
+    _, out = _run(capsys, ["channels"])
+    assert next(c for c in out["channels"] if c["name"] == "sess")["login"]["logged_in"] is True

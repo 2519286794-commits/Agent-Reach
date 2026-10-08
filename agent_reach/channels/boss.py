@@ -43,6 +43,7 @@ from agent_reach.runtime.result import (
     make_item,
 )
 from agent_reach.runtime.run import CommandFailed, run_cmd
+from agent_reach.runtime.sessions import session_env
 from agent_reach.utils.url import host_matches
 
 from .base import Action, Channel, Param
@@ -265,6 +266,9 @@ class BossChannel(Channel):
     tier = 2
 
     level = "optional"
+    session = "boss-agent-cli"
+    login_argv = ("boss", "--cdp-url", "http://localhost:9222", "login", "--cdp")
+    legacy_state = (".boss-agent",)
     actions = (
         Action(
             "search",
@@ -375,7 +379,7 @@ class BossChannel(Channel):
         if city:
             args += ["--city", city]
         try:
-            out = run_cmd(args, timeout=timeout)
+            out = run_cmd(args, timeout=timeout, env=session_env("boss-agent-cli"))
         except CommandFailed as exc:
             out = exc.stdout
             if "{" not in out:

@@ -1,13 +1,18 @@
-"""Unified entry: `agent-reach <channel> <action>`, `read <url>`, `channels`, `check`.
+"""Unified entry: `agent-reach <channel> <action>`, `read <url>`, `channels`, `check`, `login`, `logout`.
 
 Everything here prints JSON to stdout (one object per invocation) so agents
 never parse prose. Logs and warnings go to stderr. Exit code 0 = ok, 1 = error.
+`login` is for the user: the upstream's interactive output (QR codes, prompts)
+goes to stderr so stdout still carries only the final JSON.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
 from typing import Dict, List, Optional, Sequence
 
@@ -15,9 +20,10 @@ from agent_reach.channels import get_all_channels
 from agent_reach.channels.base import Action, Channel
 
 from .dispatch import DEFAULT_TIMEOUT, find_action, run_action
-from .result import BAD_INPUT, SCHEMA_VERSION, ReachError, envelope
+from .result import BAD_INPUT, NEED_SETUP, SCHEMA_VERSION, UPSTREAM_BROKEN, ReachError, envelope
+from .sessions import clear_session, has_login_state, import_legacy_state, session_env
 
-_TOP_LEVEL = ("channels", "check", "read")
+_TOP_LEVEL = ("channels", "check", "read", "login", "logout")
 
 
 def unified_channels() -> List[Channel]:
@@ -122,6 +128,10 @@ def _cmd_channels(_args: Sequence[str]) -> int:
                 "name": ch.name,
                 "description": ch.description,
                 "level": ch.level,
+                "login": None if not ch.session else {
+                    "logged_in": has_login_state(ch.session),
+                    "command": f"agent-reach login {ch.name}",
+                },
                 "actions": [
                     {
                         "name": a.name,
@@ -209,6 +219,53 @@ def _cmd_check(args: Sequence[str]) -> int:
     return _emit({"schema_version": SCHEMA_VERSION, "ok": ok, "results": results})
 
 
+def _session_channel(cmd: str, args: Sequence[str]):
+    parser = _Parser(prog=cmd, add_help=False)
+    parser.add_argument("channel")
+    if cmd == "login":
+        parser.add_argument("--import-existing", action="store_true")
+    ns = parser.parse_args(list(args))
+    ch = _channel(ns.channel)
+    if ch is None:
+        raise _ArgError(f"unknown channel: {ns.channel}")
+    if not ch.session:
+        raise _ArgError(f"{ch.name} has no login managed by Agent Reach")
+    return ch, ns
+
+
+def _cmd_login(args: Sequence[str]) -> int:
+    try:
+        ch, ns = _session_channel("login", args)
+    except _ArgError as exc:
+        return _bad_input(None, "login", str(exc))
+    if ns.import_existing:
+        copied = import_legacy_state(ch.session, ch.legacy_state)
+        if copied:
+            return _emit(envelope(channel=ch.name, action="login", backend=ch.session,
+                                  items=[{"imported": copied}]))
+    exe = shutil.which(ch.login_argv[0])
+    if not exe:
+        return _emit(envelope(channel=ch.name, action="login",
+                              error=ReachError(NEED_SETUP, f"{ch.login_argv[0]} is not installed")))
+    env = dict(os.environ)
+    env.update(session_env(ch.session))
+    # Interactive: the user sees the QR code / prompts on stderr; stdout stays JSON.
+    code = subprocess.call([exe, *ch.login_argv[1:]], env=env, stdout=sys.stderr, stderr=sys.stderr)
+    if code != 0 or not has_login_state(ch.session):
+        return _emit(envelope(channel=ch.name, action="login",
+                              error=ReachError(UPSTREAM_BROKEN, f"login did not complete (exit {code})")))
+    return _emit(envelope(channel=ch.name, action="login", backend=ch.session, items=[{"logged_in": True}]))
+
+
+def _cmd_logout(args: Sequence[str]) -> int:
+    try:
+        ch, _ = _session_channel("logout", args)
+    except _ArgError as exc:
+        return _bad_input(None, "logout", str(exc))
+    removed = clear_session(ch.session)
+    return _emit(envelope(channel=ch.name, action="logout", backend=ch.session, items=[{"removed": removed}]))
+
+
 def main(argv: Sequence[str]) -> int:
     head, rest = argv[0], argv[1:]
     if head == "channels":
@@ -217,6 +274,10 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_check(rest)
     if head == "read":
         return _cmd_read(rest)
+    if head == "login":
+        return _cmd_login(rest)
+    if head == "logout":
+        return _cmd_logout(rest)
     channel = _channel(head)
     assert channel is not None  # guaranteed by handles()
     return _cmd_action(channel, rest)

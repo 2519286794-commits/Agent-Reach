@@ -10,7 +10,6 @@ YouTube backend; it just no longer serves bilibili.
 """
 
 import json
-import os
 import re
 import urllib.request
 
@@ -25,6 +24,7 @@ from agent_reach.runtime.result import (
     unix_to_iso,
 )
 from agent_reach.runtime.run import CommandFailed, http_request, run_cmd
+from agent_reach.runtime.sessions import session_env, sessions_root
 
 from .base import Action, Channel, Param
 
@@ -54,7 +54,7 @@ def _bvid(target: str, timeout: float) -> str:
 def _bili_json(args: list, timeout: float) -> dict:
     """Run bili-cli with --json; map its error envelope to unified codes."""
     try:
-        out = run_cmd(["bili", *args, "--json"], timeout=timeout)
+        out = run_cmd(["bili", *args, "--json"], timeout=timeout, env=session_env("bili-cli"))
     except CommandFailed as exc:
         out = exc.stdout
         if "{" not in out:
@@ -137,6 +137,9 @@ class BilibiliChannel(Channel):
     tier = 1
 
     level = "optional"
+    session = "bili-cli"
+    login_argv = ("bili", "login")
+    legacy_state = (".bilibili-cli",)
     actions = (
         Action(
             "search",
@@ -276,7 +279,7 @@ class BilibiliChannel(Channel):
         data = _bili_json(["video", _bvid(target, timeout), "--subtitle"], timeout)
         sub = data.get("subtitle") or {}
         if not sub.get("available"):
-            if not os.path.exists(os.path.expanduser("~/.bilibili-cli/credential.json")):
+            if not (sessions_root() / "bili-cli" / ".bilibili-cli" / "credential.json").exists():
                 raise ReachError(NEED_LOGIN, "Bilibili is not logged in", hint=_BILI_LOGIN_HINT)
             raise ReachError(NOT_FOUND, "this video has no subtitles")
         text = sub.get("text") or "\n".join(i.get("content", "") for i in sub.get("items") or [])
