@@ -96,9 +96,22 @@ def installed_version(tool: Tool) -> Optional[str]:
     return m.group(0) if m else None
 
 
+def _install_env() -> dict:
+    """pip and npm only read proxy env vars; hand them the OS proxy (e.g. the macOS system proxy) when none is set."""
+    env = dict(os.environ)
+    if not (env.get("HTTPS_PROXY") or env.get("https_proxy")):
+        import urllib.request
+
+        found = urllib.request.getproxies()
+        proxy = found.get("https") or found.get("http")
+        if proxy:
+            env["HTTPS_PROXY"] = env["HTTP_PROXY"] = proxy
+    return env
+
+
 def _run(argv, timeout: float = 600) -> None:
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=_install_env())
     except FileNotFoundError:
         raise ReachError(NEED_SETUP, f"{Path(argv[0]).name} is not installed") from None
     except subprocess.TimeoutExpired:
