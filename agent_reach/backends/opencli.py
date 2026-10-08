@@ -34,7 +34,8 @@ def _opencli_error(text: str, login_hint: str):
     code = str((err or {}).get("code", "")).upper()
     message = str((err or {}).get("message", "") or text.strip()[:300] or "OpenCLI failed")[:300]
     low = message.lower()
-    if "AUTH" in code or "LOGIN" in code or "login" in low or "登录" in message:
+    login_words = ("login", "log in", "logged in", "sign in", "http 401", "登录")
+    if "AUTH" in code or "LOGIN" in code or any(w in low for w in login_words):
         return ReachError(NEED_LOGIN, message, hint=login_hint or None)
     if "navigation rejected" in low:
         return ReachError(UPSTREAM_BROKEN, message, hint=_NAV_REJECTED_HINT)

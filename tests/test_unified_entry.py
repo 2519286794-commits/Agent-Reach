@@ -393,3 +393,18 @@ def test_login_opens_site_in_dedicated_browser(capsys, monkeypatch, fake_browser
     code, out = _run(capsys, ["login", "web2"])
     assert code == 0
     assert fake_browser["opened"] == ["https://example.test/login"]
+
+
+@pytest.mark.parametrize(
+    "yaml_text, code",
+    [
+        ("ok: false\nerror:\n  code: COMMAND_EXEC\n  message: 'Error: HTTP 401 - make sure you are logged in to Instagram'\n", "NEED_LOGIN"),
+        ("ok: false\nerror:\n  code: AUTH_REQUIRED\n  message: 'Not logged into x.com'\n", "NEED_LOGIN"),
+        ("ok: false\nerror:\n  code: COMMAND_EXEC\n  message: 'Pre-navigation to https://x.com failed: Navigation rejected.'\n", "UPSTREAM_BROKEN"),
+        ("ok: false\nerror:\n  code: COMMAND_EXEC\n  message: 'TypeError: Failed to fetch'\n", "UPSTREAM_BROKEN"),
+    ],
+)
+def test_opencli_errors_map_to_unified_codes(yaml_text, code):
+    from agent_reach.backends.opencli import _opencli_error
+
+    assert _opencli_error(yaml_text, "").code == code
