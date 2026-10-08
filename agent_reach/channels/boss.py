@@ -270,6 +270,8 @@ class BossChannel(Channel):
     session = "boss-agent-cli"
     login_argv = ("boss", "--cdp-url", "http://localhost:9222", "login", "--cdp")
     legacy_state = (".boss-agent",)
+    tools = ("boss-agent-cli",)
+    prereqs = ("git", "chrome")
     actions = (
         Action(
             "search",

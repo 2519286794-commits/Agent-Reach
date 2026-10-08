@@ -22,6 +22,13 @@ class XiaoyuzhouChannel(Channel):
     tier = 1
 
     level = "optional"
+    prereqs = ("ffmpeg",)
+
+    def setup_problems(self):
+        if os.environ.get("GROQ_API_KEY") or Config(read_only=True).get("groq_api_key"):
+            return []
+        return ["no Groq API key: get one free at https://console.groq.com, then `agent-reach configure groq-key`"]
+
     actions = (
         Action(
             "transcribe",

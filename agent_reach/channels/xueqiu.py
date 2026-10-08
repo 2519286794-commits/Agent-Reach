@@ -15,9 +15,9 @@ from agent_reach.runtime.run import http_request
 from .base import Action, Channel, Param
 
 _XQ_LOGIN_HINT = (
-    "Xueqiu community data needs a browser session. Ask the user to open "
-    "https://xueqiu.com in Chrome, then run `agent-reach configure --from-browser "
-    "chrome --platform xueqiu`. The session expires within hours."
+    "Xueqiu community data needs a browser session. Run `agent-reach login xueqiu`, "
+    "let the user open xueqiu.com in the Agent Reach browser, then run "
+    "`agent-reach login xueqiu --sync`. While that browser is open, Agent Reach renews the session itself."
 )
 
 _UA = (
@@ -148,15 +148,43 @@ def _xueqiu_symbol(market: str, code: str) -> str:
     return code.split(".")[0].upper()
 
 
-def _xq_json(url: str) -> Any:
+def _refresh_from_browser() -> bool:
+    """Pull a fresh Xueqiu session from the Agent Reach browser, if it is running."""
+    global _cookies_initialized
+    from agent_reach.runtime import browser, cdp
+
+    if not browser.is_running():
+        return False
+    jar = {c["name"]: c["value"] for c in cdp.cookies("xueqiu.com")}
+    if "xq_a_token" not in jar:
+        try:
+            browser.open_url("https://xueqiu.com/")
+        except Exception:  # noqa: BLE001
+            return False
+        import time
+
+        time.sleep(4)
+        jar = {c["name"]: c["value"] for c in cdp.cookies("xueqiu.com")}
+    if "xq_a_token" not in jar:
+        return False
+    from agent_reach.config import Config
+
+    Config().set("xueqiu_cookie", "; ".join(f"{k}={v}" for k, v in jar.items()))
+    _cookie_jar.clear()
+    _cookies_initialized = False
+    return True
+
+
+def _xq_json(url: str, _retried: bool = False) -> Any:
     try:
         return _get_json(url)
-    except urllib.error.HTTPError as exc:
-        if exc.code in (400, 401, 403):
-            raise ReachError(NEED_LOGIN, f"Xueqiu rejected the session (HTTP {exc.code})", hint=_XQ_LOGIN_HINT) from None
-        raise
-    except json.JSONDecodeError:
-        raise ReachError(NEED_LOGIN, "Xueqiu returned a verification page instead of data", hint=_XQ_LOGIN_HINT) from None
+    except (urllib.error.HTTPError, json.JSONDecodeError) as exc:
+        rejected = isinstance(exc, json.JSONDecodeError) or exc.code in (400, 401, 403)
+        if not rejected:
+            raise
+        if not _retried and _refresh_from_browser():
+            return _xq_json(url, _retried=True)
+        raise ReachError(NEED_LOGIN, "Xueqiu rejected the session", hint=_XQ_LOGIN_HINT) from None
 
 
 _HOT_POSTS_URL = (
@@ -196,6 +224,17 @@ class XueqiuChannel(Channel):
     tier = 1
 
     level = "optional"
+    login_url = "https://xueqiu.com/"
+    logout_keys = ("xueqiu_cookie",)
+
+    def sync_login(self):
+        if not _refresh_from_browser():
+            raise ReachError(
+                NEED_LOGIN, "no Xueqiu session found in the Agent Reach browser",
+                hint="Run `agent-reach login xueqiu`, let the user open xueqiu.com there, then `agent-reach login xueqiu --sync`.",
+            )
+        return {"synced": "xueqiu_cookie"}
+
     actions = (
         Action(
             "quote",

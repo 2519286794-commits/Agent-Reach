@@ -140,6 +140,7 @@ class BilibiliChannel(Channel):
     session = "bili-cli"
     login_argv = ("bili", "login")
     legacy_state = (".bilibili-cli",)
+    tools = ("bili-cli",)
     actions = (
         Action(
             "search",

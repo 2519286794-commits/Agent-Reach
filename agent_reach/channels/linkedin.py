@@ -22,6 +22,29 @@ _CONFIG_COMMAND = (
     "mcporter config add linkedin --command uvx "
     "--arg mcp-server-linkedin@latest --env UV_HTTP_TIMEOUT=300 --scope home"
 )
+_LINKEDIN_MCP_VERSION = "4.26.2"
+
+
+def _own_config_path():
+    from agent_reach.runtime import state
+
+    return state.root() / "mcporter.json"
+
+
+def _own_servers() -> dict:
+    path = _own_config_path()
+    try:
+        return dict(json.loads(path.read_text(encoding="utf-8")).get("mcpServers") or {})
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_own_servers(servers: dict) -> None:
+    from agent_reach.runtime import state
+    from agent_reach.utils.paths import atomic_write_private_text, make_private_dir
+
+    make_private_dir(state.root())
+    atomic_write_private_text(_own_config_path(), json.dumps({"mcpServers": servers}, indent=2))
 
 
 class LinkedInChannel(Channel):
@@ -31,6 +54,34 @@ class LinkedInChannel(Channel):
     tier = 2
 
     level = "optional"
+    tools = ("mcporter",)
+    prereqs = ("node", "uv")
+    session = "linkedin-mcp"
+    session_home = False
+    login_argv = (
+        "uvx", f"mcp-server-linkedin@{_LINKEDIN_MCP_VERSION}", "--login",
+        "--user-data-dir", "{session}/profile", "--claim-profile-root",
+    )
+
+    def on_add(self) -> None:
+        from agent_reach.runtime.sessions import session_dir
+
+        servers = _own_servers()
+        servers["linkedin"] = {
+            "command": "uvx",
+            "args": [
+                f"mcp-server-linkedin@{_LINKEDIN_MCP_VERSION}",
+                "--user-data-dir", f"{session_dir(self.session)}/profile", "--claim-profile-root",
+            ],
+            "env": {"UV_HTTP_TIMEOUT": "300"},
+        }
+        _write_own_servers(servers)
+
+    def on_remove(self) -> None:
+        servers = _own_servers()
+        if servers.pop("linkedin", None) is not None:
+            _write_own_servers(servers)
+
     actions = (
         Action(
             "jobs",
@@ -91,18 +142,23 @@ class LinkedInChannel(Channel):
     # ── unified entry backends ──
 
     def _mcp_jobs(self, *, query: str, location, limit: int, timeout: float) -> list:
-        out = run_cmd(["mcporter", "config", "list", "--json"], timeout=min(timeout, 20))
-        names = configured_server_names(out)
-        server = next((n for n in ("linkedin", "mcp-server-linkedin", "linkedin-scraper", "linkedin-scraper-mcp") if n in names), None)
-        if server is None:
-            raise ReachError(NEED_SETUP, "no LinkedIn MCP server is registered in mcporter", hint=f"Set up: {_CONFIG_COMMAND}")
+        # Prefer our own registration; fall back to one the user set up globally.
+        if "linkedin" in _own_servers():
+            base, server = ["mcporter", "--config", str(_own_config_path())], "linkedin"
+        else:
+            out = run_cmd(["mcporter", "config", "list", "--json"], timeout=min(timeout, 20))
+            names = configured_server_names(out)
+            server = next((n for n in ("linkedin", "mcp-server-linkedin", "linkedin-scraper", "linkedin-scraper-mcp") if n in names), None)
+            base = ["mcporter"]
+            if server is None:
+                raise ReachError(NEED_SETUP, "LinkedIn is not set up", hint="Run `agent-reach add linkedin`, then `agent-reach login linkedin`.")
         # The official server names the query `keywords`; the scraper variants use `query`.
         args = {"keywords": query} if server in ("linkedin", "mcp-server-linkedin") else {"query": query, "max_results": limit}
         if location:
             args["location"] = location
         try:
             raw = run_cmd(
-                ["mcporter", "call", f"{server}.search_jobs", "--args", json.dumps(args), "--output", "json"],
+                [*base, "call", f"{server}.search_jobs", "--args", json.dumps(args), "--output", "json"],
                 timeout=timeout,
             )
         except CommandFailed as exc:

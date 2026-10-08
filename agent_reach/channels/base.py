@@ -80,6 +80,32 @@ class Channel(ABC):
     legacy_state: Tuple[str, ...] = ()
     #: Page the user logs in on, opened in the Agent Reach browser by `agent-reach login`.
     login_url: str = ""
+    #: Upstream tools (keys of runtime.tools.TOOLS) `agent-reach add` installs.
+    tools: Tuple[str, ...] = ()
+    #: Machine prerequisites we only check (keys of runtime.manage.PREREQS).
+    prereqs: Tuple[str, ...] = ()
+    #: Config keys `agent-reach logout` clears.
+    logout_keys: Tuple[str, ...] = ()
+    #: Run login_argv / tool calls with HOME = the session dir. False when the tool
+    #: takes an explicit path instead (login_argv may use the `{session}` placeholder).
+    session_home: bool = True
+
+    def setup_problems(self) -> List[str]:
+        """What still blocks this channel after its tools are installed (keys, browser...)."""
+        return []
+
+    def on_add(self) -> None:
+        """Extra setup after tools are installed (e.g. register an MCP server)."""
+
+    def on_remove(self) -> None:
+        """Undo on_add."""
+
+    def sync_login(self) -> Optional[dict]:
+        """Pull login state from the Agent Reach browser after the user logged in there.
+
+        Return a result dict, or None to fall back to running `login_argv`.
+        """
+        return None
 
     #: Backend currently serving this channel; set by check(), None = unavailable.
     active_backend: Optional[str] = None

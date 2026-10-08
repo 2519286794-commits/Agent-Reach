@@ -173,3 +173,10 @@ def status() -> dict:
         "opencli_context": ctx,
         "opencli_connected": connected,
     }
+
+
+def setup_problems() -> List[str]:
+    """What blocks browser-login channels right now (offline checks only)."""
+    if not bound_context():
+        return ["Agent Reach browser not set up: run `agent-reach browser setup`"]
+    return []

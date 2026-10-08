@@ -22,6 +22,13 @@ class OpenCLISiteChannel(Channel):
 
     backends = ["OpenCLI"]
     tier = 1
+    tools = ("opencli",)
+    prereqs = ("node", "chrome")
+
+    def setup_problems(self):
+        from agent_reach.runtime.browser import setup_problems
+
+        return setup_problems()
 
     def can_handle(self, url: str) -> bool:
         return host_matches(url, *self.domains)

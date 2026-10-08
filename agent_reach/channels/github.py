@@ -143,6 +143,10 @@ def _gh_get(path: str, timeout: float, accept: str = "application/vnd.github+jso
 def _api_get(path: str, timeout: float, accept: str = "application/vnd.github+json") -> bytes:
     headers = {"Accept": accept, "User-Agent": "agent-reach"}
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        from agent_reach.config import Config
+
+        token = Config(read_only=True).get("github_token")
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:

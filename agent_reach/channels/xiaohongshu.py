@@ -171,6 +171,14 @@ class XiaoHongShuChannel(Channel):
 
     level = "optional"
     login_url = "https://www.xiaohongshu.com/explore"
+    tools = ("opencli",)
+    prereqs = ("node", "chrome")
+
+    def setup_problems(self):
+        from agent_reach.runtime.browser import setup_problems
+
+        return setup_problems()
+
     actions = (
         Action(
             "search",

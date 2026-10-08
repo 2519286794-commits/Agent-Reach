@@ -55,6 +55,14 @@ class TwitterChannel(Channel):
     # browser cookies whenever verification fails.
     level = "experimental"
     login_url = "https://x.com/i/flow/login"
+    tools = ("opencli",)
+    prereqs = ("node", "chrome")
+
+    def setup_problems(self):
+        from agent_reach.runtime.browser import setup_problems
+
+        return setup_problems()
+
     actions = (
         Action(
             "search",

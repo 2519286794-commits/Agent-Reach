@@ -51,6 +51,14 @@ class RedditChannel(Channel):
 
     level = "optional"
     login_url = "https://www.reddit.com/login/"
+    tools = ("opencli",)
+    prereqs = ("node", "chrome")
+
+    def setup_problems(self):
+        from agent_reach.runtime.browser import setup_problems
+
+        return setup_problems()
+
     actions = (
         Action(
             "search",

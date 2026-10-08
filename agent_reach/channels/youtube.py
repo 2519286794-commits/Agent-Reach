@@ -153,6 +153,13 @@ class YouTubeChannel(Channel):
             (("yt-dlp", "_ytdlp_subtitle"),),
             live_test={"target": "https://www.youtube.com/watch?v=jNQXAC9IVRw"},
         ),
+        Action(
+            "transcribe",
+            "Speech-to-text of a video's audio (uses Groq/OpenAI Whisper quota)",
+            (Param("target", "video link or id"),),
+            (("whisper", "_whisper_transcribe"),),
+            timeout=1800,
+        ),
     )
 
     def can_handle(self, url: str) -> bool:
@@ -318,3 +325,19 @@ class YouTubeChannel(Channel):
         title = next((ln for ln in out.splitlines() if ln.strip()), None)
         code = best.rsplit(".", 2)[-2] if best.count(".") >= 2 else None
         return [make_item(title=title, url=url, text=text, raw={"lang": code})]
+
+    def _whisper_transcribe(self, *, target: str, timeout: float) -> list:
+        from agent_reach.transcribe import NoProviderConfigured, TranscribeError
+        from agent_reach.transcribe import transcribe as _transcribe
+
+        url = _video_url(target)
+        try:
+            text = _transcribe(url)
+        except NoProviderConfigured:
+            raise ReachError(
+                "NEED_SETUP", "no Whisper API key configured",
+                hint="Ask the user for a free key from https://console.groq.com, then run `agent-reach configure groq-key`.",
+            ) from None
+        except TranscribeError as exc:
+            raise ReachError("UPSTREAM_BROKEN", str(exc)[:300]) from None
+        return [make_item(url=url, text=text)]

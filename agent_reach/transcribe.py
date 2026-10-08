@@ -250,11 +250,12 @@ def _assert_safe_public_url(url: str) -> None:
 def download_audio(url: str, out_dir: Path) -> Path:
     """Download audio with yt-dlp into out_dir; return the resulting file path."""
     _assert_safe_public_url(url)
-    _require("yt-dlp")
+    import sys
+
     template = out_dir / "source.%(ext)s"
     _run(
         [
-            "yt-dlp",
+            sys.executable, "-m", "yt_dlp",
             "-x",
             "--audio-format",
             "m4a",

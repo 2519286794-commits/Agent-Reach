@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import signal
 import subprocess
 import urllib.request
@@ -40,8 +39,10 @@ def run_cmd(
     whatever project the agent happens to be in. On timeout the whole process
     group is killed.
     """
+    from .tools import resolve
+
     name = label or Path(argv[0]).name
-    exe = shutil.which(argv[0])
+    exe = resolve(argv[0]) if not os.path.isabs(argv[0]) else (argv[0] if os.path.exists(argv[0]) else None)
     if not exe:
         raise ReachError(NEED_SETUP, f"{name} is not installed")
     run_env = utf8_subprocess_env()

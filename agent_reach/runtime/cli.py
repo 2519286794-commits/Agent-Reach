@@ -1,9 +1,13 @@
-"""Unified entry: `agent-reach <channel> <action>`, `read <url>`, `channels`, `check`, `login`, `logout`.
+"""Unified entry for Agent Reach.
 
-Everything here prints JSON to stdout (one object per invocation) so agents
-never parse prose. Logs and warnings go to stderr. Exit code 0 = ok, 1 = error.
-`login` is for the user: the upstream's interactive output (QR codes, prompts)
-goes to stderr so stdout still carries only the final JSON.
+Agent commands:      <channel> <action>, read <url>, channels
+Management commands: setup, add, remove, login, logout, browser, doctor, check,
+                     watch, update, uninstall, configure, version
+
+Everything prints one JSON object to stdout so agents never parse prose; logs
+go to stderr. Exit code 0 = ok, 1 = error. Exceptions for humans: `help`, and
+`--text` on doctor / check / watch. `login` shows the upstream's interactive
+output (QR codes, prompts) on stderr so stdout still carries only the JSON.
 """
 
 from __future__ import annotations
@@ -11,7 +15,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from typing import Dict, List, Optional, Sequence
@@ -21,10 +24,41 @@ from agent_reach.channels.base import Action, Channel
 
 from . import browser
 from .dispatch import DEFAULT_TIMEOUT, find_action, run_action
-from .result import BAD_INPUT, NEED_SETUP, SCHEMA_VERSION, UPSTREAM_BROKEN, ReachError, envelope
+from .result import (
+    BAD_INPUT,
+    DEFAULT_HINTS,
+    NEED_SETUP,
+    SCHEMA_VERSION,
+    UPSTREAM_BROKEN,
+    ReachError,
+    envelope,
+)
 from .sessions import clear_session, has_login_state, import_legacy_state, session_env
 
-_TOP_LEVEL = ("channels", "check", "read", "login", "logout", "browser")
+_MANAGEMENT = (
+    "setup", "add", "remove", "update", "doctor", "watch", "uninstall", "configure", "version",
+)
+_TOP_LEVEL = ("channels", "check", "read", "login", "logout", "browser", "help", "-h", "--help") + _MANAGEMENT
+
+HELP = """agent-reach — internet access for AI agents (all output is JSON)
+
+For agents:
+  agent-reach channels                    list channels, actions, params
+  agent-reach <channel> <action> [args]   e.g. agent-reach bilibili search python
+  agent-reach read <url>                  read a link with the matching channel
+
+For the user:
+  agent-reach setup                       first run: check prerequisites, install the agent skill
+  agent-reach add|remove <channel>        install / remove an optional channel
+  agent-reach login|logout <channel>      log in (the user does it) / forget the login
+  agent-reach browser setup|start|status  the Agent Reach browser for browser-login channels
+  agent-reach doctor [--live] [--text]    status of every channel
+  agent-reach check [channel] [--text]    live-test channels
+  agent-reach watch [--text]              report only what broke since last check, and updates
+  agent-reach update [--check]            upgrade Agent Reach, its tools and the skill
+  agent-reach configure <key> [value]     groq-key | openai-key | proxy | github-token
+  agent-reach uninstall [--dry-run]       remove everything Agent Reach installed
+"""
 
 
 def unified_channels() -> List[Channel]:
@@ -39,9 +73,20 @@ def _channel(name: str) -> Optional[Channel]:
 def handles(argv: Sequence[str]) -> bool:
     """Whether this argv belongs to the unified entry (vs. legacy commands)."""
     if not argv:
-        return False
+        return True
     head = argv[0]
     return head in _TOP_LEVEL or _channel(head) is not None
+
+
+def _mgmt(action: str, fn, *args, **kwargs) -> int:
+    """Run a management function and print {schema_version, ok, action, result, error}."""
+    try:
+        result, error = fn(*args, **kwargs), None
+    except ReachError as err:
+        result = None
+        error = {"code": err.code, "message": err.message, "hint": err.hint or DEFAULT_HINTS.get(err.code, "")}
+    return _emit({"schema_version": SCHEMA_VERSION, "ok": error is None, "action": action,
+                  "result": result, "error": error})
 
 
 class _ArgError(Exception):
@@ -165,56 +210,127 @@ def _cmd_channels(_args: Sequence[str]) -> int:
 
 
 def _cmd_check(args: Sequence[str]) -> int:
+    from . import manage
+
     parser = _Parser(prog="check", add_help=False)
     parser.add_argument("channels", nargs="*")
     parser.add_argument("--text", action="store_true")
     parser.add_argument("--timeout", type=float, default=60.0)
     try:
         ns = parser.parse_args(list(args))
+        out = manage.run_checks(ns.channels or None, timeout=ns.timeout)
     except _ArgError as exc:
         return _bad_input(None, "check", str(exc))
-    selected = unified_channels()
-    if ns.channels:
-        unknown = set(ns.channels) - {ch.name for ch in selected}
-        if unknown:
-            return _bad_input(None, "check", f"unknown channel(s): {', '.join(sorted(unknown))}")
-        selected = [ch for ch in selected if ch.name in ns.channels]
-
-    results = []
-    for ch in selected:
-        for action in ch.actions:
-            if action.live_test is None:
-                continue
-            for label, _ in action.backends:
-                out = run_action(ch, action.name, dict(action.live_test), timeout=ns.timeout, only_backend=label)
-                passed = bool(out["ok"] and out["items"])
-                err = out["error"] or ({"code": "EMPTY", "message": "succeeded but returned no items"} if not passed else None)
-                results.append(
-                    {
-                        "channel": ch.name,
-                        "action": action.name,
-                        "backend": label,
-                        "passed": passed,
-                        "elapsed_ms": out["meta"]["elapsed_ms"],
-                        "error": err and {"code": err["code"], "message": err["message"]},
-                    }
-                )
-
-    # An action passes when at least one of its backends works.
-    by_action: Dict[tuple, bool] = {}
-    for r in results:
-        key = (r["channel"], r["action"])
-        by_action[key] = by_action.get(key, False) or r["passed"]
-    ok = bool(results) and all(by_action.values())
-
+    except ReachError as err:
+        return _bad_input(None, "check", err.message)
     if ns.text:
-        for r in results:
+        by_action: Dict[tuple, bool] = {}
+        for r in out["results"]:
             mark = "PASS" if r["passed"] else "FAIL"
             why = "" if r["passed"] else f"  {r['error']['code']}: {r['error']['message']}"
             sys.stdout.write(f"{mark}  {r['channel']} {r['action']} [{r['backend']}] {r['elapsed_ms']}ms{why}\n")
+            key = (r["channel"], r["action"])
+            by_action[key] = by_action.get(key, False) or r["passed"]
         sys.stdout.write(f"\n{sum(by_action.values())}/{len(by_action)} actions working\n")
-        return 0 if ok else 1
-    return _emit({"schema_version": SCHEMA_VERSION, "ok": ok, "results": results})
+        return 0 if out["ok"] else 1
+    return _emit({"schema_version": SCHEMA_VERSION, **out})
+
+
+def _cmd_doctor(args: Sequence[str]) -> int:
+    from . import manage
+
+    parser = _Parser(prog="doctor", add_help=False)
+    parser.add_argument("--live", action="store_true")
+    parser.add_argument("--text", action="store_true")
+    try:
+        ns = parser.parse_args(list(args))
+    except _ArgError as exc:
+        return _bad_input(None, "doctor", str(exc))
+    if not ns.text:
+        return _mgmt("doctor", manage.doctor, live=ns.live)
+    result = manage.doctor(live=ns.live)
+    sys.stdout.write(f"Agent Reach {result['version']}\n\n")
+    for c in result["channels"]:
+        extra = "; ".join(c["problems"]) or c.get("hint", "")
+        sys.stdout.write(f"{c['status']:<12} {c['channel']:<12} {c['level']:<13} {extra}\n")
+    return 0
+
+
+def _cmd_watch(args: Sequence[str]) -> int:
+    from . import manage
+
+    if "--text" not in args:
+        return _mgmt("watch", manage.watch)
+    result = manage.watch()
+    if result["all_good"]:
+        sys.stdout.write("Agent Reach: all good\n")
+        return 0
+    for r in result["regressions"]:
+        sys.stdout.write(f"BROKEN  {r['channel']} {r['action']} (worked at the previous check)\n")
+    if result["update"].get("update_available"):
+        sys.stdout.write(f"UPDATE  {result['update']['current']} -> {result['update']['latest']}: run `agent-reach update`\n")
+    return 1
+
+
+def _cmd_management(head: str, args: Sequence[str]) -> int:
+    from agent_reach import __version__
+
+    from . import manage
+
+    parser = _Parser(prog=head, add_help=False)
+    if head in ("add", "remove"):
+        parser.add_argument("channel")
+        if head == "add":
+            parser.add_argument("--allow-upgrade", action="store_true")
+    elif head == "update":
+        parser.add_argument("--check", action="store_true")
+        parser.add_argument("--sync-only", action="store_true")
+    elif head == "uninstall":
+        parser.add_argument("--dry-run", action="store_true")
+    elif head == "configure":
+        parser.add_argument("key")
+        parser.add_argument("value", nargs="?")
+        parser.add_argument("--stdin", action="store_true")
+    try:
+        ns = parser.parse_args(list(args))
+    except _ArgError as exc:
+        return _bad_input(None, head, str(exc))
+    if head == "setup":
+        return _mgmt(head, manage.setup)
+    if head == "add":
+        return _mgmt(head, manage.add, ns.channel, allow_upgrade=ns.allow_upgrade)
+    if head == "remove":
+        return _mgmt(head, manage.remove, ns.channel)
+    if head == "update":
+        if ns.sync_only:
+            return _mgmt(head, manage.sync)
+        return _mgmt(head, manage.update, check_only=ns.check)
+    if head == "uninstall":
+        return _mgmt(head, manage.uninstall, dry_run=ns.dry_run)
+    if head == "configure":
+        value = ns.value
+        if ns.stdin:
+            value = sys.stdin.read().strip()
+        elif value is None and sys.stdin.isatty():
+            import getpass
+
+            value = getpass.getpass(f"{ns.key}: ").strip()
+        return _mgmt(head, manage.configure, ns.key, value or "")
+    return _mgmt(head, lambda: {"version": __version__, "install_method": manage.install_method()})
+
+
+def _apply_saved_proxy() -> None:
+    """Use the proxy saved by `configure proxy` unless the shell already sets one."""
+    if os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"):
+        return
+    try:
+        from agent_reach.config import Config
+
+        proxy = Config(read_only=True).get("proxy")
+    except Exception:  # noqa: BLE001
+        return
+    if proxy:
+        os.environ["HTTPS_PROXY"] = os.environ["HTTP_PROXY"] = str(proxy)
 
 
 def _login_info(ch: Channel):
@@ -235,7 +351,7 @@ def _login_channel(cmd: str, args: Sequence[str]):
     ch = _channel(ns.channel)
     if ch is None:
         raise _ArgError(f"unknown channel: {ns.channel}")
-    if cmd == "logout" and not ch.session:
+    if cmd == "logout" and not (ch.session or ch.logout_keys):
         hint = " Log out in the Agent Reach browser window instead." if ch.login_url else ""
         raise _ArgError(f"{ch.name} has no login state managed by Agent Reach.{hint}")
     if cmd == "login" and not (ch.session or ch.login_url):
@@ -258,20 +374,35 @@ def _cmd_login(args: Sequence[str]) -> int:
             browser.start(ch.login_url)
         except ReachError as err:
             return _emit(envelope(channel=ch.name, action="login", error=err))
+        needs_sync = bool(ch.session) or type(ch).sync_login is not Channel.sync_login
         nxt = (
             f"After the user logs in, run `agent-reach login {ch.name} --sync`."
-            if ch.session else "The user logs in in that window; then retry the action."
+            if needs_sync else "The user logs in in that window; then retry the action."
         )
         return _emit(envelope(channel=ch.name, action="login", backend="agent-reach-browser",
                               items=[{"opened": ch.login_url, "next": nxt}]))
-    exe = shutil.which(ch.login_argv[0])
+    try:
+        synced = ch.sync_login()
+    except ReachError as err:
+        return _emit(envelope(channel=ch.name, action="login", error=err))
+    if synced is not None:
+        return _emit(envelope(channel=ch.name, action="login", backend="agent-reach-browser", items=[synced]))
+    if not ch.login_argv:
+        return _bad_input(ch.name, "login", f"{ch.name} has nothing to sync; just log in in the Agent Reach browser")
+    from .tools import resolve
+
+    exe = resolve(ch.login_argv[0])
     if not exe:
-        return _emit(envelope(channel=ch.name, action="login",
-                              error=ReachError(NEED_SETUP, f"{ch.login_argv[0]} is not installed")))
+        return _emit(envelope(channel=ch.name, action="login", error=ReachError(
+            NEED_SETUP, f"{ch.login_argv[0]} is not installed", hint=f"Run `agent-reach add {ch.name}` first.")))
+    from .sessions import session_dir
+
+    argv = [a.replace("{session}", str(session_dir(ch.session))) for a in ch.login_argv[1:]]
     env = dict(os.environ)
-    env.update(session_env(ch.session))
+    if ch.session_home:
+        env.update(session_env(ch.session))
     # Interactive: the user sees the QR code / prompts on stderr; stdout stays JSON.
-    code = subprocess.call([exe, *ch.login_argv[1:]], env=env, stdout=sys.stderr, stderr=sys.stderr)
+    code = subprocess.call([exe, *argv], env=env, stdout=sys.stderr, stderr=sys.stderr)
     if code != 0 or not has_login_state(ch.session):
         return _emit(envelope(channel=ch.name, action="login",
                               error=ReachError(UPSTREAM_BROKEN, f"login did not complete (exit {code})")))
@@ -283,8 +414,16 @@ def _cmd_logout(args: Sequence[str]) -> int:
         ch, _ = _login_channel("logout", args)
     except _ArgError as exc:
         return _bad_input(None, "logout", str(exc))
-    removed = clear_session(ch.session)
-    return _emit(envelope(channel=ch.name, action="logout", backend=ch.session, items=[{"removed": removed}]))
+    removed = clear_session(ch.session) if ch.session else False
+    if ch.logout_keys:
+        from agent_reach.config import Config
+
+        cfg = Config()
+        for key in ch.logout_keys:
+            if cfg.get(key):
+                cfg.delete(key)
+                removed = True
+    return _emit(envelope(channel=ch.name, action="logout", backend=ch.session or "config", items=[{"removed": removed}]))
 
 
 def _cmd_browser(args: Sequence[str]) -> int:
@@ -320,6 +459,10 @@ def _cmd_browser(args: Sequence[str]) -> int:
 
 
 def main(argv: Sequence[str]) -> int:
+    if not argv or argv[0] in ("help", "-h", "--help"):
+        sys.stdout.write(HELP)
+        return 0
+    _apply_saved_proxy()
     head, rest = argv[0], argv[1:]
     if head == "channels":
         return _cmd_channels(rest)
@@ -333,6 +476,12 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_logout(rest)
     if head == "browser":
         return _cmd_browser(rest)
+    if head == "doctor":
+        return _cmd_doctor(rest)
+    if head == "watch":
+        return _cmd_watch(rest)
+    if head in _MANAGEMENT:
+        return _cmd_management(head, rest)
     channel = _channel(head)
     assert channel is not None  # guaranteed by handles()
     return _cmd_action(channel, rest)

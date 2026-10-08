@@ -184,9 +184,9 @@ def test_read_routes_by_url(capsys, fake_cli):
 def test_handles_only_claims_unified_commands(fake_cli):
     assert unified.handles(["fake", "search"])
     assert unified.handles(["channels"])
-    assert not unified.handles(["doctor"])
+    assert unified.handles(["doctor"])
+    assert unified.handles([])
     assert not unified.handles(["check-update"])
-    assert not unified.handles([])
 
 
 def test_channels_lists_usage_for_agents(capsys, fake_cli):
