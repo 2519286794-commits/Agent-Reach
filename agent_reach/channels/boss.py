@@ -35,9 +35,17 @@ import urllib.request
 from urllib.parse import urlparse
 
 from agent_reach.probe import probe_command
+from agent_reach.runtime.result import (
+    NEED_LOGIN,
+    NEED_SETUP,
+    UPSTREAM_BROKEN,
+    ReachError,
+    make_item,
+)
+from agent_reach.runtime.run import CommandFailed, run_cmd
 from agent_reach.utils.url import host_matches
 
-from .base import Channel
+from .base import Action, Channel, Param
 
 _CDP_URL = "http://localhost:9222"
 _CDP_TIMEOUT = 5
@@ -256,6 +264,22 @@ class BossChannel(Channel):
     backends = ["boss-agent-cli (CDP)"]
     tier = 2
 
+    level = "optional"
+    actions = (
+        Action(
+            "search",
+            "Search jobs (needs the dedicated Chrome with a zhipin.com login)",
+            (
+                Param("query", "job keywords"),
+                Param("city", "city, e.g. 深圳", required=False),
+                Param("limit", "max results", required=False, type=int, default=10),
+            ),
+            (("boss-agent-cli", "_cli_search"),),
+            live_test={"query": "Python", "city": "深圳", "limit": 3},
+            timeout=90,
+        ),
+    )
+
     def can_handle(self, url: str) -> bool:
         return host_matches(url, "zhipin.com")
 
@@ -334,3 +358,56 @@ class BossChannel(Channel):
             "若搜索报 AUTH_EXPIRED，按登录 runbook 处理（用户在专用窗口登录 + login --cdp），"
             "不要往安全校验方向解释。"
         )
+
+    # ── unified entry backends ──
+
+    def _cli_search(self, *, query: str, city, limit: int, timeout: float) -> list:
+        with socket.socket() as s:
+            s.settimeout(1)
+            cdp_up = s.connect_ex(("127.0.0.1", 9222)) == 0
+        if not cdp_up:
+            raise ReachError(
+                NEED_SETUP,
+                "the dedicated Chrome (port 9222) is not running",
+                hint=f"Ask the user to start it with: {_chrome_launch_command()} and log in to zhipin.com themselves.",
+            )
+        args = ["boss", "--json", "--browser-source", "existing-browser", "--cdp-url", _CDP_URL, "search", query]
+        if city:
+            args += ["--city", city]
+        try:
+            out = run_cmd(args, timeout=timeout)
+        except CommandFailed as exc:
+            out = exc.stdout
+            if "{" not in out:
+                raise
+        try:
+            payload = json.loads(out[out.index("{"):])
+        except ValueError:
+            raise ReachError(UPSTREAM_BROKEN, "boss-agent-cli returned unreadable output") from None
+        if not payload.get("ok"):
+            err = payload.get("error") or {}
+            code = str(err.get("code", "")).upper()
+            message = str(err.get("message", "boss-agent-cli failed"))[:300]
+            if "AUTH" in code or "LOGIN" in code:
+                raise ReachError(
+                    NEED_LOGIN, message,
+                    hint="Ask the user to log in to zhipin.com in the dedicated Chrome window, then run `boss --cdp-url http://localhost:9222 login --cdp`.",
+                )
+            raise ReachError(UPSTREAM_BROKEN, message)
+        data = payload.get("data")
+        rows = data if isinstance(data, list) else ((data or {}).get("items") or (data or {}).get("jobs") or [])
+        items = []
+        for r in rows[:limit]:
+            if not isinstance(r, dict):
+                continue
+            job_id = r.get("job_id")
+            items.append(
+                make_item(
+                    title=r.get("title"),
+                    url=f"https://www.zhipin.com/job_detail/{job_id}.html" if job_id else None,
+                    author=r.get("company"),
+                    text=" · ".join(str(x) for x in (r.get("salary"), r.get("city"), r.get("experience"), r.get("education")) if x),
+                    raw=r,
+                )
+            )
+        return items

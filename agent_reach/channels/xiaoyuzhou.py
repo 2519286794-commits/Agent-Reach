@@ -2,11 +2,17 @@
 """Xiaoyuzhou Podcast (小宇宙播客) — transcribe podcasts via Groq Whisper API."""
 
 import os
+import shutil
+import tempfile
 
 from agent_reach.config import Config
 from agent_reach.probe import probe_command
+from agent_reach.runtime.result import BAD_INPUT, NEED_SETUP, ReachError, make_item
+from agent_reach.runtime.run import run_cmd
 
-from .base import Channel
+from .base import Action, Channel, Param
+
+_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "transcribe_xiaoyuzhou.sh")
 
 
 class XiaoyuzhouChannel(Channel):
@@ -14,6 +20,17 @@ class XiaoyuzhouChannel(Channel):
     description = "小宇宙播客转文字"
     backends = ["groq-whisper", "ffmpeg"]
     tier = 1
+
+    level = "optional"
+    actions = (
+        Action(
+            "transcribe",
+            "Full transcript of a podcast episode (uses Groq Whisper quota)",
+            (Param("target", "episode link"),),
+            (("groq-whisper", "_script_transcribe"),),
+            timeout=900,
+        ),
+    )
 
     def can_handle(self, url: str) -> bool:
         from agent_reach.utils.url import host_matches
@@ -63,3 +80,25 @@ class XiaoyuzhouChannel(Channel):
 
         self.active_backend = "groq-whisper"
         return "ok", "完整可用（播客下载 + Whisper 转录）"
+
+    # ── unified entry backends ──
+
+    def _script_transcribe(self, *, target: str, timeout: float) -> list:
+        from agent_reach.utils.url import host_matches
+
+        if not host_matches(str(target).strip(), "xiaoyuzhoufm.com"):
+            raise ReachError(BAD_INPUT, "target must be a xiaoyuzhoufm.com episode link")
+        key = os.environ.get("GROQ_API_KEY") or Config(read_only=True).get("groq_api_key")
+        if not key:
+            raise ReachError(
+                NEED_SETUP, "no Groq API key configured",
+                hint="Ask the user for a free key from https://console.groq.com, then run `agent-reach configure groq-key`.",
+            )
+        if not shutil.which("ffmpeg"):
+            raise ReachError(NEED_SETUP, "ffmpeg is not installed", hint="Ask the user to install ffmpeg (macOS: brew install ffmpeg).")
+        with tempfile.TemporaryDirectory(prefix="agent-reach-xyz-") as tmp:
+            out = os.path.join(tmp, "transcript.txt")
+            run_cmd(["bash", _SCRIPT, str(target).strip(), out], timeout=timeout, env={"GROQ_API_KEY": str(key)}, label="transcribe")
+            with open(out, encoding="utf-8", errors="replace") as fh:
+                text = fh.read().strip()
+        return [make_item(url=str(target).strip(), text=text)]

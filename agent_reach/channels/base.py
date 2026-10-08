@@ -53,6 +53,8 @@ class Action:
     params: Tuple[Param, ...]
     backends: Tuple[Tuple[str, str], ...]
     live_test: Optional[Dict[str, object]] = None
+    #: Default timeout in seconds for slow actions (e.g. transcription); None = global default.
+    timeout: Optional[float] = None
 
 
 class Channel(ABC):

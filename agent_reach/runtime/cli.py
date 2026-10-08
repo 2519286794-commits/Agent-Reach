@@ -73,7 +73,7 @@ def _parse_action_args(action: Action, args: Sequence[str]) -> Dict[str, object]
             parser.add_argument(p.name, nargs="+" if p.type is str else None)
         else:
             parser.add_argument(f"--{p.name}", dest=p.name, default=None)
-    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    parser.add_argument("--timeout", type=float, default=action.timeout or DEFAULT_TIMEOUT)
     ns = vars(parser.parse_args(list(args)))
     for p in action.params:
         if p.required and p.type is str and isinstance(ns.get(p.name), list):

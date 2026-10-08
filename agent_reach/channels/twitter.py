@@ -4,9 +4,23 @@
 import os
 import shutil
 
+from agent_reach.backends.opencli import opencli_call, opencli_items
+from agent_reach.runtime.result import UPSTREAM_BROKEN, ReachError
 from agent_reach.utils.url import host_matches
 
-from .base import Channel
+from .base import Action, Channel, Param
+
+_TWITTER_LOGIN_HINT = (
+    "Ask the user to log in to x.com in their own Chrome (the one with the "
+    "OpenCLI extension). Never log in or read browser cookies for them."
+)
+
+
+def _x(args, timeout: float) -> list:
+    items = opencli_items(opencli_call("twitter", list(args), timeout=timeout, login_hint=_TWITTER_LOGIN_HINT))
+    if not items:
+        raise ReachError(UPSTREAM_BROKEN, "OpenCLI returned nothing; the page most likely did not load")
+    return items
 
 
 def twitter_cli_child_env(config=None) -> dict[str, str]:
@@ -36,6 +50,44 @@ class TwitterChannel(Channel):
     description = "Twitter/X 推文"
     backends = ["twitter-cli", "OpenCLI", "bird CLI (legacy)"]
     tier = 1
+
+    # twitter-cli is not used here: even with explicit credentials it re-reads
+    # browser cookies whenever verification fails.
+    level = "experimental"
+    actions = (
+        Action(
+            "search",
+            "Search tweets",
+            (
+                Param("query", "what to search for"),
+                Param("limit", "max results", required=False, type=int, default=5),
+            ),
+            (("opencli", "_opencli_search"),),
+            live_test={"query": "openai", "limit": 2},
+        ),
+        Action(
+            "profile",
+            "A user's profile",
+            (Param("username", "handle without @"),),
+            (("opencli", "_opencli_profile"),),
+            live_test={"username": "OpenAI"},
+        ),
+        Action(
+            "tweets",
+            "A user's recent tweets",
+            (
+                Param("username", "handle without @"),
+                Param("limit", "max tweets", required=False, type=int, default=5),
+            ),
+            (("opencli", "_opencli_tweets"),),
+        ),
+        Action(
+            "thread",
+            "A tweet with its replies",
+            (Param("target", "tweet id or link"),),
+            (("opencli", "_opencli_thread"),),
+        ),
+    )
 
     def can_handle(self, url: str) -> bool:
         return host_matches(url, "x.com", "twitter.com")
@@ -140,3 +192,18 @@ class TwitterChannel(Channel):
                 "仅使用 Cookie-Editor 手动导出的凭据。"
             )
         return None
+
+    # ── unified entry backends ──
+
+    def _opencli_search(self, *, query: str, limit: int, timeout: float) -> list:
+        return _x(["search", query, "--limit", str(limit)], timeout)[:limit]
+
+    def _opencli_profile(self, *, username: str, timeout: float) -> list:
+        return _x(["profile", username.lstrip("@")], timeout)[:1]
+
+    def _opencli_tweets(self, *, username: str, limit: int, timeout: float) -> list:
+        return _x(["tweets", username.lstrip("@"), "--limit", str(limit)], timeout)[:limit]
+
+    def _opencli_thread(self, *, target: str, timeout: float) -> list:
+        tweet_id = str(target).rstrip("/").split("/")[-1].split("?")[0]
+        return _x(["thread", tweet_id], timeout)
