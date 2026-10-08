@@ -181,12 +181,13 @@ def test_read_routes_by_url(capsys, fake_cli):
     assert out["items"][0]["title"] == "https://fake.test/a"
 
 
-def test_handles_only_claims_unified_commands(fake_cli):
-    assert unified.handles(["fake", "search"])
-    assert unified.handles(["channels"])
-    assert unified.handles(["doctor"])
-    assert unified.handles([])
-    assert not unified.handles(["check-update"])
+def test_unknown_command_is_bad_input(capsys, fake_cli):
+    for argv in (["install"], ["check-update"], ["nosuchchannel", "search", "x"]):
+        code, out = _run(capsys, argv)
+        assert code == 1
+        assert out["ok"] is False
+        assert out["error"]["code"] == "BAD_INPUT"
+        assert "agent-reach help" in out["error"]["message"]
 
 
 def test_channels_lists_usage_for_agents(capsys, fake_cli):

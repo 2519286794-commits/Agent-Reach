@@ -128,8 +128,6 @@ def _parse_jina(url: str, body: str) -> dict:
 class WebChannel(Channel):
     name = "web"
     description = "网页搜索与阅读（Agent 自带工具不可用时的保底）"
-    backends = ["Jina Reader"]
-    tier = 0
 
     level = "default"
     actions = (
@@ -154,11 +152,6 @@ class WebChannel(Channel):
 
     def can_handle(self, url: str) -> bool:
         return True  # Fallback — handles any URL
-
-    def check(self, config=None):
-        # 恒可用兜底渠道：无本地命令、不做网络探测（doctor 已有多个渠道触网），保持零开销
-        self.active_backend = self.backends[0]
-        return "ok", "通过 Jina Reader 读取任意网页（curl https://r.jina.ai/URL）"
 
     def read(self, url: str, timeout: float = 30) -> str:
         """通过 Jina Reader 读取网页，返回 Markdown 全文。"""

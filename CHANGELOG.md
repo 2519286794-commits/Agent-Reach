@@ -6,7 +6,32 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased]
+## [2.0.0] - unreleased
+
+v2 is a rebuild. Agents call one command, `agent-reach`; everything Agent Reach installs or stores lives under `~/.agent-reach/`.
+v2 是重构版本：Agent 只调一个命令 `agent-reach`，Agent Reach 装的、存的东西全部在 `~/.agent-reach/` 下。
+
+### ✨ New / 新增
+
+- **Unified entry / 统一入口**: `agent-reach <channel> <action>`, `agent-reach read <url>`, `agent-reach channels`. One JSON envelope per call, unified error codes with hints, per-call timeout, automatic fallback to the next backend.
+- **Management / 管理命令**: `setup`, `add` / `remove <channel>`, `login` / `logout <channel>`, `doctor`, `check`, `watch`, `update`, `configure`, `uninstall`.
+- **Private, pinned upstream installs / 上游私有安装**: tools go into `~/.agent-reach/tools/` at versions we tested; the user's own copies are untouched. Single-instance tools (OpenCLI) reuse the user's copy and are upgraded only with `--allow-upgrade`.
+- **Login state under `~/.agent-reach/` / 登录状态统一管理**: CLI tool logins in `sessions/`, browser logins in a dedicated Agent Reach browser (`agent-reach browser setup`). Agent Reach never logs in for the user and never reads the user's own browser cookies.
+- **doctor states / 体检**: not_added, needs_setup, needs_login, unverified, ready, broken. `watch` reports only what broke since the last check.
+- **update** upgrades the program with its original installer, syncs tools to pinned versions and refreshes the agent skill. Pre-2.0 installs are migrated on first `setup` / `update`; `config.yaml` keys are kept.
+- Xueqiu quotes and stock search via Tencent public quotes (no login); Xueqiu community data uses a session the user imports with `agent-reach login xueqiu --sync`.
+- YouTube `transcribe`; LinkedIn uses its own MCP registration in `~/.agent-reach/mcporter.json`.
+
+### 🔄 Changed / 变更
+
+- Default channels: web (fallback only), YouTube, GitHub, V2EX. Optional: 小红书, B站, Reddit, LinkedIn, Boss直聘, 小宇宙, 雪球. Experimental: Twitter, Facebook, Instagram.
+- The agent skill is generated from the channel list and replaced on every update.
+
+### 🗑️ Removed / 移除
+
+- RSS channel (agents read feeds themselves).
+- xhs-cli, rdt-cli, twitter-cli backends: they read browser cookies by themselves.
+- `configure --from-browser`, `twitter-cookies`, `xhs-cookies`, the old `install --channels`, `skill`, `format`, `check-update`, MCP server entry.
 
 ### 🐛 Bug Fixes / 修复
 

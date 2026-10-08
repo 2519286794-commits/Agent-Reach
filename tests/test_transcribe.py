@@ -859,43 +859,6 @@ class TestSubprocessDecoding:
             tr._probe_audio_duration(tmp_path / "audio.m4a")
 
 
-# --- YouTubeChannel integration --------------------------------------- #
-
-
-class TestYouTubeChannelTranscribe:
-    def test_delegates_to_transcribe(self, monkeypatch, fake_config):
-        from agent_reach.channels.youtube import YouTubeChannel
-
-        captured = {}
-
-        def fake_transcribe(
-            source,
-            *,
-            provider="auto",
-            out_dir=None,
-            config=None,
-            allow_provider_fallback=False,
-        ):
-            captured["source"] = source
-            captured["provider"] = provider
-            captured["config"] = config
-            captured["allow_provider_fallback"] = allow_provider_fallback
-            return "delegated text"
-
-        monkeypatch.setattr(tr, "transcribe", fake_transcribe)
-        out = YouTubeChannel().transcribe(
-            "https://youtu.be/abc",
-            provider="groq",
-            config=fake_config,
-            allow_provider_fallback=True,
-        )
-        assert out == "delegated text"
-        assert captured["source"] == "https://youtu.be/abc"
-        assert captured["provider"] == "groq"
-        assert captured["config"] is fake_config
-        assert captured["allow_provider_fallback"] is True
-
-
 # --- Config feature requirement --------------------------------------- #
 
 

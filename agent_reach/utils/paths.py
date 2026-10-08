@@ -1,9 +1,8 @@
-"""Cross-platform path and remediation helpers."""
+"""Cross-platform private path helpers."""
 
 from __future__ import annotations
 
 import os
-import shlex
 import stat
 import sys
 import tempfile
@@ -180,46 +179,3 @@ def read_small_text_no_follow(
     finally:
         os.close(fd)
     return payload.decode(encoding)
-
-
-def get_ytdlp_config_dir() -> Path:
-    """Return yt-dlp's first user config directory.
-
-    yt-dlp checks ``$XDG_CONFIG_HOME/yt-dlp`` first on every supported
-    platform, falling back to ``~/.config/yt-dlp`` when the variable is not
-    set. Writing anywhere else can make Agent Reach and Doctor agree with each
-    other while the real yt-dlp process silently ignores the setting.
-    """
-
-    xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
-    config_home = Path(xdg_config_home) if xdg_config_home else Path.home() / ".config"
-    return config_home / "yt-dlp"
-
-
-def get_ytdlp_config_path() -> Path:
-    """Return the yt-dlp user config file path for this OS."""
-
-    return get_ytdlp_config_dir() / "config"
-
-
-def render_ytdlp_fix_command() -> str:
-    """Return an OS-appropriate command to enable Node.js as yt-dlp JS runtime."""
-
-    config_path = get_ytdlp_config_path()
-    if sys.platform == "win32":
-        return (
-            f"$cfg = '{config_path}'\n"
-            "New-Item -ItemType Directory -Force -Path (Split-Path $cfg) | Out-Null\n"
-            "if (-not (Test-Path $cfg) -or -not (Select-String -Path $cfg -Pattern '--js-runtimes' -Quiet)) {\n"
-            "  Add-Content -Path $cfg -Value '--js-runtimes node'\n"
-            "}"
-        )
-    config_dir = shlex.quote(str(config_path.parent))
-    config_file = shlex.quote(str(config_path))
-    return (
-        f"mkdir -p {config_dir} && "
-        "{ "
-        f"grep -qxF -- '--js-runtimes node' {config_file} 2>/dev/null || "
-        f"printf '%s\\n' '--js-runtimes node' >> {config_file}; "
-        "}"
-    )

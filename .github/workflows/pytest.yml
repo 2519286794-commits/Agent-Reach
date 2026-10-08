@@ -78,9 +78,9 @@ jobs:
           names = zipfile.ZipFile(whl).namelist()
           dupes = [n for n, c in collections.Counter(names).items() if c > 1]
           assert not dupes, f"duplicate entries in wheel: {dupes}"
-          assert "agent_reach/skill/SKILL.md" in names, "SKILL.md missing from wheel"
-          for prefix in ("agent_reach/guides/", "agent_reach/scripts/", "agent_reach/skill/references/"):
-              assert any(n.startswith(prefix) for n in names), f"{prefix} missing from wheel"
+          for path in ("agent_reach/skill/SKILL.md", "agent_reach/skill/SKILL_en.md"):
+              assert path in names, f"{path} missing from wheel"
+          assert any(n.startswith("agent_reach/scripts/") for n in names), "agent_reach/scripts/ missing from wheel"
           print(f"wheel OK: {len(names)} entries, no duplicates, data files present")
           PY
 
@@ -89,4 +89,5 @@ jobs:
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --quiet dist/*.whl
           /tmp/smoke/bin/agent-reach version
+          cd /tmp && /tmp/smoke/bin/agent-reach channels | /tmp/smoke/bin/python -c "import json, sys; d = json.load(sys.stdin); assert d['ok'] and d['channels'], d; print(f\"channels OK: {len(d['channels'])}\")"
           cd /tmp && /tmp/smoke/bin/python -c "import agent_reach; from importlib.resources import files; assert (files('agent_reach')/'skill'/'SKILL.md').is_file(); print('SKILL.md ships in site-packages OK')"

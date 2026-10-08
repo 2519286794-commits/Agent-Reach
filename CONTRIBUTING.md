@@ -1,107 +1,73 @@
 # Contributing to Agent Reach
 
-Thank you for your interest in contributing to Agent Reach! This document provides guidelines and instructions for contributing.
+Agent Reach makes it easier for AI agents to reach the internet. Contributions that add or repair a channel are the most useful.
 
-## Getting Started
-
-1. Fork the repository on GitHub
-2. Clone your fork locally
-3. Create a new branch for your contribution
-4. Make your changes
-5. Run tests and linting
-6. Submit a pull request
-
-## Development Setup
+## Development setup
 
 ```bash
-# Clone your fork
 git clone https://github.com/YOUR_USERNAME/Agent-Reach.git
 cd Agent-Reach
-
-# Install in development mode
-pip install -e ".[dev]"
-
-# Install pre-commit hooks (optional but recommended)
-pre-commit install
+python -m venv .venv
+.venv/bin/pip install -e ".[dev]"
 ```
 
-## Code Style
-
-We use the following tools to maintain code quality:
-
-- **ruff**: Linting and import sorting
-- **mypy**: Type checking
-- **pytest**: Testing
-
-Run all checks before submitting a PR:
+Checks before a PR:
 
 ```bash
-# Linting
-ruff check agent_reach tests
-ruff format agent_reach tests
-
-# Type checking
-mypy agent_reach
-
-# Tests
-pytest
+.venv/bin/ruff check agent_reach tests
+.venv/bin/pytest
 ```
 
-## Adding New Channels
+## The channel contract
 
-Agent Reach uses a unified channel interface. To add a new platform:
+A channel is a `Channel` subclass in `agent_reach/channels/`, registered in `agent_reach/channels/__init__.py`. It declares:
 
-1. Create a new file in `agent_reach/channels/`
-2. Implement the channel contract (see existing channels for examples)
-3. Add tests in `tests/test_channels.py`
-4. Update `agent_reach/doctor.py` to include the new channel
-5. Update documentation
+- `name`, `description`, and `can_handle(url)` so `agent-reach read <url>` can route links to it.
+- `level`: `"default"` (works with no setup), `"optional"` (turned on with `agent-reach add`), or `"experimental"` (works but may break any time).
+- `actions`: a tuple of `Action`s. Each has a `name`, `help`, `params` (a tuple of `Param(name, help, required, type, default)`), and **ordered** `backends` as `(label, method name)` pairs. The dispatcher tries them in order and falls back on retryable errors. `live_test` holds the params `agent-reach check` uses; a backend passes when it returns at least one item. Slow actions can set `timeout`.
+- `tools` (optional): keys of `runtime.tools.TOOLS` that `agent-reach add` installs privately under `~/.agent-reach/tools/`, pinned to an exact version.
+- `prereqs` (optional): machine prerequisites that are only checked and explained (keys of `runtime.manage.PREREQS`: node, git, chrome, ffmpeg, uv).
+- Login, if the platform needs it:
+  - `login_url`: page opened in the Agent Reach browser by `agent-reach login`; the user logs in there.
+  - `session` + `login_argv`: a CLI tool whose own login runs with its state in `~/.agent-reach/sessions/<session>/`. `legacy_state` lists old locations `login --import-existing` may copy from.
+- `setup_problems()`: what still blocks the channel after its tools are installed (missing key, browser not set up). Shown by `agent-reach doctor`.
 
-## Pull Request Guidelines
+Backend methods return items built with `make_item(...)` and raise `ReachError(code, message, hint=...)` with one of `NEED_SETUP`, `NEED_LOGIN`, `UPSTREAM_BROKEN`, `TIMEOUT`, `RATE_LIMITED`, `NOT_FOUND`, `BAD_INPUT`. Hints are written for the agent and must never tell it to log in for the user.
 
-- **Small, focused changes** are preferred over large refactors
-- Include tests for new functionality
-- Update documentation if needed
-- Follow existing code style
-- Reference any related issues
+Rules:
 
-## Reporting Issues
+- Never read the user's own browser cookies and never log in on their behalf.
+- Everything a channel stores lives under `~/.agent-reach/`.
+- Don't install anything globally; add the tool to `runtime.tools.TOOLS` with a pinned version.
 
-When reporting bugs, please include:
+## Before merging a channel
 
-- Python version
-- Operating system
-- Steps to reproduce
-- Expected vs actual behavior
-- Any error messages
+A new or changed channel must pass a live check on your machine:
 
-## Questions?
+```bash
+agent-reach add <channel>        # optional / experimental channels
+agent-reach login <channel>      # if it needs a login
+agent-reach check <channel> --text
+```
 
-Feel free to open an issue for questions or join discussions.
+Paste the `check --text` output into the PR. Also add unit tests under `tests/` (see `tests/test_channel_contracts.py`).
+
+## Pull requests
+
+- Small, focused changes.
+- Commit messages in English.
+- Update the README channel table if you add a channel or change what it needs.
+- Never commit keys, cookies, account names or machine-specific paths.
+
+## Reporting issues
+
+Include your OS, `agent-reach doctor --text`, `agent-reach check <channel> --text`, steps to reproduce, and what you expected. Remove personal data first.
 
 ---
 
-感谢您对 Agent Reach 的贡献！本文档提供了贡献指南。
+## 中文简述
 
-## 快速开始
-
-1. 在 GitHub 上 fork 仓库
-2. 本地 clone 您的 fork
-3. 创建新分支
-4. 提交更改
-5. 运行测试和 lint
-6. 提交 pull request
-
-## 代码规范
-
-- 使用 **ruff** 进行代码检查
-- 使用 **mypy** 进行类型检查
-- 使用 **pytest** 运行测试
-
-## 添加新渠道
-
-1. 在 `agent_reach/channels/` 创建新文件
-2. 实现渠道接口
-3. 添加测试
-4. 更新 doctor 检测
-5. 更新文档
+- 渠道 = `agent_reach/channels/` 里的一个 `Channel` 子类，在 `channels/__init__.py` 注册。需要声明 `level`、`actions`（`Action`/`Param`、有序后端、`live_test`），按需声明 `tools`、`prereqs`、`login_url` / `session` / `login_argv`、`setup_problems()`。
+- 不读用户自己浏览器的 Cookie，不替用户登录，数据只放在 `~/.agent-reach/` 下。
+- 新渠道合并前必须在本地跑通 `agent-reach check <channel>` 实测，并把输出贴在 PR 里。
+- 提交前运行 `ruff check agent_reach tests` 和 `pytest`。Commit message 用英文。

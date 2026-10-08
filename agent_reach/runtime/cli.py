@@ -38,7 +38,6 @@ from .sessions import clear_session, has_login_state, import_legacy_state, sessi
 _MANAGEMENT = (
     "setup", "add", "remove", "update", "doctor", "watch", "uninstall", "configure", "version",
 )
-_TOP_LEVEL = ("channels", "check", "read", "login", "logout", "browser", "help", "-h", "--help") + _MANAGEMENT
 
 HELP = """agent-reach — internet access for AI agents (all output is JSON)
 
@@ -62,20 +61,12 @@ For the user:
 
 
 def unified_channels() -> List[Channel]:
-    """Channels already moved to the unified entry."""
+    """Channels exposed on the command line."""
     return [ch for ch in get_all_channels() if ch.level]
 
 
 def _channel(name: str) -> Optional[Channel]:
     return next((ch for ch in unified_channels() if ch.name == name), None)
-
-
-def handles(argv: Sequence[str]) -> bool:
-    """Whether this argv belongs to the unified entry (vs. legacy commands)."""
-    if not argv:
-        return True
-    head = argv[0]
-    return head in _TOP_LEVEL or _channel(head) is not None
 
 
 def _mgmt(action: str, fn, *args, **kwargs) -> int:
@@ -483,5 +474,6 @@ def main(argv: Sequence[str]) -> int:
     if head in _MANAGEMENT:
         return _cmd_management(head, rest)
     channel = _channel(head)
-    assert channel is not None  # guaranteed by handles()
+    if channel is None:
+        return _bad_input(None, head, f"unknown command or channel: {head}; run `agent-reach help`")
     return _cmd_action(channel, rest)

@@ -17,7 +17,7 @@ from .base import Action, Channel, Param
 _XQ_LOGIN_HINT = (
     "Xueqiu community data needs a browser session. Run `agent-reach login xueqiu`, "
     "let the user open xueqiu.com in the Agent Reach browser, then run "
-    "`agent-reach login xueqiu --sync`. While that browser is open, Agent Reach renews the session itself."
+    "`agent-reach login xueqiu --sync`. The session expires within hours; repeat these steps when it does."
 )
 
 _UA = (
@@ -85,7 +85,7 @@ def _ensure_cookies(config=None) -> None:
     """Populate session cookies without touching browser credential stores.
 
     Priority order:
-    1. Saved cookie string in ~/.agent-reach/config.yaml  (set by configure --from-browser)
+    1. Saved cookie string in ~/.agent-reach/config.yaml  (set by `agent-reach login xueqiu --sync`)
     2. Homepage visit fallback (only yields public session cookies and may not
        be sufficient when Xueqiu requires a logged-in session)
     """
@@ -148,23 +148,14 @@ def _xueqiu_symbol(market: str, code: str) -> str:
     return code.split(".")[0].upper()
 
 
-def _refresh_from_browser() -> bool:
-    """Pull a fresh Xueqiu session from the Agent Reach browser, if it is running."""
+def _import_from_browser() -> bool:
+    """Copy the Xueqiu session the user has in the Agent Reach browser (only on `login --sync`)."""
     global _cookies_initialized
     from agent_reach.runtime import browser, cdp
 
     if not browser.is_running():
         return False
     jar = {c["name"]: c["value"] for c in cdp.cookies("xueqiu.com")}
-    if "xq_a_token" not in jar:
-        try:
-            browser.open_url("https://xueqiu.com/")
-        except Exception:  # noqa: BLE001
-            return False
-        import time
-
-        time.sleep(4)
-        jar = {c["name"]: c["value"] for c in cdp.cookies("xueqiu.com")}
     if "xq_a_token" not in jar:
         return False
     from agent_reach.config import Config
@@ -175,15 +166,13 @@ def _refresh_from_browser() -> bool:
     return True
 
 
-def _xq_json(url: str, _retried: bool = False) -> Any:
+def _xq_json(url: str) -> Any:
     try:
         return _get_json(url)
     except (urllib.error.HTTPError, json.JSONDecodeError) as exc:
         rejected = isinstance(exc, json.JSONDecodeError) or exc.code in (400, 401, 403)
         if not rejected:
             raise
-        if not _retried and _refresh_from_browser():
-            return _xq_json(url, _retried=True)
         raise ReachError(NEED_LOGIN, "Xueqiu rejected the session", hint=_XQ_LOGIN_HINT) from None
 
 
@@ -220,15 +209,13 @@ def _parse_hot_posts(data: Any, limit: int) -> list:
 class XueqiuChannel(Channel):
     name = "xueqiu"
     description = "雪球股票行情与社区动态"
-    backends = ["Xueqiu API (需要登录 Cookie)"]
-    tier = 1
 
     level = "optional"
     login_url = "https://xueqiu.com/"
     logout_keys = ("xueqiu_cookie",)
 
     def sync_login(self):
-        if not _refresh_from_browser():
+        if not _import_from_browser():
             raise ReachError(
                 NEED_LOGIN, "no Xueqiu session found in the Agent Reach browser",
                 hint="Run `agent-reach login xueqiu`, let the user open xueqiu.com there, then `agent-reach login xueqiu --sync`.",
@@ -269,158 +256,10 @@ class XueqiuChannel(Channel):
         ),
     )
 
-    # ------------------------------------------------------------------ #
-    # URL routing
-    # ------------------------------------------------------------------ #
-
     def can_handle(self, url: str) -> bool:
         from agent_reach.utils.url import host_matches
 
         return host_matches(url, "xueqiu.com")
-
-    # ------------------------------------------------------------------ #
-    # Health check
-    # ------------------------------------------------------------------ #
-
-    def check(self, config=None):
-        self.active_backend = None
-        try:
-            data = _get_json(
-                "https://stock.xueqiu.com/v5/stock/quote.json"
-                "?symbol=SH601138&extend=detail",
-                config,
-            )
-            quote = (data.get("data") or {}).get("quote") or {}
-            if quote:
-                self.active_backend = self.backends[0]
-                return "ok", "公开 API 可用（行情、搜索、热帖、热股）"
-            return "warn", "API 响应异常（返回数据为空）"
-        except Exception as e:
-            from agent_reach.utils.text import scrub_url_credentials
-
-            detail = scrub_url_credentials(e).rstrip(": ")
-            return "warn", (
-                f"Xueqiu API 连接失败：{detail}。"
-                "如需登录 Cookie，请运行：agent-reach configure "
-                "--from-browser chrome --platform xueqiu；"
-                "doctor 不会自动读取浏览器 Cookie。"
-            )
-
-    # ------------------------------------------------------------------ #
-    # Data-fetching methods
-    # ------------------------------------------------------------------ #
-
-    def get_stock_quote(self, symbol: str) -> dict:
-        """获取实时股票行情。
-
-        Args:
-            symbol: 股票代码，如 SH600519（沪）、SZ000858（深）、AAPL（美）、00700（港）
-
-        Returns a dict with keys:
-          symbol, name, current, percent, chg, high, low, open, last_close,
-          volume, amount, market_capital, turnover_rate, pe_ttm, pe_forecast,
-          pb, eps, timestamp
-        """
-        encoded_symbol = urllib.parse.quote(symbol, safe="")
-        data = _get_json(
-            "https://stock.xueqiu.com/v5/stock/quote.json"
-            f"?symbol={encoded_symbol}&extend=detail"
-        )
-        q = (data.get("data") or {}).get("quote") or {}
-        return {
-            "symbol": q.get("symbol", symbol),
-            "name": q.get("name", ""),
-            "current": q.get("current"),
-            "percent": q.get("percent"),
-            "chg": q.get("chg"),
-            "high": q.get("high"),
-            "low": q.get("low"),
-            "open": q.get("open"),
-            "last_close": q.get("last_close"),
-            "volume": q.get("volume"),
-            "amount": q.get("amount"),
-            "market_capital": q.get("market_capital"),
-            "turnover_rate": q.get("turnover_rate"),
-            "pe_ttm": q.get("pe_ttm"),
-            "pe_forecast": q.get("pe_forecast"),
-            "pb": q.get("pb"),
-            "eps": q.get("eps"),
-            "timestamp": q.get("timestamp"),
-        }
-
-    def search_stock(self, query: str, limit: int = 10) -> list:
-        """搜索股票。
-
-        Args:
-            query: 股票代码或中文名称，如 "茅台"、"600519"
-            limit: 最多返回条数
-
-        Returns a list of dicts with keys:
-          symbol, name, exchange
-        """
-        data = _get_json(
-            f"https://xueqiu.com/stock/search.json"
-            f"?code={urllib.parse.quote(query)}&size={limit}"
-        )
-        stocks = data.get("stocks") or []
-        results = []
-        for s in stocks[:limit]:
-            results.append(
-                {
-                    "symbol": s.get("code", ""),
-                    "name": s.get("name", ""),
-                    "exchange": s.get("exchange", ""),
-                }
-            )
-        return results
-
-    def get_hot_posts(self, limit: int = 20) -> list:
-        """获取雪球热门帖子。
-
-        Uses the v4 public timeline endpoint which returns posts in a `list`
-        array.  Each item carries a JSON-encoded `data` field containing the
-        actual post payload (title, description, user, like_count, target).
-
-        Args:
-            limit: 最多返回条数（上限 50）
-
-        Returns a list of dicts with keys:
-          id, title, text, author, likes, url
-        """
-        if limit < 0:
-            raise ValueError("limit must be non-negative")
-        limit = min(limit, 50)
-        if limit == 0:
-            return []
-        return _parse_hot_posts(_get_json(_HOT_POSTS_URL.format(limit=limit)), limit)
-
-    def get_hot_stocks(self, limit: int = 10, stock_type: int = 10) -> list:
-        """获取热门股票排行。
-
-        Args:
-            limit:      最多返回条数（上限 50）
-            stock_type: 10=人气榜（默认），12=关注榜
-
-        Returns a list of dicts with keys:
-          symbol, name, current, percent, rank
-        """
-        data = _get_json(
-            f"https://stock.xueqiu.com/v5/stock/hot_stock/list.json"
-            f"?size={limit}&type={stock_type}"
-        )
-        items = (data.get("data") or {}).get("items") or []
-        results = []
-        for idx, item in enumerate(items[:limit], 1):
-            results.append(
-                {
-                    "symbol": item.get("code") or item.get("symbol", ""),
-                    "name": item.get("name", ""),
-                    "current": item.get("current"),
-                    "percent": item.get("percent"),
-                    "rank": idx,
-                }
-            )
-        return results
 
     # ── unified entry backends ──
 

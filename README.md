@@ -1,11 +1,11 @@
 <h1 align="center">👁️ Agent Reach</h1>
 
 <p align="center">
-  <strong>给你的 AI Agent 一键装上互联网能力</strong>
+  <strong>让 AI Agent 够得着它自己上不去的互联网</strong>
 </p>
 
 <p align="center">
-  当下最稳的接入方式，替你选好、装好、体检好——接入方式会换代，你不用操心
+  登录墙后的平台、视频和播客里的内容、中文平台、干净的结构化数据，一条命令拿到，统一 JSON 输出
 </p>
 
 <p align="center">
@@ -57,241 +57,157 @@
 
 ## 为什么需要 Agent Reach？
 
-AI Agent 已经能帮你写代码、改文档、管项目——但你让它去网上找点东西，它就抓瞎了：
+Claude Code、Codex、Hermes Agent、OpenClaw 这类 CLI Agent 自带搜索和网页读取，但下面这些它们基本够不着：
 
-- 📺 "帮我看看这个 YouTube 教程讲了什么" → **看不了**，拿不到字幕
-- 🐦 "帮我搜一下推特上大家怎么评价这个产品" → **搜不了**，Twitter API 要付费
-- 📖 "去 Reddit 上看看有没有人遇到过同样的 bug" → **403 被封**，服务器 IP 被拒
-- 📕 "帮我看看小红书上这个品的口碑" → **打不开**，必须登录才能看
-- 📺 "B站上有个技术视频，帮我总结一下" → **拿不到**，通用下载工具被 B站风控全面拦截
-- 🔍 "帮我在网上搜一下最新的 LLM 框架对比" → **没有好用的搜索**，要么付费要么质量差
-- 🌐 "帮我看看这个网页写了啥" → **抓回来一堆 HTML 标签**，根本没法读
-- 📦 "这个 GitHub 仓库是干嘛的？Issue 里说了什么？" → 能用，但认证配置很麻烦
-- 📡 "帮我订阅这几个 RSS 源，有更新告诉我" → 要自己装库写代码
+- **要登录才能看的平台**：小红书、Twitter/X、Reddit、LinkedIn、Boss直聘……网页抓不到，或者只能看到登录页。
+- **视频和音频里的内容**：YouTube 和 B站的字幕、小宇宙播客的完整文字稿。
+- **中文平台**：B站、小红书、V2EX、雪球、小宇宙，通用搜索覆盖很差。
+- **干净的结构化数据**：雪球行情、V2EX 帖子和回复、GitHub 仓库和 issue，直接给字段，不用从 HTML 里猜。
 
-**这些不难实现，但是需要自己折腾配置**
+Agent Reach 把这些平台背后的开源工具替你装好、固定版本、定期体检，然后给 Agent 一个统一入口：
 
-每个平台都有自己的门槛——要付费的 API、要绕过的封锁、要登录的账号、要清洗的数据。你要一个一个去踩坑、装工具、调配置，光是让 Agent 能读个推特就得折腾半天。
-
-**Agent Reach 把这件事变成一句话：**
-
-```
-帮我安装 Agent Reach：https://raw.githubusercontent.com/Panniantong/agent-reach/main/docs/install.md
+```bash
+agent-reach channels                          # 有哪些渠道、每个渠道能做什么
+agent-reach bilibili search "大模型"           # agent-reach <渠道> <动作> [参数]
+agent-reach read https://www.v2ex.com/t/123   # 按链接自动选渠道
 ```
 
-复制给你的 Agent，几分钟后它就能读推特、搜 Reddit、看 YouTube、刷小红书了。
+每条命令都输出同一种 JSON，Agent 不用学每个工具的用法，也不用解析各家五花八门的输出。
 
-**已经装过了？更新也是一句话：**
-
-```
-帮我更新 Agent Reach：https://raw.githubusercontent.com/Panniantong/agent-reach/main/docs/update.md
-```
-
-> ⭐ **Star 这个项目**，我们会持续追踪各平台的变化、接入新的渠道。你不用自己盯——平台封了我们修，有新渠道我们加。
+> `web` 渠道（网页搜索和阅读）只是保底：Agent 自带的搜索或网页读取不可用、或者读失败时再用它。
 
 ### ✅ 在你用之前，你可能想知道
 
-| | |
-|---|---|
-| 💰 **完全免费** | 所有工具开源、所有 API 免费。唯一可能花钱的是服务器代理（$1/月），本地电脑不需要 |
-| 🔒 **隐私安全** | Cookie 只存在你本地，不上传不外传。代码完全开源，随时可审查 |
-| 🔄 **持续换代** | 每个平台都是「首选 + 备选」多后端路由。某个接入方式失效了，我们换下一个，你无感（2026-06 实例：yt-dlp 被 B站风控封死 → 已切换 bili-cli，用户零操作） |
-| 🤖 **兼容所有 Agent** | Claude Code、OpenClaw、Cursor、Windsurf……任何能跑命令行的 Agent 都能用 |
-| 🩺 **自带诊断** | `agent-reach doctor` 一条命令告诉你哪个通、哪个不通、怎么修 |
+- **适用于哪些 Agent？** 任何能执行命令行的 Agent。`agent-reach setup` 会把使用说明（skill）装进 Claude Code、Codex、OpenCode、OpenClaw 等的 skill 目录。
+- **要花钱吗？** 程序和后端工具都是开源免费的。只有两处可能要你自己的 Key：播客/视频转文字用 Groq（有免费额度）或 OpenAI 的 Whisper 接口。
+- **会碰我的浏览器和账号吗？** 不会读你自己浏览器里的 Cookie，也从不替你登录。需要登录的渠道，由你本人在 Agent Reach 专用浏览器里登录。详见[安全性](#安全性)。
+- **支持哪些系统？** 优先保证 macOS，Linux 可用，Windows 尽力支持。
 
 ---
 
 ## 支持的平台
 
-| 平台 | 装好即用 | 配置后解锁 | 怎么配 |
-|------|---------|-----------|-------|
-| 🌐 **网页** | 阅读任意网页 | — | 无需配置 |
-| 📺 **YouTube** | 字幕提取 + 视频搜索 | — | 无需配置 |
-| 📡 **RSS** | 阅读任意 RSS/Atom 源 | — | 无需配置 |
-| 🔍 **全网搜索** | — | 全网语义搜索 | 自动配置（MCP 接入，免费无需 Key） |
-| 📦 **GitHub** | 读公开仓库 + 搜索 | 私有仓库、提 Issue/PR、Fork | 告诉 Agent「帮我登录 GitHub」 |
-| 🐦 **Twitter/X** | 读单条推文 | 搜索推文、浏览时间线、读长文 | 告诉 Agent「帮我配 Twitter」 |
-| 📺 **B站** | 搜索 + 视频详情（bili-cli，无需登录） | 字幕（OpenCLI） | 告诉 Agent「帮我配 B站」 |
-| 📖 **Reddit** | —（没有零配置路径：匿名接口已被封） | 搜索 + 读帖子和评论 | 桌面装 OpenCLI 用浏览器登录态；或 rdt-cli + Cookie |
-| 📘 **Facebook** | — | 搜索、主页、Feed、群组列表 | 桌面装 OpenCLI（复用 Chrome 登录态） |
-| 📷 **Instagram** | — | 用户搜索、Profile、用户最近帖子、Explore | 桌面装 OpenCLI（复用 Chrome 登录态） |
-| 📕 **小红书** | — | 搜索、阅读、评论 | OpenCLI 只用用户已有 Chrome 会话；MCP/存量工具用 Cookie-Editor |
-| 💼 **LinkedIn** | Jina Reader 读公开页面 | Profile 详情、公司页面、职位搜索 | 告诉 Agent「帮我配 LinkedIn」 |
-| 🎯 **Boss直聘** | CDP 链路体检 | 搜索岗位 + JD 全文（专用真 Chrome） | 告诉 Agent「帮我配 Boss直聘」；Agent 打开专用 Chrome，你手动登录 |
-| 💻 **V2EX** | 热门帖子、节点帖子、帖子详情+回复、用户信息 | — | 无需配置 |
-| 📈 **雪球** | 股票行情、搜索股票、热门帖子、热门股票排行 | — | 告诉 Agent「帮我配雪球」 |
-| 🎙️ **小宇宙播客** | — | 播客音频转文字（Whisper 转录，免费 Key） | 告诉 Agent「帮我配小宇宙播客」 |
+`agent-reach channels` 是实时的准确来源，下表是当前版本的情况。
 
-> **不知道怎么配？不用查文档。** 直接告诉 Agent「帮我配 XXX」，它知道需要什么、会一步一步引导你。
->
-> 🍪 Twitter 只接受用户通过 Cookie-Editor 手工导出的内容。Agent Reach 不替用户执行小红书登录，也不读取小红书浏览器 Cookie；OpenCLI 只使用用户已经存在且明确控制的 Chrome 会话。`agent-reach configure xhs-cookies` 不会把 Cookie 注入 OpenCLI / Chrome；没有现成会话时，改用 Cookie-Editor 导出后配置 xiaohongshu-mcp / 存量工具。
->
-> Twitter Cookie 保存后仅供 `agent-reach doctor` 检查配置是否齐全；直接运行上游 `twitter` 命令前，仍需在当前进程环境中显式设置 `TWITTER_AUTH_TOKEN` 和 `TWITTER_CT0`。
->
-> 🔒 Cookie 只存在你本地，不上传不外传。代码完全开源，随时可审查。
-> 💻 本地电脑不需要代理。代理只有部署在服务器上才需要（~$1/月）。
+| 渠道 | 等级 | 能做什么 | 需要什么 |
+|---|---|---|---|
+| github | 默认 | 搜仓库、读仓库/README、读 issue 和 PR（含评论） | 无（装了 `gh` 或配置 token 后额度更高） |
+| youtube | 默认 | 视频信息、搜索、字幕、语音转文字 | 无；转文字需要 Groq 或 OpenAI Key |
+| v2ex | 默认 | 热门、节点、帖子和回复、用户 | 无 |
+| web | 默认 | 网页搜索、网页阅读（保底） | 无 |
+| xiaohongshu | 可选 | 搜笔记、读笔记 | 浏览器 + 登录 |
+| bilibili | 可选 | 搜索、视频信息、热门、字幕 | 字幕需要登录（扫码） |
+| reddit | 可选 | 搜索、读帖子和评论、看版块 | 浏览器 + 登录 |
+| linkedin | 可选 | 搜职位 | 登录（需要 Node.js 和 uv） |
+| boss | 可选 | 搜职位和 JD | 浏览器 + 登录（需要 git） |
+| xiaoyuzhou | 可选 | 播客完整转文字 | Groq Key + ffmpeg |
+| xueqiu | 可选 | 实时行情、搜股票、热帖、热股 | 行情免登录；热帖热股需要浏览器登录 |
+| twitter | 实验 | 搜推文、用户资料、用户推文、读推文串 | 浏览器 + 登录 |
+| facebook | 实验 | 搜索、主页资料 | 浏览器 + 登录 |
+| instagram | 实验 | 搜用户、主页资料、用户帖子 | 浏览器 + 登录 |
+
+- **默认**：装好就能用。
+- **可选**：用 `agent-reach add <渠道>` 按需开启，Agent Reach 会把它要的工具装到自己的目录里。
+- **实验**：能用，但平台反爬更严，可能随时失效。
+- **浏览器**：指 Agent Reach 专用浏览器，一个独立的 Chrome 窗口（需要已安装 Google Chrome 和 Node.js），第一次用要在里面装一个 OpenCLI 扩展，`agent-reach browser setup` 会带你完成。
 
 ---
 
 ## 快速上手
 
-> ⚠️ **OpenClaw 用户请先确认 exec 权限已开启**
->
-> Agent Reach 依赖 Agent 执行 shell 命令（`pip install`、`mcporter`、`twitter` 等）。如果你的 OpenClaw 使用了默认的 `messaging` 工具配置，Agent 将无法执行命令。**安装前请先开启 exec 权限**：
->
-> ```bash
-> openclaw config set tools.profile "coding"
-> ```
-> 或在 `~/.openclaw/openclaw.json` 中设置 `"tools": { "profile": "coding" }`。
-> 设置后重启 Gateway（`openclaw gateway restart`）并开启新对话即可。其他平台（Claude Code、Cursor、Windsurf 等）不受此限制。
-
-复制这句话给你的 AI Agent（Claude Code、OpenClaw、Cursor 等）：
+把这句话发给你的 Agent：
 
 ```
 帮我安装 Agent Reach：https://raw.githubusercontent.com/Panniantong/agent-reach/main/docs/install.md
 ```
 
-就这一步。Agent 会自己完成剩下的所有事情。
+Agent 会照着 [install.md](docs/install.md) 做完这几步：
 
-> 🔄 **已安装过？** 更新也是一句话：
-> ```
-> 帮我更新 Agent Reach：https://raw.githubusercontent.com/Panniantong/agent-reach/main/docs/update.md
-> ```
+1. 安装程序：`uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v2.0.0.zip`
+2. 运行 `agent-reach setup`：检查环境，把使用说明装进 Agent 的 skill 目录
+3. 把可选渠道列给你，你选要哪些，它运行 `agent-reach add <渠道>`
+4. 需要登录的渠道，它运行 `agent-reach login <渠道>` 打开登录页，**由你本人登录**
 
-> 🛡️ **默认安全：** `agent-reach install` 默认只检查环境，不会自动装系统包或写入配置：
-> ```
-> 帮我安全检查并安装 Agent Reach：https://raw.githubusercontent.com/Panniantong/agent-reach/main/docs/install.md
-> ```
-> 只有在你明确允许修改系统后，才使用 `agent-reach install --system`。
+> ⚠️ PyPI 上叫 `agent-reach` 的包不是本项目，请勿从 PyPI 安装，只用上面的 GitHub 地址。
 
-<details>
-<summary>它会做什么？（点击展开）</summary>
+想自己动手也一样，照着 [install.md](docs/install.md) 敲命令就行。
 
-1. **安装 CLI 工具** — 从本仓库安装 `agent-reach` 命令行（自带 yt-dlp、feedparser；不要从 PyPI 安装同名包，它不是本项目）
-2. **检查系统基建** — 检查 Node.js、gh CLI、mcporter，并给出缺失项的安装方式
-3. **按授权安装与配置** — 仅在显式传入 `--system` 时安装依赖并通过 MCP 接入 Exa
-4. **检测环境** — 判断是本地电脑还是服务器，给出对应的配置建议
-5. **按授权注册 SKILL.md** — 仅在显式 `--system` 时写入 Agent 的 skills 目录；默认检查不改文件
-6. **问你要不要更多** — 默认只激活 6 个零配置渠道；小红书、Twitter、Reddit、Facebook、Instagram 这些需要登录态的，Agent 会列菜单问你要哪些，点名才装
-
-安装完之后，`agent-reach doctor` 一条命令告诉你每个渠道的状态、当前走哪条路。
-</details>
+```mermaid
+flowchart LR
+    A[Agent] -->|agent-reach 渠道 动作| B[Agent Reach]
+    B --> C{按顺序尝试后端}
+    C -->|首选| D[上游工具 1]
+    C -->|失败时备选| E[上游工具 2]
+    D --> F[统一 JSON]
+    E --> F
+    F --> A
+```
 
 ---
 
 ## 装好就能用
 
-不需要任何配置，告诉 Agent 就行：
+装好后，日常只会用到这几条（大多由 Agent 替你运行）：
 
-- "帮我看看这个链接" → `curl https://r.jina.ai/URL` 读任意网页
-- "这个 GitHub 仓库是做什么的" → `gh repo view owner/repo`
-- "这个 YouTube 视频讲了什么" → `yt-dlp` 提取字幕
-- "B站搜一下 AI 教程" → `bili search`（无需登录）
-- "全网搜一下 LLM 框架对比" → Exa 语义搜索
-- "订阅这个 RSS" → `feedparser` 解析
+| 命令 | 作用 |
+|---|---|
+| `agent-reach doctor --text` | 看每个渠道的状态：未开启 / 待配置 / 待登录 / 未验证 / 可用 / 故障 |
+| `agent-reach check [渠道] --text` | 真实跑一遍测试，确认渠道能用 |
+| `agent-reach watch --text` | 只报告"上次还好、现在坏了"的渠道，以及有没有新版本 |
+| `agent-reach update` | 一次更新程序、后端工具和 skill，见 [update.md](docs/update.md) |
+| `agent-reach add` / `remove <渠道>` | 开启 / 关闭可选渠道 |
+| `agent-reach login` / `logout <渠道>` | 登录（你本人操作）/ 清除登录 |
+| `agent-reach configure <项> [值]` | 保存 `groq-key`、`openai-key`、`proxy`、`github-token` |
 
-**不需要记命令。** Agent 读了 SKILL.md 之后自己知道该调什么。需要登录的平台（小红书、Twitter、Reddit、Facebook、Instagram），告诉 Agent「帮我配 XXX」即可解锁。
+出错时，JSON 里的 `error.code` 会告诉 Agent 下一步该做什么。每种错误和状态的处理办法见 [troubleshooting.md](docs/troubleshooting.md)。
 
 ---
 
 ## 设计理念
 
-**Agent Reach 是一个能力层（capability layer），不是又一个工具。**
-
-它比任何具体实现高一层——负责**选型、安装、体检、路由**，不负责底层读取本身。读取由 Agent 直接调用上游工具完成，没有包装层。
-
-你给一个新 Agent 装环境的时候，总要花时间去找工具、装依赖、调配置——Twitter 用什么读？Reddit 怎么登录？小红书的 CLI 停更了换什么？每次都要重新踩一遍。Agent Reach 做的事情很简单：**当下最稳的接入方式，我们替你选好、装好、体检好。接入方式会换代（2026 年 3 月一批单平台 CLI 集体停更，我们换了路由），你不用操心。**
-
 ### 🔌 每个平台 = 首选 + 备选的有序后端列表
 
-换接入方式 = 调整列表顺序，不是重写代码。`agent-reach doctor` 会告诉你每个平台**当前在用哪个后端**。
+每个渠道的每个动作都有一个有序的后端列表。比如 `bilibili read` 先用 bili-cli，失败了自动换 B站公开接口；`web read` 先用 Jina Reader，再用 Exa。返回的 JSON 里 `backend` 字段会写明这次实际用的是谁。
 
+平台改版、工具失效是常态。换后端只是调整这个列表，Agent 的调用方式不变。
+
+### 📌 固定版本，私有安装
+
+Agent Reach 装的工具（OpenCLI、bili-cli、boss-agent-cli、mcporter）都固定在验证过的版本，装在 `~/.agent-reach/tools/` 里，不污染你的全局环境。`agent-reach update` 会把它们一起更新到新版本验证过的版本。
+
+### 🩺 能用要靠实测
+
+`doctor` 只做离线检查；`check` 会真的去平台上请求一次。一个渠道只有通过实测才会标为"可用"。
+
+### 统一输出
+
+所有 Agent 命令都输出一个 JSON：
+
+```json
+{"schema_version": 1, "ok": true, "channel": "v2ex", "action": "hot", "backend": "v2ex-api",
+ "items": [{"title": "...", "url": "...", "text": "..."}], "meta": {}, "error": null}
 ```
-channels/
-├── web.py          → Jina Reader
-├── twitter.py      → twitter-cli ▸ OpenCLI ▸ bird
-├── youtube.py      → yt-dlp
-├── github.py       → gh CLI
-├── bilibili.py     → bili-cli ▸ OpenCLI ▸ 搜索 API（yt-dlp 已被 B站风控封死，退役）
-├── reddit.py       → OpenCLI ▸ rdt-cli（无零配置路径，必须登录态）
-├── facebook.py     → OpenCLI（桌面浏览器登录态）
-├── instagram.py    → OpenCLI（桌面浏览器登录态）
-├── xiaohongshu.py  → OpenCLI ▸ xiaohongshu-mcp ▸ xhs-cli
-├── linkedin.py     → mcp-server-linkedin ▸ Jina Reader
-├── rss.py          → feedparser
-├── exa_search.py   → Exa via mcporter
-└── __init__.py     → 渠道注册（doctor 检测用）
-```
 
-每个渠道文件按序**真实探测**各候选后端（不只是看命令存不存在），第一个完整可用的当选；坏掉的会给出修复处方。实际的读取和搜索由 Agent 直接调用上游工具完成。
-
-### 当前选型
-
-| 场景 | 首选 | 备选 | 为什么这么选 |
-|------|------|------|-----------|
-| 读网页 | [Jina Reader](https://github.com/jina-ai/reader) | — | 免费，不需要 API Key |
-| 读推特 | [twitter-cli](https://github.com/public-clis/twitter-cli) | [OpenCLI](https://github.com/jackwener/opencli) | 实测搜索稳定；OpenCLI 走浏览器登录态兜底 |
-| Reddit | [OpenCLI](https://github.com/jackwener/opencli)（桌面） | [rdt-cli](https://github.com/public-clis/rdt-cli) | 匿名接口已被封、官方 API 审批制——只剩登录态路线 |
-| Facebook | [OpenCLI](https://github.com/jackwener/opencli)（桌面） | — | Graph API/Groups API 权限收紧；浏览器登录态是当前最实用路径 |
-| Instagram | [OpenCLI](https://github.com/jackwener/opencli)（桌面） | 官方 Graph API（Business/Creator + 审批） | instaloader 类路径不稳定；OpenCLI 复用真实浏览器会话 |
-| YouTube 字幕 + 搜索 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | — | 154K Star，YouTube 仍是最佳（注意：不再用于 B站） |
-| B站 | [bili-cli](https://github.com/public-clis/bilibili-cli) | OpenCLI ▸ 搜索 API | yt-dlp 被 B站风控 412 封死（2026-06 实测），bili-cli 无登录可搜可读 |
-| 搜全网 | [Exa](https://exa.ai) via [mcporter](https://github.com/nicobailon/mcporter) | — | AI 语义搜索，MCP 接入免 Key |
-| GitHub | [gh CLI](https://cli.github.com) | — | 官方工具，认证后完整 API 能力 |
-| 读 RSS | [feedparser](https://github.com/kurtmckee/feedparser) | — | Python 生态标准选择 |
-| 小红书 | [OpenCLI](https://github.com/jackwener/opencli)（桌面） | [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp)（服务器）▸ xhs-cli | OpenCLI 只用用户已有会话；其余后端用 Cookie-Editor 手工导出 |
-| LinkedIn | [mcp-server-linkedin](https://github.com/stickerdaniel/linkedin-mcp-server) | Jina Reader | MCP 服务，浏览器自动化 |
-
-> 📌 这些都是「当前选型」，基于真机实测定期复核。某条路失效了我们换下一条——`agent-reach doctor` 永远告诉你现在走的是哪条。
+失败时 `ok` 为 `false`，`error` 里有 `code`（`NEED_SETUP` / `NEED_LOGIN` / `UPSTREAM_BROKEN` / `TIMEOUT` / `RATE_LIMITED` / `NOT_FOUND` / `BAD_INPUT`）、`message` 和给 Agent 的 `hint`。
 
 ---
 
 ## 安全性
 
-Agent Reach 在设计上重视安全：
-
-| 措施 | 说明 |
-|------|------|
-| 🔒 **凭据本地存储** | Cookie、Token 只存在你本机 `~/.agent-reach/config.yaml`，文件权限 600（仅所有者可读写），不上传不外传 |
-| 🛡️ **默认安全** | `agent-reach install` 默认不修改系统；只有显式 `--system` 才安装外部工具和写入配置 |
-| 👀 **完全开源** | 代码透明，随时可审查。所有依赖工具也是开源项目 |
-| 🔍 **Dry Run** | `agent-reach install --dry-run` 预览所有操作，不做任何改动 |
-| 🧩 **可插拔架构** | 不信任某个组件？换掉对应的 channel 文件即可，不影响其他 |
-
-### 🍪 Cookie 安全建议
-
-> ⚠️ **封号风险提醒：** 使用 Cookie 登录的平台（Twitter、小红书等），通过脚本/API 调用**存在被平台检测并封号的风险**。请务必使用**专用小号**，不要用你的主账号。
-
-需要 Cookie 或登录态的平台（Twitter、小红书、Reddit、Facebook、Instagram 等）建议使用**专用小号**，不要用主账号。原因有二：
-1. **封号风险** — 平台可能检测到非正常浏览器的 API 调用行为，导致账号被限制或封禁
-2. **安全风险** — Cookie 等同于完整登录权限，用小号可以在凭据泄露时限制影响范围
-
-### 📦 安装方式
-
-| 方式 | 命令 | 适合场景 |
-|------|------|---------|
-| 默认安全检查 | `agent-reach install --env=auto` | 所有环境；只读检查并列出缺失项 |
-| 显式安装系统依赖 | `agent-reach install --env=auto --system` | 你明确允许修改当前机器时 |
-| 兼容安全参数 | `agent-reach install --env=auto --safe` | 与默认行为相同 |
-| 仅预览 | `agent-reach install --env=auto --dry-run` | 先看看会做什么 |
+- **所有东西都在 `~/.agent-reach/` 下**：`config.yaml`（Key 和代理）、`state.json`、`tools/`（私有工具）、`sessions/`（命令行工具的登录状态）、`browser/`（专用浏览器的资料目录）、`mcporter.json`。
+- **从不替你登录，也不读你自己浏览器的 Cookie。** 需要登录的渠道，由你本人在 Agent Reach 专用浏览器或工具自己的登录流程（比如 B站扫码）里完成。
+- **专用浏览器的调试端口只监听本机**（127.0.0.1:9222），但本机任何程序都能通过它控制这个浏览器。不用的时候请关掉那个窗口。
+- **建议用小号登录。** 平台可能限制自动化访问的账号，别拿主账号冒险。
+- **API Key 不要发在聊天里**：在你自己的终端运行 `agent-reach configure groq-key`，会隐藏输入。
 
 ### 🗑️ 卸载
 
 ```bash
-agent-reach uninstall
+agent-reach uninstall --dry-run   # 先看会删哪些东西
+agent-reach uninstall             # 删除 Agent Reach 装的工具、登录、配置和 skill
 ```
 
-会清除：`~/.agent-reach/`（含所有 token/cookie）、各 Agent 的 skill 文件、mcporter 中的 MCP 配置。
-
-```bash
-# 只预览，不实际删除
-agent-reach uninstall --dry-run
-
-# 只删 skill 文件，保留 token 配置（重装时用）
-agent-reach uninstall --keep-config
-```
-
-卸载 Python 包本身：`pip uninstall agent-reach`
+卸载前先关掉 Agent Reach 专用浏览器。命令最后会告诉你怎么卸载程序本身（比如 `uv tool uninstall agent-reach`）。
 
 ---
 
@@ -311,7 +227,7 @@ Star 一下，下次需要的时候能找到。⭐
 
 ## 致谢
 
-[OpenCLI](https://github.com/jackwener/opencli) · [twitter-cli](https://github.com/public-clis/twitter-cli) · [rdt-cli](https://github.com/public-clis/rdt-cli) · [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) · [xhs-cli](https://github.com/jackwener/xiaohongshu-cli) · [bili-cli](https://github.com/public-clis/bilibili-cli) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [Jina Reader](https://github.com/jina-ai/reader) · [Exa](https://exa.ai) · [mcporter](https://github.com/nicobailon/mcporter) · [feedparser](https://github.com/kurtmckee/feedparser) · [mcp-server-linkedin](https://github.com/stickerdaniel/linkedin-mcp-server)
+[OpenCLI](https://github.com/jackwener/opencli) · [bili-cli](https://github.com/public-clis/bilibili-cli) · [boss-agent-cli](https://github.com/can4hou6joeng4/boss-agent-cli) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [Jina Reader](https://github.com/jina-ai/reader) · [Exa](https://exa.ai) · [mcporter](https://github.com/nicobailon/mcporter) · [mcp-server-linkedin](https://github.com/stickerdaniel/linkedin-mcp-server)
 
 ## 联系
 
