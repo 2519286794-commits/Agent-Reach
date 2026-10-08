@@ -245,7 +245,7 @@ def opencli_call(site: str, args, *, timeout: float, login_hint: str = ""):
 
 def opencli_items(rows) -> list:
     """Map OpenCLI result rows to unified items, keeping each row in `raw`."""
-    from agent_reach.runtime.result import make_item
+    from agent_reach.runtime.result import make_item, unix_to_iso
 
     if isinstance(rows, dict):
         rows = rows.get("items") or rows.get("data") or [rows]
@@ -268,7 +268,11 @@ def opencli_items(rows) -> list:
                 title=pick("title", "name"),
                 url=pick("url", "link", "note_url"),
                 author=pick("author", "user", "nickname", "username"),
-                published_at=pick("published_at", "created_at", "time", "date"),
+                published_at=(
+                    unix_to_iso(r.get("created_utc"))
+                    if isinstance(r.get("created_utc"), (int, float))
+                    else pick("published_at", "created_at", "time", "date")
+                ),
                 text=pick("content", "text", "desc", "description", "body"),
                 raw=r,
             )

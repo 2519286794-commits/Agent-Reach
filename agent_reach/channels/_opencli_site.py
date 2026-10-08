@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Shared channel helper for OpenCLI browser-session-only platforms."""
 
+from agent_reach.backends.opencli import opencli_call, opencli_items
+from agent_reach.runtime.result import NOT_FOUND, UPSTREAM_BROKEN, ReachError
 from agent_reach.utils.url import host_matches
 
 from .base import Channel
@@ -45,3 +47,18 @@ class OpenCLISiteChannel(Channel):
                 f"需要时请先在 Chrome 里登录 {self.login_hint}"
             )
         return "warn", st.hint
+
+    # ── unified entry helper ──
+
+    def _opencli(self, args, timeout: float, *, empty_is_error: bool = True) -> list:
+        """Run one OpenCLI command for this site and return unified items."""
+        hint = (
+            f"Ask the user to log in to {self.login_hint} in their own Chrome (the one "
+            "with the OpenCLI extension). Never log in for them."
+        )
+        items = opencli_items(opencli_call(self.site, list(args), timeout=timeout, login_hint=hint))
+        if not items:
+            if empty_is_error:
+                raise ReachError(UPSTREAM_BROKEN, "OpenCLI returned nothing; the page most likely did not load")
+            raise ReachError(NOT_FOUND, "nothing found")
+        return items

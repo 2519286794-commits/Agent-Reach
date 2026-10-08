@@ -14,12 +14,27 @@ import shutil
 import time
 from pathlib import Path
 
+from agent_reach.backends.opencli import opencli_call, opencli_items
+from agent_reach.runtime.result import BAD_INPUT, UPSTREAM_BROKEN, ReachError
 from agent_reach.utils.paths import (
     PrivatePathError,
     read_small_text_no_follow,
 )
 
-from .base import Channel
+from .base import Action, Channel, Param
+
+_REDDIT_LOGIN_HINT = (
+    "Ask the user to log in to reddit.com in their own Chrome (the one with the "
+    "OpenCLI extension). Never log in or read browser cookies for them."
+)
+
+
+def _reddit(args, timeout: float) -> list:
+    items = opencli_items(opencli_call("reddit", list(args), timeout=timeout, login_hint=_REDDIT_LOGIN_HINT))
+    if not items:
+        raise ReachError(UPSTREAM_BROKEN, "OpenCLI returned nothing; the page most likely did not load")
+    return items
+
 
 _CREDENTIAL_FILE = "~/.config/rdt-cli/credential.json"
 _CREDENTIAL_TTL_SECONDS = 7 * 86400
@@ -27,11 +42,42 @@ _MAX_CREDENTIAL_BYTES = 1024 * 1024
 # Pinned to the 0.4.2 state — PyPI still only has 0.4.1 (upstream issue #10).
 _RDT_GIT_SOURCE = "git+https://github.com/public-clis/rdt-cli.git@5e4fb3720d5c174e976cd425ccc3b879d52cac66"
 
+
 class RedditChannel(Channel):
     name = "reddit"
     description = "Reddit 帖子和评论"
     backends = ["OpenCLI", "rdt-cli"]
     tier = 1  # no zero-config path exists — see module docstring
+
+    level = "optional"
+    actions = (
+        Action(
+            "search",
+            "Search posts",
+            (
+                Param("query", "what to search for"),
+                Param("limit", "max results", required=False, type=int, default=5),
+            ),
+            (("opencli", "_opencli_search"),),
+            live_test={"query": "python", "limit": 2},
+        ),
+        Action(
+            "read",
+            "Read a post and its top comments",
+            (Param("target", "post link or id"),),
+            (("opencli", "_opencli_read"),),
+        ),
+        Action(
+            "subreddit",
+            "Latest posts in a subreddit",
+            (
+                Param("name", "subreddit name without r/, e.g. python"),
+                Param("limit", "max posts", required=False, type=int, default=5),
+            ),
+            (("opencli", "_opencli_subreddit"),),
+            live_test={"name": "python", "limit": 2},
+        ),
+    )
 
     def can_handle(self, url: str) -> bool:
         from agent_reach.utils.url import host_matches
@@ -149,3 +195,23 @@ class RedditChannel(Channel):
             '"modhash": null, "saved_at": 0, "last_verified_at": null}\n\n'
             "Doctor 不会运行会自动读取浏览器并写文件的 `rdt status`。"
         )
+
+    # ── unified entry backends ──
+
+    def _opencli_search(self, *, query: str, limit: int, timeout: float) -> list:
+        return _reddit(["search", query, "--limit", str(limit)], timeout)[:limit]
+
+    def _opencli_read(self, *, target: str, timeout: float) -> list:
+        t = str(target).strip()
+        if not (self.can_handle(t) or t.isalnum()):
+            raise ReachError(BAD_INPUT, "target must be a reddit.com post link or post id")
+        items = _reddit(["read", t, "--limit", "20"], timeout)
+        post, comments = items[0], items[1:]
+        if comments:
+            lines = [post["text"] or ""] + [f"\n@{c['author'] or ''}: {c['text'] or ''}" for c in comments]
+            post["text"] = "\n".join(lines).strip()
+            post["raw"] = {"post": post["raw"], "comments": [c["raw"] for c in comments]}
+        return [post]
+
+    def _opencli_subreddit(self, *, name: str, limit: int, timeout: float) -> list:
+        return _reddit(["subreddit", name.removeprefix("r/"), "--limit", str(limit)], timeout)[:limit]
