@@ -20,6 +20,7 @@ class XiaoyuzhouChannel(Channel):
 
     level = "optional"
     prereqs = ("ffmpeg",)
+    needs_key = "groq-key"
 
     def setup_problems(self):
         if os.environ.get("GROQ_API_KEY") or Config(read_only=True).get("groq_api_key"):

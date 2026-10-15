@@ -71,6 +71,8 @@ class Channel(ABC):
     prereqs: Tuple[str, ...] = ()
     #: Config keys `agent-reach logout` clears.
     logout_keys: Tuple[str, ...] = ()
+    #: `agent-reach configure` key the user must provide before the channel works ("" = none).
+    needs_key: str = ""
     #: Run login_argv / tool calls with HOME = the session dir. False when the tool
     #: takes an explicit path instead (login_argv may use the `{session}` placeholder).
     session_home: bool = True

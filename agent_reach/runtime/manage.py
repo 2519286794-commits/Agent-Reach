@@ -489,7 +489,8 @@ def setup() -> dict:
         prereqs[p] = {"ok": ok, **({} if ok else {"hint": PREREQS[p]["hint"]})}
     optional = [
         {"channel": c.name, "level": c.level, "add": f"agent-reach add {c.name}",
-         "needs": list(c.prereqs) + (["login"] if (c.login_url or c.login_argv) else [])}
+         "needs": list(c.prereqs) + (["login"] if (c.login_url or c.login_argv) else [])
+                  + ([c.needs_key] if c.needs_key else [])}
         for c in _channels() if c.level != "default"
     ]
     return {
