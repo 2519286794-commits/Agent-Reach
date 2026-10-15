@@ -280,7 +280,8 @@ def test_sync_upgrades_prunes_drops_and_reports(env):
     data["tools"]["old-tool"] = {"owner": "agent-reach", "scope": "private", "version": "0.1.0"}
     data["tools"]["user-thing"] = {"owner": "user", "scope": "global", "version": "1.0.0"}
     data["channels"]["gone"] = {"added_at": "2026-01-01T00:00:00Z"}
-    data["checks"]["bili"] = {"at": state.now(), "actions": {"search": False}, "codes": {"search": "NEED_LOGIN"}}
+    data["checks"]["bili"] = {"at": state.now(), "actions": {"search": False}, "codes": {"search": "NEED_LOGIN"},
+                              "previous": {"search": True}}
     state.save(data)
     (tools.tool_dir("old-tool") / "bin").mkdir(parents=True)
     env["versions"]["bili-cli"] = "2.0.0"
@@ -291,7 +292,16 @@ def test_sync_upgrades_prunes_drops_and_reports(env):
     assert env["installs"].count("bili-cli") == 2, "shared tools upgrade once per sync"
     assert out["dropped_channels"] == ["gone"] and "gone" not in state.load()["channels"]
     assert any("gone" in a for a in out["user_actions"])
-    assert any("log in to bili" in a for a in out["user_actions"])
+    assert any("log in to bili" in a for a in out["user_actions"]), "a login that worked before and now fails"
+
+
+def test_sync_does_not_ask_to_log_in_again_when_never_logged_in(env):
+    manage.add("bili")
+    data = state.load()
+    data["checks"]["bili"] = {"at": state.now(), "actions": {"search": False}, "codes": {"search": "NEED_LOGIN"},
+                              "previous": {}}
+    state.save(data)
+    assert not any("log in" in a for a in manage.sync()["user_actions"])
 
 
 @pytest.mark.parametrize("latest, available", [("v2.0.1", True), ("v2.0.0", False), ("v1.9.9", False)])

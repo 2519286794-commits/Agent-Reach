@@ -659,7 +659,9 @@ def sync() -> dict:
             actions.append(_sentence(f"{c.name}: {err.hint or err.message}"))
         actions += [_sentence(f"{c.name}: {p}") for p in c.setup_problems()]
         check = data["checks"].get(c.name) or {}
-        if "NEED_LOGIN" in (check.get("codes") or {}).values():
+        previous = check.get("previous") or {}
+        expired = [a for a, code in (check.get("codes") or {}).items() if code == "NEED_LOGIN" and previous.get(a)]
+        if expired:
             actions.append(f"The user needs to log in to {c.name} again: run `agent-reach login {c.name}`.")
     return {"version": __version__, "tools": synced, "problems": problems, "removed_tools": _prune(state.load()),
             "dropped_channels": dropped, "user_actions": actions, "skill": place_skill(), "migration": migration}
