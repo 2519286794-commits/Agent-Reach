@@ -102,7 +102,7 @@ def env(monkeypatch):
         version = versions.get(tool.name, "1.2.3")
         if tool.kind in ("pip", "ffmpeg"):
             shutil.rmtree(tools.tool_dir(tool.name) / "venv", ignore_errors=True)  # as the real installer
-        paths = ([tools._npm_global_bin() / c for c in tool.commands] if global_
+        paths = ([tools._npm_global_bin() / (c + (".cmd" if tools._WIN else "")) for c in tool.commands] if global_
                  else [tools._private_bin(tool, c) for c in tool.commands])
         for p in paths:
             _fake_exe(p, version)
