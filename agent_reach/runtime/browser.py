@@ -445,10 +445,14 @@ def is_running() -> bool:
 
 
 def _detach_kwargs() -> dict:
+    # Run from our own folder: `python -m` puts the cwd first on sys.path, so a stray
+    # agent_reach/ folder where the user ran the command would shadow the installed package.
+    root = browser_root()
+    make_private_dir(root)
     if os.name == "nt":
-        return {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-                | subprocess.CREATE_NO_WINDOW}
-    return {"start_new_session": True}
+        return {"cwd": str(root), "creationflags": subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+    return {"cwd": str(root), "start_new_session": True}
 
 
 def _launch(url: str) -> None:
