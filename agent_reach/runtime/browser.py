@@ -140,8 +140,9 @@ def touch() -> None:
     """Record an Agent Reach use of the browser (resets the idle timer)."""
     make_private_dir(browser_root())
     path = _last_used_path()
-    if not path.exists():
-        atomic_write_private_text(path, "")
+    # Create-if-missing without a rename: concurrent callers on Windows cannot replace a file another one holds.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    os.close(fd)
     os.utime(path)
 
 

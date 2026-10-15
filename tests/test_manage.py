@@ -78,6 +78,15 @@ def _fake_exe(path, version):
     path.chmod(0o755)
 
 
+def _fake_version(exe):
+    """What `<exe> --version` prints for a _fake_exe; read instead of run so it works on Windows."""
+    try:
+        m = re.search(r"echo (\S+)", open(exe, encoding="utf-8").read())
+    except (OSError, TypeError):
+        return None
+    return m.group(1) if m else None
+
+
 @pytest.fixture
 def env(monkeypatch):
     monkeypatch.setenv("PATH", os.environ.get("PATH", ""))  # cli.main extends PATH; restore it
@@ -85,6 +94,7 @@ def env(monkeypatch):
     monkeypatch.setattr(manage, "_channels", lambda: chans)
     system = {}  # command -> path the "user's PATH" has
     monkeypatch.setattr(tools.shutil, "which", lambda c, *a, **k: system.get(c))
+    monkeypatch.setattr(tools, "_command_version", _fake_version)
     installs, versions = [], {}
 
     def fake_install(tool, *, global_=False):
@@ -97,7 +107,8 @@ def env(monkeypatch):
         for p in paths:
             _fake_exe(p, version)
         if tool.kind in ("pip", "ffmpeg"):
-            site = tools.tool_dir(tool.name) / "venv" / "lib" / "python3.12" / "site-packages"
+            venv = tools.tool_dir(tool.name) / "venv"
+            site = venv / "Lib" / "site-packages" if tools._WIN else venv / "lib" / "python3.12" / "site-packages"
             dist = re.sub(r"[-_.]+", "_", tools._dist_name(tool))
             (site / f"{dist}-{version}.dist-info").mkdir(parents=True, exist_ok=True)
         if tool.kind == "npm" and not global_:
@@ -539,7 +550,7 @@ def test_skill_replaces_our_old_copy_but_not_a_foreign_one(env):
     _seed_our_copy(native_old)
     result = manage.place_skill()
     assert ours.is_symlink()
-    assert not foreign.is_symlink() and "someone-else" in (foreign / "SKILL.md").read_text()
+    assert not foreign.is_symlink() and "someone-else" in (foreign / "SKILL.md").read_text(encoding="utf-8")
     assert [n["agent"] for n in result["not_linked"]] == ["cursor"]
     assert not native_old.exists() and result["removed_old_copies"] == [str(native_old)]
 
@@ -558,7 +569,7 @@ def test_skill_falls_back_to_a_copy_without_symlink_rights(env, monkeypatch):
     assert result["copies"] == [str(copy)] and result["links"] == []
     (copy / "SKILL.md").write_text("---\nname: agent-reach\n---\nstale\n")
     manage.place_skill()
-    assert "stale" not in (copy / "SKILL.md").read_text(), "update refreshes recorded copies"
+    assert "stale" not in (copy / "SKILL.md").read_text(encoding="utf-8"), "update refreshes recorded copies"
     manage.uninstall()
     assert not copy.exists()
 

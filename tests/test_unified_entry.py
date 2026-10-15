@@ -356,6 +356,7 @@ def fake_browser(monkeypatch, tmp_path):
     from agent_reach.runtime import browser
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(browser, "can_load_extension", lambda: True)  # the macOS/Linux path; Windows has its own test
     state = {"contexts": ["daily"], "running": True, "opened": [], "launches": 0, "launch_delay": 0.0,
              "watched": False}
 

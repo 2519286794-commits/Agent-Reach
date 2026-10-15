@@ -6,6 +6,7 @@ import os
 import stat
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -67,6 +68,18 @@ def make_private_dir(path: str | Path) -> Path:
     return target
 
 
+def _replace(src: Path, dst: Path) -> None:
+    """os.replace; on Windows retry briefly while another process has `dst` open."""
+    for attempt in range(20):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == 19:
+                raise
+            time.sleep(0.05)
+
+
 def atomic_write_private_text(
     path: str | Path,
     text: str,
@@ -105,7 +118,7 @@ def atomic_write_private_text(
 
         ensure_no_symlink_path(parent, "父目录")
         ensure_no_symlink_path(target, "目标文件")
-        os.replace(tmp_path, target)
+        _replace(tmp_path, target)
 
         if os.name != "nt" and hasattr(os, "O_DIRECTORY"):
             try:
