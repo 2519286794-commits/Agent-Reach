@@ -50,7 +50,7 @@ def _bvid(target: str, timeout: float) -> str:
     raise ReachError(BAD_INPUT, "target must be a BV id or a bilibili.com / b23.tv video link")
 
 
-def _bili_json(args: list, timeout: float) -> dict:
+def _bili_json(args: list, timeout: float):  # returns dict or list depending on the subcommand
     """Run bili-cli with --json; map its error envelope to unified codes."""
     try:
         out = run_cmd(["bili", *args, "--json"], timeout=timeout, env=session_env("bili-cli"))

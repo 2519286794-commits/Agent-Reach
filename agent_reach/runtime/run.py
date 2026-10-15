@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import urllib.request
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
@@ -60,7 +61,7 @@ def run_cmd(
     try:
         out, err = proc.communicate(timeout=max(timeout, 0.1))
     except subprocess.TimeoutExpired:
-        if os.name != "nt":
+        if sys.platform != "win32":
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
