@@ -43,7 +43,10 @@ def _opencli_error(text: str, login_hint: str):
 
 
 def _dedicated_profile_env() -> dict:
-    """OPENCLI_PROFILE for the Agent Reach browser; fail fast instead of letting OpenCLI hang."""
+    """OPENCLI_PROFILE for the Agent Reach browser, opening the browser if it is closed.
+
+    Fails fast with NEED_SETUP when the browser was never set up, instead of letting OpenCLI hang.
+    """
     from agent_reach.runtime import browser
     from agent_reach.runtime.result import NEED_SETUP, ReachError
 
@@ -53,16 +56,7 @@ def _dedicated_profile_env() -> dict:
             NEED_SETUP, "the Agent Reach browser is not set up",
             hint="Ask the user to run `agent-reach browser setup` and install the OpenCLI extension in the window it opens.",
         )
-    if not browser.is_running():
-        raise ReachError(
-            NEED_SETUP, "the Agent Reach browser is not running",
-            hint="Run `agent-reach browser start` (or ask the user to), then retry.",
-        )
-    if ctx not in browser.connected_contexts():
-        raise ReachError(
-            NEED_SETUP, "the Agent Reach browser is running but OpenCLI is not connected to it",
-            hint="Ask the user to check the OpenCLI extension is enabled in the Agent Reach browser window.",
-        )
+    browser.ensure_running(ctx)
     return {"OPENCLI_PROFILE": ctx}
 
 

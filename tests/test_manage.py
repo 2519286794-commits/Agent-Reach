@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Management commands: private installs, add/remove, doctor, watch, uninstall, update, skill."""
+"""Management commands: private installs, add/remove, setup, doctor, uninstall, update, skill."""
 
 import json
+import os
 
 import pytest
 
@@ -59,8 +60,10 @@ def env(monkeypatch):
             b.write_text("")
 
     monkeypatch.setattr(tools, "_install", fake_install)
+    stopped = []
     monkeypatch.setattr(browser, "is_running", lambda: False)
-    return {"chans": chans, "installs": installs}
+    monkeypatch.setattr(browser, "stop", lambda: stopped.append(True), raising=False)
+    return {"chans": chans, "installs": installs, "stopped": stopped}
 
 
 # ── private installs ──
@@ -124,7 +127,7 @@ def test_default_channels_cannot_be_removed(env):
         manage.remove("web")
 
 
-# ── doctor / watch ──
+# ── doctor ──
 
 
 def _status(name):
@@ -156,17 +159,54 @@ def test_doctor_reports_missing_tool_as_needs_setup(env, monkeypatch):
     assert _status("bili") == "needs_setup"
 
 
-def test_watch_reports_only_what_broke_since_last_check(env, monkeypatch):
-    monkeypatch.setattr(manage, "update_check", lambda quiet=False: {"update_available": False})
+def test_check_without_names_tests_only_default_and_added_channels(env):
     manage.add("bili")
-    assert manage.watch()["all_good"] is True
+    tested = {r["channel"] for r in manage.run_checks()["results"]}
+    assert tested == {"web", "bili"}
+
+
+def test_doctor_marks_regressed_only_when_the_previous_check_passed(env):
+    manage.add("bili")
+    manage.run_checks(["bili"])
+    assert _doctor("bili")["regressed"] is False
     Bili.passes = False
     try:
-        result = manage.watch()
-        assert result["regressions"] == [{"channel": "bili", "action": "search"}]
-        assert manage.watch()["regressions"] == [], "an already-broken channel is not reported again"
+        manage.run_checks(["bili"])
+        assert _doctor("bili")["regressed"] is True
+        manage.run_checks(["bili"])
+        assert _doctor("bili")["regressed"] is False, "an already-broken channel is not a regression"
     finally:
         Bili.passes = True
+
+
+def _doctor(name):
+    return next(c for c in manage.doctor()["channels"] if c["channel"] == name)
+
+
+# ── setup ──
+
+
+class Broken(_Base):
+    name, level, actions, tools = "broken", "default", _actions(), ("bili-cli",)
+    login_argv = ("bili", "login")
+
+
+def test_setup_adds_default_channels_and_survives_a_failing_install(env, monkeypatch):
+    env["chans"].append(Broken())
+
+    def failing_install(tool, *, global_=False):
+        raise ReachError("UPSTREAM_BROKEN", "install failed: no network")
+
+    monkeypatch.setattr(tools, "_install", failing_install)
+    result = manage.setup()
+    by_name = {c["channel"]: c for c in result["default_channels"]}
+    assert set(by_name) == {"web", "broken"}
+    assert by_name["web"]["ok"] is True
+    assert by_name["broken"]["ok"] is False and by_name["broken"]["error"]["code"] == "UPSTREAM_BROKEN"
+    assert result["prerequisites"] == {}, "only prerequisites of default channels are reported"
+    assert result["logins"] == [{"channel": "broken", "command": "agent-reach login broken"}]
+    assert {c["channel"] for c in result["optional_channels"]} == {"bili", "bili2", "needy"}
+    assert result["skill"]["installed"] is True
 
 
 # ── uninstall ──
@@ -181,16 +221,16 @@ def test_uninstall_removes_only_what_we_own(env):
     dry = manage.uninstall(dry_run=True)
     assert (root / "state.json").exists(), "dry run changes nothing"
     assert str(tools.tool_dir("bili-cli")) in dry["removed"]
+    assert env["stopped"] == []
     manage.uninstall()
     assert not (root / "state.json").exists() and not (root / "config.yaml").exists()
     assert not tools.tool_dir("bili-cli").exists()
     assert (root / "my-notes").exists() and (root / "tools" / "someone-elses-tool").exists()
 
 
-def test_uninstall_refuses_while_browser_open(env, monkeypatch):
-    monkeypatch.setattr(browser, "is_running", lambda: True)
-    with pytest.raises(ReachError):
-        manage.uninstall()
+def test_uninstall_closes_the_browser_instead_of_refusing(env):
+    manage.uninstall()
+    assert env["stopped"] == [True]
 
 
 # ── update ──
@@ -213,10 +253,19 @@ def test_update_check_compares_versions(monkeypatch, latest, available):
     assert manage.update_check()["update_available"] is available
 
 
-@pytest.mark.parametrize("method, head", [("uv", ["uv", "tool"]), ("pipx", ["pipx", "install"])])
-def test_upgrade_uses_the_same_installer_as_the_original_install(method, head):
-    cmd = manage.upgrade_command(method, "2.0.1")
-    assert cmd[:2] == head and cmd[-1].endswith("/v2.0.1.zip")
+def test_upgrade_reinstalls_the_release_with_uv():
+    cmd = manage.upgrade_command("2.0.1")
+    assert cmd[:4] == ["uv", "tool", "install", "--force"] and cmd[-1].endswith("/v2.0.1.zip")
+
+
+def test_update_from_a_non_uv_install_asks_for_one_uv_reinstall(monkeypatch):
+    monkeypatch.setattr(manage, "update_check", lambda: {"current": "2.0.0", "latest": "2.0.1",
+                                                         "update_available": True})
+    monkeypatch.setattr(manage, "install_method", lambda: "other")
+    monkeypatch.setattr(manage.subprocess, "run", lambda *a, **k: pytest.fail("must not run an installer"))
+    with pytest.raises(ReachError) as info:
+        manage.update()
+    assert "uv tool install --force" in info.value.hint
 
 
 # ── skill ──
@@ -230,12 +279,78 @@ def test_skill_lists_every_channel_and_has_no_placeholders(env):
             assert f"| {ch.name} |" in text
 
 
-def test_skill_install_replaces_old_instructions(env):
-    old = home_dir() / ".claude" / "skills" / "agent-reach"
-    (old / "references").mkdir(parents=True)
-    (old / "references" / "social.md").write_text("old")
-    assert str(old) in manage.install_skill()
-    assert (old / "SKILL.md").exists() and not (old / "references").exists()
+def _seed_our_copy(path):
+    path.mkdir(parents=True)
+    (path / "SKILL.md").write_text("---\nname: agent-reach\ndescription: old\n---\nold\n")
+    (path / "references").mkdir()
+
+
+def test_skill_one_real_copy_linked_only_for_present_ais(env):
+    home = home_dir()
+    for d in (".claude", ".codex", ".openclaw"):
+        (home / d).mkdir()
+    result = manage.place_skill()
+    real = home / ".agents" / "skills" / "agent-reach"
+    assert (real / "SKILL.md").is_file()
+    for link in (home / ".claude" / "skills" / "agent-reach", home / ".openclaw" / "skills" / "agent-reach"):
+        assert link.is_symlink() and os.path.realpath(link) == os.path.realpath(real)
+    assert not (home / ".codex" / "skills").exists(), "codex reads ~/.agents/skills itself"
+    assert not (home / ".cursor").exists(), "absent AIs get nothing"
+    assert set(result["agents"]) == {"claude-code", "codex", "openclaw"}
+    assert len(state.load()["skill"]["links"]) == 2
+
+
+def test_skill_replaces_our_old_copy_but_not_a_foreign_one(env):
+    home = home_dir()
+    ours = home / ".claude" / "skills" / "agent-reach"
+    _seed_our_copy(ours)
+    foreign = home / ".cursor" / "skills" / "agent-reach"
+    foreign.mkdir(parents=True)
+    (foreign / "SKILL.md").write_text("---\nname: someone-else\n---\n")
+    native_old = home / ".codex" / "skills" / "agent-reach"
+    _seed_our_copy(native_old)
+    result = manage.place_skill()
+    assert ours.is_symlink()
+    assert not foreign.is_symlink() and "someone-else" in (foreign / "SKILL.md").read_text()
+    assert [n["agent"] for n in result["not_linked"]] == ["cursor"]
+    assert not native_old.exists() and result["removed_old_copies"] == [str(native_old)]
+
+
+def test_skill_falls_back_to_a_copy_without_symlink_rights(env, monkeypatch):
+    home = home_dir()
+    (home / ".claude").mkdir()
+
+    def no_symlinks(self, *a, **k):
+        raise OSError("symlinks not permitted")
+
+    monkeypatch.setattr(type(home), "symlink_to", no_symlinks)
+    result = manage.place_skill()
+    copy = home / ".claude" / "skills" / "agent-reach"
+    assert not copy.is_symlink() and (copy / "SKILL.md").is_file()
+    assert result["copies"] == [str(copy)] and result["links"] == []
+    (copy / "SKILL.md").write_text("---\nname: agent-reach\n---\nstale\n")
+    manage.place_skill()
+    assert "stale" not in (copy / "SKILL.md").read_text(), "update refreshes recorded copies"
+    manage.uninstall()
+    assert not copy.exists()
+
+
+def test_skill_link_for_an_unlisted_ai_and_uninstall_removes_everything(env):
+    home = home_dir()
+    (home / ".claude").mkdir()
+    manage.place_skill()
+    other = home / "my-ai" / "skills"
+    manage.link_skill(str(other))
+    assert (other / "agent-reach").is_symlink()
+    stray = home / ".gemini" / "skills" / "agent-reach"
+    stray.parent.mkdir(parents=True)
+    stray.symlink_to(home / ".agents" / "skills" / "agent-reach")
+    manage.place_skill()
+    assert (other / "agent-reach").is_symlink(), "update keeps recorded links"
+    manage.uninstall()
+    for p in (other / "agent-reach", home / ".claude" / "skills" / "agent-reach", stray,
+              home / ".agents" / "skills" / "agent-reach"):
+        assert not p.exists() and not p.is_symlink()
 
 
 # ── configure ──

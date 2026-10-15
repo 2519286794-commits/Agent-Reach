@@ -80,7 +80,7 @@ Every command prints the same JSON shape, so the agent doesn't have to learn eac
 
 ### ✅ Before you start, you might want to know
 
-- **Which agents?** Any agent that can run shell commands. `agent-reach setup` installs the usage instructions (a skill) into the skill folders of Claude Code, Codex, OpenCode, OpenClaw and others.
+- **Which agents?** Any agent that can run shell commands. `agent-reach setup` places one copy of the usage instructions (a skill) that Codex, OpenCode and others read directly, and links it into the skill folders of Claude Code, OpenClaw, Cursor and others when they are installed.
 - **Does it cost money?** The program and its backends are open source and free. The only keys you may need are for speech-to-text: Groq (has a free tier) or OpenAI Whisper.
 - **Does it touch my browser or accounts?** It never reads your own browser's cookies and never logs in for you. For login channels, you log in yourself in the dedicated Agent Reach browser. See [Security](#security).
 - **Which OS?** macOS first, Linux works, Windows best effort.
@@ -97,8 +97,8 @@ Every command prints the same JSON shape, so the agent doesn't have to learn eac
 | youtube | default | video info, search, subtitles, speech-to-text | nothing; speech-to-text needs a Groq or OpenAI key |
 | v2ex | default | hot topics, nodes, topics with replies, users | nothing |
 | web | default | web search, page reading (fallback) | nothing |
+| bilibili | default | search, video info, trending, subtitles | nothing; subtitles need a login (QR scan) |
 | xiaohongshu | optional | search notes, read a note | browser + login |
-| bilibili | optional | search, video info, trending, subtitles | subtitles need a login (QR scan) |
 | reddit | optional | search, read posts with comments, browse a subreddit | browser + login |
 | linkedin | optional | job search | login (needs Node.js and uv) |
 | boss | optional | job and JD search | browser + login (needs git) |
@@ -111,7 +111,7 @@ Every command prints the same JSON shape, so the agent doesn't have to learn eac
 - **default**: works right after install.
 - **optional**: turn on with `agent-reach add <channel>`; Agent Reach installs the tools it needs into its own folder.
 - **experimental**: works, but the platform fights automation harder and it can break at any time.
-- **browser**: the Agent Reach browser, a separate Chrome window (needs Google Chrome and Node.js). The first time, you add the OpenCLI extension to it; `agent-reach browser setup` walks you through it.
+- **browser**: the Agent Reach browser, a separate Chrome window (needs Google Chrome and Node.js). The first time, you add the OpenCLI extension to it; `agent-reach browser setup` walks you through it. After that it opens by itself when needed (the first open takes about 40 seconds) and closes after 10 minutes without use.
 
 ---
 
@@ -123,14 +123,18 @@ Send this to your agent:
 Install Agent Reach: https://raw.githubusercontent.com/Panniantong/agent-reach/main/docs/install.md
 ```
 
-The agent follows [install.md](install.md):
+The agent does the rest by following [install.md](install.md). Along the way you may be asked to:
 
-1. Install the program: `uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v2.0.0.zip`
-2. Run `agent-reach setup`: checks prerequisites and installs the skill for your agent
-3. Shows you the optional channels; for the ones you pick it runs `agent-reach add <channel>`
-4. For login channels it runs `agent-reach login <channel>` to open the login page, and **you log in yourself**
+- **Let it run commands**: if the agent says it can't run commands, turn on command execution in its settings.
+- **Allow installing uv**: uv is a small tool that installs command-line programs; no admin password needed. The agent installs it first if it's missing and tells you.
+- **Pick optional channels**: afterwards the agent tells you what works now (web, YouTube, GitHub, V2EX, Bilibili) and what else you can add and what each needs. Pick now, or later just say "add Xiaohongshu".
 
-> ⚠️ The PyPI package named `agent-reach` is NOT this project. Don't install it from PyPI; use the GitHub URL above.
+The only thing you do yourself is log in; the agent never logs in for you and never asks for your password:
+
+- Xiaohongshu, Reddit, Twitter and the like: log in yourself in the Agent Reach browser.
+- Bilibili: subtitles need a QR-scan login; search and video info work without it.
+
+> ⚠️ The PyPI package named `agent-reach` is NOT this project. Don't install it from PyPI; use the GitHub URL in install.md.
 
 Prefer doing it by hand? Run the commands in [install.md](install.md) yourself.
 
@@ -147,19 +151,20 @@ flowchart LR
 
 ---
 
-## Works Out of the Box
+## After Install: Managing It
 
-After install these are the commands you'll see (your agent usually runs them for you):
+Just tell your agent in plain words; it runs the command for you:
 
-| Command | What it does |
-|---|---|
-| `agent-reach doctor --text` | status of every channel: not_added / needs_setup / needs_login / unverified / ready / broken |
-| `agent-reach check [channel] --text` | run live tests to confirm a channel works |
-| `agent-reach watch --text` | report only what broke since the last check, and whether an update is out |
-| `agent-reach update` | update the program, its tools and the skill in one go, see [update.md](update.md) |
-| `agent-reach add` / `remove <channel>` | turn an optional channel on / off |
-| `agent-reach login` / `logout <channel>` | log in (you do it) / forget the login |
-| `agent-reach configure <key> [value]` | save `groq-key`, `openai-key`, `proxy`, `github-token` |
+| You say | Agent runs | What it does |
+|---|---|---|
+| "How is Agent Reach doing?" | `agent-reach doctor --text` | status of every channel: not_added / needs_setup / needs_login / unverified / ready / broken, and which ones broke since the last check |
+| "Add Xiaohongshu" / "Remove Xiaohongshu" | `agent-reach add` / `remove <channel>` | turn a channel on / off; after adding, `agent-reach login <channel>` |
+| "My Bilibili login expired" / "Log out" | `agent-reach login` / `logout <channel>` | log in (you do it) / forget the login |
+| "Upgrade Agent Reach" | `agent-reach update` | update the program, its tools and the skill in one go, see [update.md](update.md) |
+| "Uninstall Agent Reach" | `agent-reach uninstall` | see Uninstall under Security below |
+| "Let my other AI use it too" | `agent-reach skill link <its skills folder>` | link the instructions for an AI not covered automatically |
+
+Also: `agent-reach check [channel] --text` runs live tests; `agent-reach configure <key>` saves `groq-key`, `openai-key`, `proxy`, `github-token`.
 
 When something fails, `error.code` in the JSON tells the agent what to do next. Every error code and status is explained in [troubleshooting.md](troubleshooting.md).
 
@@ -196,9 +201,9 @@ On failure `ok` is `false` and `error` holds a `code` (`NEED_SETUP` / `NEED_LOGI
 
 ## Security
 
-- **Everything lives under `~/.agent-reach/`**: `config.yaml` (keys and proxy), `state.json`, `tools/` (private tool installs), `sessions/` (logins of CLI tools), `browser/` (the dedicated browser profile), `mcporter.json`.
+- **Everything lives under `~/.agent-reach/`**: `config.yaml` (keys and proxy), `state.json`, `tools/` (private tool installs), `sessions/` (logins of CLI tools), `browser/` (the dedicated browser profile), `mcporter.json`. The one exception is the skill: one copy in `~/.agents/skills/agent-reach/`, with only links to it in other AIs' skill folders.
 - **Agent Reach never logs in for you and never reads your own browser's cookies.** For login channels you log in yourself, in the Agent Reach browser or in the tool's own login flow (e.g. Bilibili QR scan).
-- **The Agent Reach browser's debugging port listens on loopback only** (127.0.0.1:9222), but any local process can use it to control that browser. Close the window when you're not using it.
+- **The Agent Reach browser's debugging port listens on loopback only** (127.0.0.1:9222), but while it is open any local process can use it to control that browser. That's why it closes itself after 10 minutes without use.
 - **Use a secondary account for login channels.** Platforms may restrict accounts used for automated access.
 - **Don't paste API keys into chat**: run `agent-reach configure groq-key` in your own terminal; input is hidden.
 

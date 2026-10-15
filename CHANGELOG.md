@@ -14,24 +14,27 @@ v2 是重构版本：Agent 只调一个命令 `agent-reach`，Agent Reach 装的
 ### ✨ New / 新增
 
 - **Unified entry / 统一入口**: `agent-reach <channel> <action>`, `agent-reach read <url>`, `agent-reach channels`. One JSON envelope per call, unified error codes with hints, per-call timeout, automatic fallback to the next backend.
-- **Management / 管理命令**: `setup`, `add` / `remove <channel>`, `login` / `logout <channel>`, `doctor`, `check`, `watch`, `update`, `configure`, `uninstall`.
+- **Management / 管理命令**: `setup`, `add` / `remove <channel>`, `login` / `logout <channel>`, `doctor`, `check`, `skill`, `skill link <dir>`, `update`, `configure`, `uninstall`.
+- **One-step setup / 一步装好**: `setup` adds every default channel through the same path as `add` (bili-cli goes into `~/.agent-reach/tools/`) and reports what works, which AIs can read the skill, optional channels and optional logins. / `setup` 用和 `add` 同一套逻辑开启全部默认渠道，并汇报哪些能用、哪些 AI 能读到 skill、可选渠道和可选登录。
+- **Skill placement / skill 放置**: one real copy at `~/.agents/skills/agent-reach/SKILL.md` (read directly by Codex, OpenCode, Cline, Warp, Zed); a link to it in the skill folder of Claude Code, OpenClaw, Hermes, Cursor, Gemini CLI, GitHub Copilot and Windsurf when installed (a copy where links are not allowed, e.g. Windows). `agent-reach skill link <dir>` covers any other AI. / 只放一份真文件，其他 AI 的 skill 目录里放指向它的链接（链接：一个指向原文件的快捷方式）。
 - **Private, pinned upstream installs / 上游私有安装**: tools go into `~/.agent-reach/tools/` at versions we tested; the user's own copies are untouched. Single-instance tools (OpenCLI) reuse the user's copy and are upgraded only with `--allow-upgrade`.
-- **Login state under `~/.agent-reach/` / 登录状态统一管理**: CLI tool logins in `sessions/`, browser logins in a dedicated Agent Reach browser (`agent-reach browser setup`). Agent Reach never logs in for the user and never reads the user's own browser cookies.
-- **doctor states / 体检**: not_added, needs_setup, needs_login, unverified, ready, broken. `watch` reports only what broke since the last check.
-- **update** upgrades the program with its original installer, syncs tools to pinned versions and refreshes the agent skill. Pre-2.0 installs are migrated on first `setup` / `update`; `config.yaml` keys are kept.
+- **Login state under `~/.agent-reach/` / 登录状态统一管理**: CLI tool logins in `sessions/`, browser logins in a dedicated Agent Reach browser (`agent-reach browser setup` once). The browser opens by itself when a channel needs it and closes after 10 minutes without use. Agent Reach never logs in for the user and never reads the user's own browser cookies. / 专用浏览器按需自动打开，10 分钟不用自动关闭。
+- **doctor states / 体检**: not_added, needs_setup, needs_login, unverified, ready, broken; plus `regressed` per channel (passed in the previous check, fails in the latest).
+- **update** runs `uv tool install --force` on the latest release, syncs tools to pinned versions and refreshes the skill. uv is the only supported installer. Pre-2.0 installs are migrated on first `setup` / `update`; `config.yaml` keys are kept.
 - Xueqiu quotes and stock search via Tencent public quotes (no login); Xueqiu community data uses a session the user imports with `agent-reach login xueqiu --sync`.
 - YouTube `transcribe`; LinkedIn uses its own MCP registration in `~/.agent-reach/mcporter.json`.
 
 ### 🔄 Changed / 变更
 
-- Default channels: web (fallback only), YouTube, GitHub, V2EX. Optional: 小红书, B站, Reddit, LinkedIn, Boss直聘, 小宇宙, 雪球. Experimental: Twitter, Facebook, Instagram.
+- Default channels: web (fallback only), YouTube, GitHub, V2EX, B站. Optional: 小红书, Reddit, LinkedIn, Boss直聘, 小宇宙, 雪球. Experimental: Twitter, Facebook, Instagram.
 - The agent skill is generated from the channel list and replaced on every update.
 
 ### 🗑️ Removed / 移除
 
 - RSS channel (agents read feeds themselves).
 - xhs-cli, rdt-cli, twitter-cli backends: they read browser cookies by themselves.
-- `configure --from-browser`, `twitter-cookies`, `xhs-cookies`, the old `install --channels`, `skill`, `format`, `check-update`, MCP server entry.
+- `configure --from-browser`, `twitter-cookies`, `xhs-cookies`, the old `install --channels`, the old `skill --install`, `format`, `check-update`, MCP server entry.
+- `watch` (use `doctor`, which now reports `regressed`), `doctor --live` (use `check`), `browser start` (the browser opens by itself), pipx installs.
 
 ### 🐛 Bug Fixes / 修复
 

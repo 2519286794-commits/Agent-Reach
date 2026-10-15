@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Boss直聘 — boss-agent-cli drives the Agent Reach browser over CDP (127.0.0.1:9222).
 
-headless is off-limits (triggers code 36 risk control), so search only runs
-against the already-running Agent Reach browser with the user's own login.
+headless is off-limits (triggers code 36 risk control), so search runs against
+the Agent Reach browser with the user's own login (opened on demand).
 
 Two login stores, both required:
 - the session under ~/.agent-reach/sessions/boss-agent-cli/ (`boss login --cdp`
@@ -12,7 +12,6 @@ Two login stores, both required:
 """
 
 import json
-import socket
 
 from agent_reach.runtime.result import (
     NEED_LOGIN,
@@ -61,15 +60,15 @@ class BossChannel(Channel):
     # ── unified entry backends ──
 
     def _cli_search(self, *, query: str, city, limit: int, timeout: float) -> list:
-        with socket.socket() as s:
-            s.settimeout(1)
-            cdp_up = s.connect_ex(("127.0.0.1", 9222)) == 0
-        if not cdp_up:
+        from agent_reach.runtime import browser
+
+        if not (browser.is_running() or browser.profile_dir().is_dir()):
             raise ReachError(
                 NEED_SETUP,
-                "the Agent Reach browser (port 9222) is not running",
+                "the Agent Reach browser has never been opened",
                 hint="Run `agent-reach login boss`, let the user log in to zhipin.com in that window, then run `agent-reach login boss --sync`.",
             )
+        browser.ensure_running()
         args = ["boss", "--json", "--browser-source", "existing-browser", "--cdp-url", _CDP_URL, "search", query]
         if city:
             args += ["--city", city]

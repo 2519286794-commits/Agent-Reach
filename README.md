@@ -78,7 +78,7 @@ agent-reach read https://www.v2ex.com/t/123   # 按链接自动选渠道
 
 ### ✅ 在你用之前，你可能想知道
 
-- **适用于哪些 Agent？** 任何能执行命令行的 Agent。`agent-reach setup` 会把使用说明（skill）装进 Claude Code、Codex、OpenCode、OpenClaw 等的 skill 目录。
+- **适用于哪些 Agent？** 任何能执行命令行的 Agent。`agent-reach setup` 会放一份使用说明（skill，就是告诉 AI 怎么用 Agent Reach 的说明文件），Codex、OpenCode 等直接能读到；Claude Code、OpenClaw、Cursor 等装了的话，会在它们的 skill 目录里放一个指向这份说明的链接（相当于快捷方式）。
 - **要花钱吗？** 程序和后端工具都是开源免费的。只有两处可能要你自己的 Key：播客/视频转文字用 Groq（有免费额度）或 OpenAI 的 Whisper 接口。
 - **会碰我的浏览器和账号吗？** 不会读你自己浏览器里的 Cookie，也从不替你登录。需要登录的渠道，由你本人在 Agent Reach 专用浏览器里登录。详见[安全性](#安全性)。
 - **支持哪些系统？** 优先保证 macOS，Linux 可用，Windows 尽力支持。
@@ -95,8 +95,8 @@ agent-reach read https://www.v2ex.com/t/123   # 按链接自动选渠道
 | youtube | 默认 | 视频信息、搜索、字幕、语音转文字 | 无；转文字需要 Groq 或 OpenAI Key |
 | v2ex | 默认 | 热门、节点、帖子和回复、用户 | 无 |
 | web | 默认 | 网页搜索、网页阅读（保底） | 无 |
+| bilibili | 默认 | 搜索、视频信息、热门、字幕 | 无；字幕需要登录（扫码） |
 | xiaohongshu | 可选 | 搜笔记、读笔记 | 浏览器 + 登录 |
-| bilibili | 可选 | 搜索、视频信息、热门、字幕 | 字幕需要登录（扫码） |
 | reddit | 可选 | 搜索、读帖子和评论、看版块 | 浏览器 + 登录 |
 | linkedin | 可选 | 搜职位 | 登录（需要 Node.js 和 uv） |
 | boss | 可选 | 搜职位和 JD | 浏览器 + 登录（需要 git） |
@@ -109,7 +109,7 @@ agent-reach read https://www.v2ex.com/t/123   # 按链接自动选渠道
 - **默认**：装好就能用。
 - **可选**：用 `agent-reach add <渠道>` 按需开启，Agent Reach 会把它要的工具装到自己的目录里。
 - **实验**：能用，但平台反爬更严，可能随时失效。
-- **浏览器**：指 Agent Reach 专用浏览器，一个独立的 Chrome 窗口（需要已安装 Google Chrome 和 Node.js），第一次用要在里面装一个 OpenCLI 扩展，`agent-reach browser setup` 会带你完成。
+- **浏览器**：指 Agent Reach 专用浏览器，一个独立的 Chrome 窗口（需要已安装 Google Chrome 和 Node.js）。第一次用要在里面装一个 OpenCLI 扩展，`agent-reach browser setup` 会带你完成。之后需要时它会自己打开（第一次打开大约要 40 秒），10 分钟没用就自动关掉。
 
 ---
 
@@ -121,14 +121,18 @@ agent-reach read https://www.v2ex.com/t/123   # 按链接自动选渠道
 帮我安装 Agent Reach：https://raw.githubusercontent.com/Panniantong/agent-reach/main/docs/install.md
 ```
 
-Agent 会照着 [install.md](docs/install.md) 做完这几步：
+剩下的 Agent 会照着 [install.md](docs/install.md) 自己做完。过程中你可能会被问到：
 
-1. 安装程序：`uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v2.0.0.zip`
-2. 运行 `agent-reach setup`：检查环境，把使用说明装进 Agent 的 skill 目录
-3. 把可选渠道列给你，你选要哪些，它运行 `agent-reach add <渠道>`
-4. 需要登录的渠道，它运行 `agent-reach login <渠道>` 打开登录页，**由你本人登录**
+- **允许它执行命令**：如果 Agent 说自己不能运行命令，去它的设置里打开"允许执行命令"。
+- **装 uv**：uv 是一个安装命令行程序的小工具，不需要管理员密码。电脑上没有的话 Agent 会先装它，会跟你说一声。
+- **要不要加可选渠道**：装完后 Agent 会告诉你哪些已经能用（网页、YouTube、GitHub、V2EX、B站），以及还能加哪些、各自需要什么。你选了再加，也可以以后随时说"帮我加上小红书"。
 
-> ⚠️ PyPI 上叫 `agent-reach` 的包不是本项目，请勿从 PyPI 安装，只用上面的 GitHub 地址。
+需要你本人做的只有登录，Agent 从不替你登录，也不会要你的密码：
+
+- 小红书、Reddit、Twitter 等：在 Agent Reach 专用浏览器里自己登录。
+- B站：字幕要扫码登录；不登录也能搜索和看视频信息。
+
+> ⚠️ PyPI 上叫 `agent-reach` 的包不是本项目，请勿从 PyPI 安装，只用 install.md 里的 GitHub 地址。
 
 想自己动手也一样，照着 [install.md](docs/install.md) 敲命令就行。
 
@@ -145,19 +149,20 @@ flowchart LR
 
 ---
 
-## 装好就能用
+## 装好之后怎么管
 
-装好后，日常只会用到这几条（大多由 Agent 替你运行）：
+直接用大白话跟 Agent 说就行，它会替你运行对应的命令：
 
-| 命令 | 作用 |
-|---|---|
-| `agent-reach doctor --text` | 看每个渠道的状态：未开启 / 待配置 / 待登录 / 未验证 / 可用 / 故障 |
-| `agent-reach check [渠道] --text` | 真实跑一遍测试，确认渠道能用 |
-| `agent-reach watch --text` | 只报告"上次还好、现在坏了"的渠道，以及有没有新版本 |
-| `agent-reach update` | 一次更新程序、后端工具和 skill，见 [update.md](docs/update.md) |
-| `agent-reach add` / `remove <渠道>` | 开启 / 关闭可选渠道 |
-| `agent-reach login` / `logout <渠道>` | 登录（你本人操作）/ 清除登录 |
-| `agent-reach configure <项> [值]` | 保存 `groq-key`、`openai-key`、`proxy`、`github-token` |
+| 你说 | Agent 运行 | 作用 |
+|---|---|---|
+| "看看 Agent Reach 状态" | `agent-reach doctor --text` | 每个渠道的状态：未开启 / 待配置 / 待登录 / 未验证 / 可用 / 故障，并标出"上次还好、现在坏了"的渠道 |
+| "加上小红书" / "去掉小红书" | `agent-reach add` / `remove <渠道>` | 开启 / 关闭渠道，加完再 `agent-reach login <渠道>` |
+| "B站登录过期了" / "退出登录" | `agent-reach login` / `logout <渠道>` | 登录（你本人操作）/ 清除登录 |
+| "升级 Agent Reach" | `agent-reach update` | 一次更新程序、后端工具和 skill，见 [update.md](docs/update.md) |
+| "卸载 Agent Reach" | `agent-reach uninstall` | 见下面"安全性"里的卸载说明 |
+| "让另一个 AI 也能用" | `agent-reach skill link <它的 skill 目录>` | 给不在自动名单里的 AI 也放一个说明链接 |
+
+其他：`agent-reach check [渠道] --text` 真实跑一遍测试；`agent-reach configure <项>` 保存 `groq-key`、`openai-key`、`proxy`、`github-token`。
 
 出错时，JSON 里的 `error.code` 会告诉 Agent 下一步该做什么。每种错误和状态的处理办法见 [troubleshooting.md](docs/troubleshooting.md)。
 
@@ -194,9 +199,9 @@ Agent Reach 装的工具（OpenCLI、bili-cli、boss-agent-cli、mcporter）都�
 
 ## 安全性
 
-- **所有东西都在 `~/.agent-reach/` 下**：`config.yaml`（Key 和代理）、`state.json`、`tools/`（私有工具）、`sessions/`（命令行工具的登录状态）、`browser/`（专用浏览器的资料目录）、`mcporter.json`。
+- **所有东西都在 `~/.agent-reach/` 下**：`config.yaml`（Key 和代理）、`state.json`、`tools/`（私有工具）、`sessions/`（命令行工具的登录状态）、`browser/`（专用浏览器的资料目录）、`mcporter.json`。唯一例外是使用说明：一份放在 `~/.agents/skills/agent-reach/`，其他 AI 的 skill 目录里只放指向它的链接。
 - **从不替你登录，也不读你自己浏览器的 Cookie。** 需要登录的渠道，由你本人在 Agent Reach 专用浏览器或工具自己的登录流程（比如 B站扫码）里完成。
-- **专用浏览器的调试端口只监听本机**（127.0.0.1:9222），但本机任何程序都能通过它控制这个浏览器。不用的时候请关掉那个窗口。
+- **专用浏览器的调试端口只监听本机**（127.0.0.1:9222），但它开着时本机任何程序都能通过它控制这个浏览器。所以它 10 分钟没用就会自动关掉。
 - **建议用小号登录。** 平台可能限制自动化访问的账号，别拿主账号冒险。
 - **API Key 不要发在聊天里**：在你自己的终端运行 `agent-reach configure groq-key`，会隐藏输入。
 

@@ -102,14 +102,6 @@ class Config:
     CONFIG_DIR = home_dir() / ".agent-reach"
     CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
-    # Feature → required config keys
-    FEATURE_REQUIREMENTS = {
-        "exa_search": ["exa_api_key"],
-        "twitter_xreach": ["twitter_auth_token", "twitter_ct0"],  # legacy key name; used by twitter-cli
-        "groq_whisper": ["groq_api_key"],
-        "openai_whisper": ["openai_api_key"],
-        "github_token": ["github_token"],
-    }
 
     def __init__(
         self,
@@ -196,38 +188,3 @@ class Config:
                 self.data[key] = previous
             raise
 
-    def is_configured(self, feature: str) -> bool:
-        """Check if a feature has all required config."""
-        required = self.FEATURE_REQUIREMENTS.get(feature, [])
-        return all(self.get(k) for k in required)
-
-    def get_configured_features(self) -> dict:
-        """Return status of all optional features."""
-        return {
-            feature: self.is_configured(feature)
-            for feature in self.FEATURE_REQUIREMENTS
-        }
-
-    def to_dict(self) -> dict:
-        """Return config as dict (masks sensitive values)."""
-        sensitive_markers = (
-            "key",
-            "token",
-            "password",
-            "proxy",
-            "cookie",
-            "secret",
-            "session",
-            "sessdata",
-            "csrf",
-            "auth",
-            "cred",
-            "ct0",
-        )
-        masked = {}
-        for k, v in self.data.items():
-            if any(s in k.lower() for s in sensitive_markers):
-                masked[k] = "[REDACTED]" if v else None
-            else:
-                masked[k] = v
-        return masked

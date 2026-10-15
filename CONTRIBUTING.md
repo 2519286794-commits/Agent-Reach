@@ -40,6 +40,16 @@ Rules:
 - Everything a channel stores lives under `~/.agent-reach/`.
 - Don't install anything globally; add the tool to `runtime.tools.TOOLS` with a pinned version.
 
+## Dependency locking
+
+Use `constraints.txt` with the development install to keep local and CI dependencies reproducible:
+
+```bash
+python -m pip install -c constraints.txt -e ".[dev]"
+```
+
+When changing dependency ranges, validate compatible versions, update the pinned entries in `constraints.txt`, then run `pytest -q`, `ruff check agent_reach tests`, and `mypy agent_reach`. Include dependency and validation notes in the pull request.
+
 ## Before merging a channel
 
 A new or changed channel must pass a live check on your machine:

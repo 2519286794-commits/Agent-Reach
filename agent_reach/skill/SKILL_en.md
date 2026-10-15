@@ -50,6 +50,20 @@ Results:
 
 `default` channels work right away; others need `agent-reach add <channel>` first.
 
-## Management commands (for the user)
+## Browser
 
-`agent-reach setup` (first run) · `add` / `remove <channel>` · `login` / `logout <channel>` · `doctor` · `update` · `uninstall`
+Xiaohongshu, Reddit, Twitter, Boss Zhipin, Xueqiu hot posts and similar channels use the dedicated Agent Reach browser. It opens by itself; you never start it. The first open can take about 40 seconds, so don't treat that as a hang. It closes after 10 minutes without use.
+
+## When the user wants to manage Agent Reach
+
+| User asks | You run |
+|---|---|
+| Status / what works | `agent-reach doctor --text` (for a live test, `agent-reach check --text`) |
+| Add a platform ("add Xiaohongshu") | `agent-reach add <channel>`, follow `result.next`, then `agent-reach login <channel>` so the user logs in |
+| Login expired | `agent-reach login <channel>` (the user logs in) |
+| Remove a platform / log out | `agent-reach remove <channel>` / `agent-reach logout <channel>` |
+| Upgrade / update | `agent-reach update` |
+| Uninstall | show `agent-reach uninstall --dry-run` first, then `agent-reach uninstall` once they confirm |
+| Another AI should use it | `agent-reach skill link <that AI's skills folder>`; `agent-reach skill` shows where it is placed now |
+
+First install: `agent-reach setup`.

@@ -1,12 +1,12 @@
 """Unified entry for Agent Reach.
 
 Agent commands:      <channel> <action>, read <url>, channels
-Management commands: setup, add, remove, login, logout, browser, doctor, check,
-                     watch, update, uninstall, configure, version
+Management commands: setup, add, remove, login, logout, browser, skill, doctor,
+                     check, update, uninstall, configure, version
 
 Everything prints one JSON object to stdout so agents never parse prose; logs
 go to stderr. Exit code 0 = ok, 1 = error. Exceptions for humans: `help`, and
-`--text` on doctor / check / watch. `login` shows the upstream's interactive
+`--text` on doctor / check. `login` shows the upstream's interactive
 output (QR codes, prompts) on stderr so stdout still carries only the JSON.
 """
 
@@ -36,7 +36,7 @@ from .result import (
 from .sessions import clear_session, has_login_state, import_legacy_state, session_env
 
 _MANAGEMENT = (
-    "setup", "add", "remove", "update", "doctor", "watch", "uninstall", "configure", "version",
+    "setup", "add", "remove", "update", "doctor", "uninstall", "configure", "version",
 )
 
 HELP = """agent-reach — internet access for AI agents (all output is JSON)
@@ -47,13 +47,13 @@ For agents:
   agent-reach read <url>                  read a link with the matching channel
 
 For the user:
-  agent-reach setup                       first run: check prerequisites, install the agent skill
+  agent-reach setup                       first run: install the default channels and the agent skill
   agent-reach add|remove <channel>        install / remove an optional channel
   agent-reach login|logout <channel>      log in (the user does it) / forget the login
-  agent-reach browser setup|start|status  the Agent Reach browser for browser-login channels
-  agent-reach doctor [--live] [--text]    status of every channel
+  agent-reach browser setup|status        the Agent Reach browser for browser-login channels
+  agent-reach skill [link <skills-dir>]   where the agent skill is; link it for another AI
+  agent-reach doctor [--text]             status of every channel (no network)
   agent-reach check [channel] [--text]    live-test channels
-  agent-reach watch [--text]              report only what broke since last check, and updates
   agent-reach update [--check]            upgrade Agent Reach, its tools and the skill
   agent-reach configure <key> [value]     groq-key | openai-key | proxy | github-token
   agent-reach uninstall [--dry-run]       remove everything Agent Reach installed
@@ -62,7 +62,7 @@ For the user:
 
 def unified_channels() -> List[Channel]:
     """Channels exposed on the command line."""
-    return [ch for ch in get_all_channels() if ch.level]
+    return get_all_channels()
 
 
 def _channel(name: str) -> Optional[Channel]:
@@ -231,36 +231,31 @@ def _cmd_doctor(args: Sequence[str]) -> int:
     from . import manage
 
     parser = _Parser(prog="doctor", add_help=False)
-    parser.add_argument("--live", action="store_true")
     parser.add_argument("--text", action="store_true")
     try:
         ns = parser.parse_args(list(args))
     except _ArgError as exc:
         return _bad_input(None, "doctor", str(exc))
     if not ns.text:
-        return _mgmt("doctor", manage.doctor, live=ns.live)
-    result = manage.doctor(live=ns.live)
+        return _mgmt("doctor", manage.doctor)
+    result = manage.doctor()
     sys.stdout.write(f"Agent Reach {result['version']}\n\n")
     for c in result["channels"]:
         extra = "; ".join(c["problems"]) or c.get("hint", "")
+        if c["regressed"]:
+            extra = f"REGRESSED (worked at the previous check) {extra}"
         sys.stdout.write(f"{c['status']:<12} {c['channel']:<12} {c['level']:<13} {extra}\n")
     return 0
 
 
-def _cmd_watch(args: Sequence[str]) -> int:
+def _cmd_skill(args: Sequence[str]) -> int:
     from . import manage
 
-    if "--text" not in args:
-        return _mgmt("watch", manage.watch)
-    result = manage.watch()
-    if result["all_good"]:
-        sys.stdout.write("Agent Reach: all good\n")
-        return 0
-    for r in result["regressions"]:
-        sys.stdout.write(f"BROKEN  {r['channel']} {r['action']} (worked at the previous check)\n")
-    if result["update"].get("update_available"):
-        sys.stdout.write(f"UPDATE  {result['update']['current']} -> {result['update']['latest']}: run `agent-reach update`\n")
-    return 1
+    if not args:
+        return _mgmt("skill", manage.skill_status)
+    if args[0] != "link" or len(args) != 2:
+        return _bad_input(None, "skill", "usage: agent-reach skill [link <skills-dir>]")
+    return _mgmt("skill link", manage.link_skill, args[1])
 
 
 def _cmd_management(head: str, args: Sequence[str]) -> int:
@@ -421,16 +416,15 @@ def _cmd_browser(args: Sequence[str]) -> int:
     from agent_reach.backends.opencli import OPENCLI_EXTENSION_URL
 
     parser = _Parser(prog="browser", add_help=False)
-    parser.add_argument("op", choices=("setup", "start", "status"))
+    parser.add_argument("op", choices=("setup", "status"))
     try:
         ns = parser.parse_args(list(args))
     except _ArgError as exc:
-        return _bad_input(None, "browser", f"{exc}; usage: agent-reach browser setup|start|status")
+        return _bad_input(None, "browser", f"{exc}; usage: agent-reach browser setup|status")
     action = f"browser {ns.op}"
     try:
-        if ns.op == "start":
-            browser.start()
-        elif ns.op == "setup":
+        if ns.op == "setup":
+            browser.touch()
             result = browser.bind()
             if result["status"] == "waiting_for_extension":
                 browser.start(OPENCLI_EXTENSION_URL)
@@ -469,8 +463,8 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_browser(rest)
     if head == "doctor":
         return _cmd_doctor(rest)
-    if head == "watch":
-        return _cmd_watch(rest)
+    if head == "skill":
+        return _cmd_skill(rest)
     if head in _MANAGEMENT:
         return _cmd_management(head, rest)
     channel = _channel(head)

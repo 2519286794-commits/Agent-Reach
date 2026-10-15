@@ -3,11 +3,11 @@
 
 import json
 
+from agent_reach.backends.mcporter import configured_server_names
 from agent_reach.runtime.result import NEED_SETUP, UPSTREAM_BROKEN, ReachError, make_item
 from agent_reach.runtime.run import CommandFailed, run_cmd
 
 from .base import Action, Channel, Param
-from .mcporter import configured_server_names
 
 _LINKEDIN_MCP_VERSION = "4.26.2"
 

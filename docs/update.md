@@ -8,26 +8,24 @@ agent-reach update
 
 One command does everything:
 
-- upgrades the program with the installer you used (uv or pipx) to the latest GitHub release
+- upgrades the program to the latest GitHub release (`uv tool install --force <release zip>`)
 - moves the tools of your added channels to the versions pinned by that release
-- refreshes the Agent Reach skill in your agent's skill folder
+- refreshes the Agent Reach skill (the one real copy, and the links that let your other AIs read it)
 
-Only want to know if there is a new version? `agent-reach update --check`. `agent-reach watch --text` also reports available updates.
+Only want to know if there is a new version? `agent-reach update --check`.
 
 Afterwards, `agent-reach check --text` confirms your channels still work.
 
-If the upgrade step fails, the error `hint` holds the exact command to run by hand.
+If the upgrade step fails, the error `hint` holds the exact command to run by hand. Installed some other way than uv? The hint says to reinstall once with uv, as below.
 
 ## Coming from a version before 2.0
 
-Older versions installed differently, so reinstall once with the same command as [install.md](install.md):
+Older versions installed differently, so reinstall once with the same command as [install.md](install.md) (no `uv` yet? see step 0 there):
 
 ```bash
 uv tool install --force https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v2.0.0.zip
 agent-reach setup
 ```
-
-(pipx: `pipx install --force <same URL>`.)
 
 `agent-reach setup` migrates the old install:
 

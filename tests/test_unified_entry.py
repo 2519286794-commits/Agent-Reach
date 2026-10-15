@@ -213,6 +213,25 @@ def test_check_fails_when_backend_returns_nothing(capsys, fake_cli):
     assert out["results"][0]["error"]["code"] == "EMPTY"
 
 
+def test_skill_command_links_a_skills_dir_and_reports_it(capsys, fake_cli):
+    from agent_reach.utils.paths import home_dir
+
+    target = home_dir() / "my-ai" / "skills"
+    code, out = _run(capsys, ["skill", "link", str(target)])
+    assert code == 0 and out["action"] == "skill link"
+    assert out["result"]["links"] == [str(target / "agent-reach")]
+    code, out = _run(capsys, ["skill"])
+    assert code == 0 and out["result"]["installed"] is True
+    code, out = _run(capsys, ["skill", "unlink"])
+    assert code == 1 and out["error"]["code"] == "BAD_INPUT"
+
+
+def test_doctor_reports_regressed_per_channel(capsys, fake_cli):
+    code, out = _run(capsys, ["doctor"])
+    assert code == 0
+    assert out["result"]["channels"][0]["regressed"] is False
+
+
 # ── parsers ──
 
 
@@ -337,11 +356,131 @@ def fake_browser(monkeypatch, tmp_path):
     from agent_reach.runtime import browser
 
     monkeypatch.setenv("HOME", str(tmp_path))
-    state = {"contexts": ["daily"], "running": True, "opened": []}
+    state = {"contexts": ["daily"], "running": True, "opened": [], "launches": 0, "launch_delay": 0.0}
+
+    def fake_launch(url):
+        state["launches"] += 1
+        time.sleep(state["launch_delay"])
+        state["running"] = True
+        state["contexts"].append("dedicated")
+
     monkeypatch.setattr(browser, "connected_contexts", lambda: list(state["contexts"]))
     monkeypatch.setattr(browser, "is_running", lambda: state["running"])
     monkeypatch.setattr(browser, "start", lambda url="about:blank": state["opened"].append(url))
+    monkeypatch.setattr(browser, "_launch", fake_launch)
+    monkeypatch.setattr(browser, "_RUNNING_GRACE", 0.0)
     return state
+
+
+def _bind_dedicated(fake_browser):
+    from agent_reach.runtime import browser
+
+    browser.bind()
+    fake_browser["contexts"].append("dedicated")
+    browser.bind()
+
+
+def test_browser_action_opens_closed_browser_only_when_set_up(fake_browser):
+    from agent_reach.backends.opencli import _dedicated_profile_env
+    from agent_reach.runtime import browser
+
+    fake_browser["running"] = False
+    with pytest.raises(ReachError) as info:
+        _dedicated_profile_env()
+    assert info.value.code == "NEED_SETUP"
+    assert "browser setup" in info.value.hint
+    assert fake_browser["launches"] == 0
+
+    fake_browser["running"] = True
+    _bind_dedicated(fake_browser)
+    assert _dedicated_profile_env() == {"OPENCLI_PROFILE": "dedicated"}
+    assert fake_browser["launches"] == 0  # already open: no second browser
+
+    fake_browser["running"] = False
+    fake_browser["contexts"].remove("dedicated")
+    assert _dedicated_profile_env() == {"OPENCLI_PROFILE": "dedicated"}
+    assert fake_browser["launches"] == 1
+    assert browser.last_used() is not None
+
+
+def test_browser_cold_start_does_not_count_against_timeout(fake_browser):
+    from agent_reach.runtime import browser
+
+    _bind_dedicated(fake_browser)
+    fake_browser["running"] = False
+    fake_browser["contexts"].remove("dedicated")
+    fake_browser["launch_delay"] = 1.5
+    seen = {}
+
+    def opencli_backend(**kw):
+        browser.ensure_running("dedicated")
+        seen["timeout"] = kw["timeout"]
+        time.sleep(0.5)
+        return [{"title": "ok"}]
+
+    ch = FakeChannel(first=opencli_backend, second=_raise("UPSTREAM_BROKEN"))
+    out = run_action(ch, "search", {"query": "q"}, timeout=1.0)
+    assert out["ok"] is True, out
+    assert out["backend"] == "first"
+    assert fake_browser["launches"] == 1
+
+
+def test_concurrent_actions_start_one_browser(fake_browser):
+    import threading
+
+    from agent_reach.runtime import browser
+
+    _bind_dedicated(fake_browser)
+    fake_browser["running"] = False
+    fake_browser["contexts"].remove("dedicated")
+    fake_browser["launch_delay"] = 0.5
+    errors = []
+
+    def call():
+        try:
+            browser.ensure_running("dedicated")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=call) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert errors == []
+    assert fake_browser["launches"] == 1
+
+
+def test_only_one_idle_watcher_and_it_closes_idle_browser(fake_browser, monkeypatch):
+    import threading
+
+    from agent_reach.runtime import browser, browser_watcher
+
+    stopped = []
+
+    def fake_stop(timeout=10.0):
+        stopped.append(time.time())
+        fake_browser["running"] = False
+        return True
+
+    monkeypatch.setattr(browser, "stop", fake_stop)
+    browser.touch()
+    result = {}
+    first = threading.Thread(target=lambda: result.setdefault("first", browser_watcher.watch(idle=3.0, poll=0.1)))
+    first.start()
+    assert browser.wait_for(browser.watcher_running, 2.0, interval=0.05)
+    assert browser_watcher.watch(idle=3.0, poll=0.1) == "another watcher is running"
+    first.join(8)
+    assert result["first"] == "closed after idle"
+    assert len(stopped) == 1
+    assert not browser.watcher_running()
+
+
+def test_idle_watcher_exits_when_browser_is_closed(fake_browser):
+    from agent_reach.runtime import browser_watcher
+
+    fake_browser["running"] = False
+    assert browser_watcher.watch(idle=600, poll=0.1) == "browser closed"
 
 
 def test_bind_ignores_profiles_that_were_already_connected(fake_browser):

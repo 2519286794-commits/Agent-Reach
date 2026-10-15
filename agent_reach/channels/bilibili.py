@@ -120,7 +120,7 @@ class BilibiliChannel(Channel):
     name = "bilibili"
     description = "B站视频、字幕和搜索"
 
-    level = "optional"
+    level = "default"
     session = "bili-cli"
     login_argv = ("bili", "login")
     legacy_state = (".bilibili-cli",)

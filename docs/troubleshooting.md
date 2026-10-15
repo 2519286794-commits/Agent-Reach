@@ -32,17 +32,25 @@ Every failed command returns `ok: false` and an `error` with `code`, `message` a
 | `ready` | passed a live check in the last 24 hours | nothing |
 | `broken` | the last live check failed for another reason | `agent-reach update`, then `agent-reach check <channel> --text`; see `UPSTREAM_BROKEN` |
 
-`agent-reach doctor --live` runs the live checks first, then reports.
+Run `agent-reach check` first if you want fresh live results. In the `doctor` output, `regressed: true` on a channel means an action passed in the previous check and fails in the latest one.
 
 ## Agent Reach browser
 
-Used by xiaohongshu, reddit, twitter, facebook, instagram, boss and xueqiu. It is a separate Chrome window with its own profile in `~/.agent-reach/browser/`.
+Used by xiaohongshu, reddit, twitter, facebook, instagram, boss and xueqiu. It is a separate Chrome window with its own profile in `~/.agent-reach/browser/`. It opens by itself when one of these channels needs it (the first open can take about 40 seconds) and closes after 10 minutes without Agent Reach use.
 
 - **`agent-reach browser setup` keeps saying it is waiting for the extension**: in the Agent Reach window, click "Add to Chrome" on the OpenCLI extension page, then run `agent-reach browser setup` again.
 - **"more than one new OpenCLI profile connected"**: close other Chrome windows that have the OpenCLI extension, then run setup again.
 - **Chrome not installed**: install Google Chrome, then retry.
-- **Window closed**: `agent-reach browser start` reopens it; `agent-reach browser status` shows its state.
-- Close the window when you're done; any local process can control it through its debugging port.
+- **Window closed by hand**: nothing to do; the next command that needs it opens it again. `agent-reach browser status` shows its state.
+- While it is open, any local process can control it through its debugging port; it closes itself after 10 idle minutes.
+
+## Skill not picked up by an AI
+
+`agent-reach skill` shows the one real copy of the instructions (`~/.agents/skills/agent-reach/SKILL.md`) and the links made for other AIs. An AI not covered automatically: `agent-reach skill link <its skills folder>`. On Windows, where links may not be allowed, a copy is made instead and refreshed by `agent-reach update`.
+
+## Install and update
+
+Agent Reach is installed with uv only. If `agent-reach update` says the program was installed another way, reinstall once as in [install.md](install.md); your channels, keys and logins under `~/.agent-reach/` are kept.
 
 ## Proxy
 

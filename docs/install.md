@@ -1,80 +1,39 @@
 # Install Agent Reach
 
-Instructions for the AI agent doing the install. Run the commands yourself; ask the user only where a step says so. Every `agent-reach` command prints one JSON object; read `ok`, `result` and `error.hint`.
+For the AI doing the install. Run every command yourself. Each `agent-reach` command prints one JSON object; read `ok`, `result` and `error.hint`.
 
 > ⚠️ The PyPI package named `agent-reach` is NOT this project. Never install it from PyPI; only use the GitHub URL below.
 
-## 1. Install the program
+## 0. Before you start
 
-Already installed? Run `agent-reach update` instead and stop here (see [update.md](update.md)).
+- You must be able to run terminal commands. If you can't, tell the user: "Please turn on command execution for me in my settings, then ask again."
+- Already have `agent-reach`? Run `agent-reach update` and stop here. Coming from a version before 2.0: follow [update.md](update.md).
+- `uv` missing (`uv --version` fails)? Tell the user: "I'm installing uv, a small tool that installs command-line programs. It needs no admin password." Then run:
+  - macOS / Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+  - Windows: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+  - Still `uv: command not found`? Open a new shell and try again.
+
+## 1. Install and set up
 
 ```bash
 uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v2.0.0.zip
-```
-
-No `uv`? Use pipx with the same URL:
-
-```bash
-pipx install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v2.0.0.zip
-```
-
-If `agent-reach` is not found afterwards, run `uv tool update-shell` (or `pipx ensurepath`) and open a new shell.
-
-## 2. Set up
-
-```bash
 agent-reach setup
-```
-
-This checks prerequisites, installs the Agent Reach skill into your skill folder, and keeps keys from an older install. The default channels (github, youtube, v2ex, web) work now.
-
-If `result.prerequisites` shows something missing (node, git, chrome, ffmpeg, uv), tell the user the `hint`; only the channels that need it are affected.
-
-## 3. Let the user pick optional channels
-
-Show the user `result.optional_channels` from the setup output, with what each `needs`. Mention that `experimental` channels can break at any time. Then, for each channel they pick:
-
-```bash
-agent-reach add <channel>
-```
-
-Follow the `result.next` list it returns.
-
-## 4. Logins and keys (the user does these)
-
-Never log in for the user, never ask for their password, never read their browser's cookies.
-
-**Browser channels** (xiaohongshu, reddit, twitter, facebook, instagram, boss, xueqiu): once, first run
-
-```bash
-agent-reach browser setup
-```
-
-It opens the Agent Reach browser (a separate Chrome window) at the OpenCLI extension page. Ask the user to click "Add to Chrome" there, then run `agent-reach browser setup` again until `ok` is true. Then for each channel:
-
-```bash
-agent-reach login <channel>
-```
-
-The login page opens in the Agent Reach browser; the user logs in. If the output says to, run `agent-reach login <channel> --sync` after they are done.
-
-**bilibili / linkedin**: `agent-reach login <channel>` runs the tool's own login (QR code or a browser window). Run it where the user can see the output.
-
-**Keys** (xiaoyuzhou, youtube transcribe): ask the user to get a free key at https://console.groq.com and run this in their own terminal (hidden input):
-
-```bash
-agent-reach configure groq-key
-```
-
-If you must run it yourself, pipe the value: `agent-reach configure groq-key --stdin`.
-
-Suggest a secondary account for login channels.
-
-## 5. Verify
-
-```bash
 agent-reach check --text
-agent-reach doctor --text
 ```
 
-Report to the user what is `ready` and what still needs something. Fixes for each status and error code: [troubleshooting.md](troubleshooting.md).
+`agent-reach` not found after install? Run `uv tool update-shell` and open a new shell.
+
+`setup` turns on the default channels (web, YouTube, GitHub, V2EX, Bilibili) and gives every AI on this machine the Agent Reach instructions (a "skill"). If `result.prerequisites` lists something missing, tell the user its `hint`; only the channels that need it are affected.
+
+## 2. Report to the user
+
+Keep it short and plain:
+
+1. **Works now**: the channels in `result.default_channels` with `ok: true`, and what `check --text` passed.
+2. **Which AIs can use it**: `result.skill.agents`.
+3. **Optional, add any time**: each entry of `result.optional_channels` with what it `needs`; mention that `experimental` ones can break at any time. Optional logins for channels already on: `result.logins` (e.g. Bilibili login unlocks subtitles).
+4. **How to add one later**: "Just tell me, e.g. 'add Xiaohongshu'."
+
+When the user asks for a channel, run `agent-reach add <channel>`, follow its `result.next`, then `agent-reach login <channel>`. The user logs in themselves: never log in for them, never ask for their password, never read their browser's cookies. Suggest a secondary account. Keys (e.g. a free Groq key from https://console.groq.com for podcast transcripts) are entered by the user in their own terminal with `agent-reach configure groq-key` (hidden input); if you must run it yourself, pipe the value: `agent-reach configure groq-key --stdin`.
+
+Problems: [troubleshooting.md](troubleshooting.md).

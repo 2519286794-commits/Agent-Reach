@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from agent_reach.channels.base import Action, Channel
 
+from .clock import Clock, bind
 from .result import (
     BAD_INPUT,
     FINAL_CODES,
@@ -45,25 +46,34 @@ def _validate(action: Action, params: Dict[str, Any]) -> Dict[str, Any]:
     return clean
 
 
-def _call_with_deadline(fn, params: Dict[str, Any], timeout: float) -> List[dict]:
-    """Run fn(timeout=..., **params); give up after `timeout` seconds.
+def _call_with_deadline(fn, params: Dict[str, Any], clock: Clock) -> List[dict]:
+    """Run fn(timeout=..., **params); give up when the clock runs out.
 
     In-process HTTP calls cannot be interrupted, so the call runs in a daemon
     thread. Subprocess backends also receive `timeout` and kill themselves.
+    The backend may pause the clock (off_the_clock) while it waits for setup.
     """
     box: Dict[str, Any] = {}
+    budget = clock.remaining()
 
     def target() -> None:
+        bind(clock)
         try:
-            box["items"] = fn(timeout=timeout, **params)
+            box["items"] = fn(timeout=budget, **params)
         except BaseException as exc:  # noqa: BLE001 - forwarded to classify()
             box["error"] = exc
 
     worker = threading.Thread(target=target, daemon=True)
     worker.start()
-    worker.join(timeout + 1.0)
+    while True:
+        left = clock.remaining() + 1.0
+        if left <= 0 and not clock.paused():
+            break
+        worker.join(max(left, 0.2))
+        if not worker.is_alive():
+            break
     if worker.is_alive():
-        raise ReachError(TIMEOUT, f"backend did not answer within {timeout:.0f}s")
+        raise ReachError(TIMEOUT, f"backend did not answer within {budget:.0f}s")
     if "error" in box:
         raise box["error"]
     return list(box.get("items") or [])
@@ -102,17 +112,16 @@ def run_action(
         return envelope(channel=channel.name, action=action_name, elapsed_ms=elapsed(), error=err)
 
     backends = [b for b in action.backends if only_backend in (None, b[0])]
-    deadline = started + timeout
+    clock = Clock(timeout - (time.monotonic() - started))
     attempts: List[dict] = []
     errors: List[ReachError] = []
     for label, method_name in backends:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
+        if clock.remaining() <= 0:
             attempts.append({"backend": label, "result": TIMEOUT})
             errors.append(ReachError(TIMEOUT, "no time left for this backend"))
             continue
         try:
-            items = _call_with_deadline(getattr(channel, method_name), clean, remaining)
+            items = _call_with_deadline(getattr(channel, method_name), clean, clock)
         except BaseException as exc:  # noqa: BLE001
             err = classify(exc)
             attempts.append({"backend": label, "result": err.code, "message": err.message})

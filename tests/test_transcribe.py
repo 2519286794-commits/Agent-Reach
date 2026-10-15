@@ -859,13 +859,3 @@ class TestSubprocessDecoding:
             tr._probe_audio_duration(tmp_path / "audio.m4a")
 
 
-# --- Config feature requirement --------------------------------------- #
-
-
-class TestConfigOpenAIWhisper:
-    def test_openai_whisper_feature_registered(self, fake_config):
-        assert "openai_whisper" in Config.FEATURE_REQUIREMENTS
-        assert Config.FEATURE_REQUIREMENTS["openai_whisper"] == ["openai_api_key"]
-        assert not fake_config.is_configured("openai_whisper")
-        fake_config.set("openai_api_key", "sk-test")
-        assert fake_config.is_configured("openai_whisper")

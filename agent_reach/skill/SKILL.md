@@ -49,6 +49,20 @@ agent-reach read <链接>                   # 给链接，自动认出渠道
 
 `default` 装好就能用；其余要用户先 `agent-reach add <渠道>`。
 
-## 给用户的管理命令
+## 浏览器
 
-`agent-reach setup`（首次）· `add` / `remove <渠道>` · `login` / `logout <渠道>` · `doctor` · `update` · `uninstall`
+小红书、Reddit、Twitter、Boss直聘、雪球热帖等渠道要用 Agent Reach 专用浏览器。它会自己打开，不用你启动；第一次打开大约要 40 秒，别当成卡住。10 分钟没用会自动关掉。
+
+## 用户要管理 Agent Reach 时
+
+| 用户说 | 你运行 |
+|---|---|
+| 看看状态 / 哪些能用 | `agent-reach doctor --text`（要实测再跑 `agent-reach check --text`） |
+| 加上某个平台（如"加上小红书"） | `agent-reach add <渠道>`，照 `result.next` 做，再 `agent-reach login <渠道>` 让用户本人登录 |
+| 登录过期了 | `agent-reach login <渠道>`（用户本人登录） |
+| 去掉某个平台 / 退出登录 | `agent-reach remove <渠道>` / `agent-reach logout <渠道>` |
+| 升级 / 更新 | `agent-reach update` |
+| 卸载 | 先 `agent-reach uninstall --dry-run` 给用户看，确认后 `agent-reach uninstall` |
+| 让另一个 AI 也能用 | `agent-reach skill link <那个 AI 的 skill 目录>`；`agent-reach skill` 查看现在放在哪 |
+
+首次安装：`agent-reach setup`。

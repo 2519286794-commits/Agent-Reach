@@ -5,7 +5,8 @@
 ## Install
 
 - [Installation Guide](https://github.com/Panniantong/Agent-Reach/blob/main/docs/install.md): agent-executable steps
-- Install from GitHub only: `uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v2.0.0.zip` (or `pipx install` with the same URL), then `agent-reach setup`. The PyPI package named `agent-reach` is NOT this project.
+- Install from GitHub only, with uv: `uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v2.0.0.zip`, then `agent-reach setup`. The PyPI package named `agent-reach` is NOT this project.
+- `setup` turns on the default channels and places one copy of the skill at `~/.agents/skills/agent-reach/SKILL.md`, linked into the skill folders of other AIs found on the machine; `agent-reach skill link <skills-dir>` adds another AI.
 
 ## Commands
 
@@ -13,12 +14,13 @@
 - `agent-reach <channel> <action> [args]`: e.g. `agent-reach bilibili search python`
 - `agent-reach read <url>`: read a link with the matching channel
 - Output: `{schema_version, ok, channel, action, backend, items, meta, error}`; error codes NEED_SETUP, NEED_LOGIN, UPSTREAM_BROKEN, TIMEOUT, RATE_LIMITED, NOT_FOUND, BAD_INPUT
-- Management: `setup`, `add|remove <channel>`, `login|logout <channel>` (the user logs in), `browser setup|start|status`, `doctor`, `check`, `watch`, `update`, `configure`, `uninstall`
+- Management: `setup`, `add|remove <channel>`, `login|logout <channel>` (the user logs in), `browser setup|status`, `doctor`, `check`, `skill`, `skill link <dir>`, `update`, `configure`, `uninstall`
+- Browser channels open the dedicated Agent Reach browser by themselves; it closes after 10 minutes without use.
 
 ## Channels
 
-- default: github, youtube, v2ex, web (web is a fallback when the agent's own search/fetch fails)
-- optional: xiaohongshu, bilibili, reddit, linkedin, boss, xiaoyuzhou, xueqiu
+- default: web, youtube, github, v2ex, bilibili (web is a fallback when the agent's own search/fetch fails)
+- optional: xiaohongshu, reddit, linkedin, boss, xiaoyuzhou, xueqiu
 - experimental: twitter, facebook, instagram
 
 ## Docs
