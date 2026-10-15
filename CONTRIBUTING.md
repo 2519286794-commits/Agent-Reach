@@ -25,8 +25,8 @@ A channel is a `Channel` subclass in `agent_reach/channels/`, registered in `age
 - `name`, `description`, and `can_handle(url)` so `agent-reach read <url>` can route links to it.
 - `level`: `"default"` (works with no setup), `"optional"` (turned on with `agent-reach add`), or `"experimental"` (works but may break any time).
 - `actions`: a tuple of `Action`s. Each has a `name`, `help`, `params` (a tuple of `Param(name, help, required, type, default)`), and **ordered** `backends` as `(label, method name)` pairs. The dispatcher tries them in order and falls back on retryable errors. `live_test` holds the params `agent-reach check` uses; a backend passes when it returns at least one item. Slow actions can set `timeout`.
-- `tools` (optional): keys of `runtime.tools.TOOLS` that `agent-reach add` installs privately under `~/.agent-reach/tools/`, pinned to an exact version.
-- `prereqs` (optional): machine prerequisites that are only checked and explained (keys of `runtime.manage.PREREQS`: node, git, chrome, ffmpeg, uv).
+- `tools` (optional): keys of `runtime.tools.TOOLS` that `agent-reach add` installs privately under `~/.agent-reach/tools/`. Versions are not pinned: `add` and `update` install the latest allowed version. A tool may set `floor` (minimum version) and `exclude` (known-bad versions); add a version to `exclude` in a release when an upstream release breaks.
+- `prereqs` (optional): machine prerequisites (keys of `runtime.manage.PREREQS`: node, chrome, ffmpeg, uv) that `agent-reach add` installs by itself when missing, without an admin password.
 - Login, if the platform needs it:
   - `login_url`: page opened in the Agent Reach browser by `agent-reach login`; the user logs in there.
   - `session` + `login_argv`: a CLI tool whose own login runs with its state in `~/.agent-reach/sessions/<session>/`. `legacy_state` lists old locations `login --import-existing` may copy from.
@@ -38,7 +38,7 @@ Rules:
 
 - Never read the user's own browser cookies and never log in on their behalf.
 - Everything a channel stores lives under `~/.agent-reach/`.
-- Don't install anything globally; add the tool to `runtime.tools.TOOLS` with a pinned version.
+- Don't install anything globally; add the tool to `runtime.tools.TOOLS`.
 
 ## Dependency locking
 
@@ -69,6 +69,10 @@ Paste the `check --text` output into the PR. Also add unit tests under `tests/` 
 - Update the README channel table if you add a channel or change what it needs.
 - Never commit keys, cookies, account names or machine-specific paths.
 
+## Release notes
+
+Every version section in `CHANGELOG.md` starts with a short plain summary for users, in Chinese and in English: what changed for them and anything they must do, in 1 to 4 short points, with no jargon (no file names, commands or internal terms). This text becomes the GitHub release body, which the AI reads from `meta.update.notes` and shows the user when it offers an update. Technical entries follow below the summary.
+
 ## Reporting issues
 
 Include your OS, `agent-reach doctor --text`, `agent-reach check <channel> --text`, steps to reproduce, and what you expected. Remove personal data first.
@@ -81,3 +85,4 @@ Include your OS, `agent-reach doctor --text`, `agent-reach check <channel> --tex
 - 不读用户自己浏览器的 Cookie，不替用户登录，数据只放在 `~/.agent-reach/` 下。
 - 新渠道合并前必须在本地跑通 `agent-reach check <channel>` 实测，并把输出贴在 PR 里。
 - 提交前运行 `ruff check agent_reach tests` 和 `pytest`。Commit message 用英文。
+- 发布说明：`CHANGELOG.md` 每个版本开头先写给用户看的大白话摘要（中文和英文各一份，1 到 4 条，不用术语），这段会成为 GitHub release 正文，AI 提示更新时会讲给用户听。

@@ -50,10 +50,12 @@ class LinkedInChannel(Channel):
 
     def on_add(self) -> None:
         from agent_reach.runtime.sessions import session_dir
+        from agent_reach.runtime.tools import resolve
 
         servers = _own_servers()
         servers["linkedin"] = {
-            "command": "uvx",
+            # absolute path: uvx may be our private copy, which mcporter's PATH does not have
+            "command": resolve("uvx") or "uvx",
             "args": [
                 f"mcp-server-linkedin@{_LINKEDIN_MCP_VERSION}",
                 "--user-data-dir", f"{session_dir(self.session)}/profile", "--claim-profile-root",

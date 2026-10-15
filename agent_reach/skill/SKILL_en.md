@@ -48,7 +48,7 @@ Results:
 
 {{CHANNEL_TABLE}}
 
-`default` channels work right away; others need `agent-reach add <channel>` first.
+`default` channels work right away; others need `agent-reach add <channel>` first. Default channels can be removed too; updates never add a removed one back.
 
 ## Browser
 
@@ -59,11 +59,21 @@ Xiaohongshu, Reddit, Twitter, Boss Zhipin, Xueqiu hot posts and similar channels
 | User asks | You run |
 |---|---|
 | Status / what works | `agent-reach doctor --text` (for a live test, `agent-reach check --text`) |
-| Add a platform ("add Xiaohongshu") | `agent-reach add <channel>`, follow `result.next`, then `agent-reach login <channel>` so the user logs in |
+| Add a platform ("add Xiaohongshu") | `agent-reach add <channel>`; one command installs everything it needs. Tell the user only what they must do: log in in the window that opens (`agent-reach login <channel>`), or provide a key |
 | Login expired | `agent-reach login <channel>` (the user logs in) |
-| Remove a platform / log out | `agent-reach remove <channel>` / `agent-reach logout <channel>` |
-| Upgrade / update | `agent-reach update` |
+| Remove a platform / log out | `agent-reach remove <channel>` (default channels too) / `agent-reach logout <channel>` |
+| Upgrade / update | `agent-reach update` (also upgrades every channel's tools to their latest versions), then report as in "When there is a new version" below |
 | Uninstall | show `agent-reach uninstall --dry-run` first, then `agent-reach uninstall` once they confirm |
 | Another AI should use it | `agent-reach skill link <that AI's skills folder>`; `agent-reach skill` shows where it is placed now |
 
 First install: `agent-reach setup`.
+
+## When there is a new version
+
+Any result with `meta.update` means a newer version exists. Mention it once per conversation, in the user's language and plain words:
+
+1. Agent Reach has a new version (`meta.update.latest`).
+2. What changed: 1 to 3 short points taken from `meta.update.notes`.
+3. Ask whether to update.
+
+Run `agent-reach update` only after the user says yes; never update without it. Afterwards, tell them plainly again what changed, plus every sentence in `result.user_actions` (e.g. a channel now needs a login).

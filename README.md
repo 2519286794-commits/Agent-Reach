@@ -64,7 +64,7 @@ Claude Code、Codex、Hermes Agent、OpenClaw 这类 CLI Agent 自带搜索和�
 - **中文平台**：B站、小红书、V2EX、雪球、小宇宙，通用搜索覆盖很差。
 - **干净的结构化数据**：雪球行情、V2EX 帖子和回复、GitHub 仓库和 issue，直接给字段，不用从 HTML 里猜。
 
-Agent Reach 把这些平台背后的开源工具替你装好、固定版本、定期体检，然后给 Agent 一个统一入口：
+Agent Reach 把这些平台背后的开源工具替你装好、保持最新、定期体检，然后给 Agent 一个统一入口：
 
 ```bash
 agent-reach channels                          # 有哪些渠道、每个渠道能做什么
@@ -82,6 +82,8 @@ agent-reach read https://www.v2ex.com/t/123   # 按链接自动选渠道
 - **要花钱吗？** 程序和后端工具都是开源免费的。只有两处可能要你自己的 Key：播客/视频转文字用 Groq（有免费额度）或 OpenAI 的 Whisper 接口。
 - **会碰我的浏览器和账号吗？** 不会读你自己浏览器里的 Cookie，也从不替你登录。需要登录的渠道，由你本人在 Agent Reach 专用浏览器里登录。详见[安全性](#安全性)。
 - **支持哪些系统？** 优先保证 macOS，Linux 可用，Windows 尽力支持。
+- **要我自己装别的软件吗？** 不用。某个渠道要用的东西（Node.js、Chrome、ffmpeg、浏览器扩展）都由 `agent-reach add` 自己装好，不需要管理员密码。你本人只需要登录，或者提供一个 Key。
+- **怎么知道有新版本？** Agent Reach 每天最多在后台查一次，有新版本时 Agent 会用大白话告诉你改了什么、问你要不要更新，你同意了才更新。
 
 ---
 
@@ -98,18 +100,18 @@ agent-reach read https://www.v2ex.com/t/123   # 按链接自动选渠道
 | bilibili | 默认 | 搜索、视频信息、热门、字幕 | 无；字幕需要登录（扫码） |
 | xiaohongshu | 可选 | 搜笔记、读笔记 | 浏览器 + 登录 |
 | reddit | 可选 | 搜索、读帖子和评论、看版块 | 浏览器 + 登录 |
-| linkedin | 可选 | 搜职位 | 登录（需要 Node.js 和 uv） |
-| boss | 可选 | 搜职位和 JD | 浏览器 + 登录（需要 git） |
-| xiaoyuzhou | 可选 | 播客完整转文字 | Groq Key + ffmpeg |
+| linkedin | 可选 | 搜职位 | 登录 |
+| boss | 可选 | 搜职位和 JD | 浏览器 + 登录 |
+| xiaoyuzhou | 可选 | 播客完整转文字 | Groq Key |
 | xueqiu | 可选 | 实时行情、搜股票、热帖、热股 | 行情免登录；热帖热股需要浏览器登录 |
 | twitter | 实验 | 搜推文、用户资料、用户推文、读推文串 | 浏览器 + 登录 |
 | facebook | 实验 | 搜索、主页资料 | 浏览器 + 登录 |
 | instagram | 实验 | 搜用户、主页资料、用户帖子 | 浏览器 + 登录 |
 
-- **默认**：装好就能用。
-- **可选**：用 `agent-reach add <渠道>` 按需开启，Agent Reach 会把它要的工具装到自己的目录里。
+- **默认**：装好就能用；不想要也可以去掉（`agent-reach remove <渠道>`），以后更新不会再加回来。
+- **可选**：用 `agent-reach add <渠道>` 按需开启，它需要的一切 Agent Reach 都会装到自己的目录里。
 - **实验**：能用，但平台反爬更严，可能随时失效。
-- **浏览器**：指 Agent Reach 专用浏览器，一个独立的 Chrome 窗口（需要已安装 Google Chrome 和 Node.js）。第一次用要在里面装一个 OpenCLI 扩展，`agent-reach browser setup` 会带你完成。之后需要时它会自己打开（第一次打开大约要 40 秒），10 分钟没用就自动关掉。
+- **浏览器**：指 Agent Reach 专用浏览器，一个独立的 Chrome 窗口。电脑上没有 Chrome 的话 Agent Reach 会自己下载一个；里面要用的 OpenCLI 扩展也会自己装好（Windows 上需要你在弹出的窗口里点一次"添加至 Chrome"）。之后需要时它会自己打开（第一次打开大约要 40 秒），10 分钟没用就自动关掉。
 
 ---
 
@@ -125,7 +127,7 @@ agent-reach read https://www.v2ex.com/t/123   # 按链接自动选渠道
 
 - **允许它执行命令**：如果 Agent 说自己不能运行命令，去它的设置里打开"允许执行命令"。
 - **装 uv**：uv 是一个安装命令行程序的小工具，不需要管理员密码。电脑上没有的话 Agent 会先装它，会跟你说一声。
-- **要不要加可选渠道**：装完后 Agent 会告诉你哪些已经能用（网页、YouTube、GitHub、V2EX、B站），以及还能加哪些、各自需要什么。你选了再加，也可以以后随时说"帮我加上小红书"。
+- **要不要加可选渠道**：装完后 Agent 会告诉你哪些已经能用（网页、YouTube、GitHub、V2EX、B站），以及还能加哪些。你选了再加，也可以以后随时说"帮我加上小红书"，一条命令就装好。
 
 需要你本人做的只有登录，Agent 从不替你登录，也不会要你的密码：
 
@@ -156,9 +158,9 @@ flowchart LR
 | 你说 | Agent 运行 | 作用 |
 |---|---|---|
 | "看看 Agent Reach 状态" | `agent-reach doctor --text` | 每个渠道的状态：未开启 / 待配置 / 待登录 / 未验证 / 可用 / 故障，并标出"上次还好、现在坏了"的渠道 |
-| "加上小红书" / "去掉小红书" | `agent-reach add` / `remove <渠道>` | 开启 / 关闭渠道，加完再 `agent-reach login <渠道>` |
+| "加上小红书" / "去掉小红书" | `agent-reach add` / `remove <渠道>` | 开启渠道并装好它需要的一切，你只需登录或提供 Key / 关闭渠道并清掉它的登录和专用工具（默认渠道也能去掉） |
 | "B站登录过期了" / "退出登录" | `agent-reach login` / `logout <渠道>` | 登录（你本人操作）/ 清除登录 |
-| "升级 Agent Reach" | `agent-reach update` | 一次更新程序、后端工具和 skill，见 [update.md](docs/update.md) |
+| "升级 Agent Reach" | `agent-reach update` | 一次更新程序、各渠道的工具（升到最新）和 skill，并告诉你还需要做什么，见 [update.md](docs/update.md) |
 | "卸载 Agent Reach" | `agent-reach uninstall` | 见下面"安全性"里的卸载说明 |
 | "让另一个 AI 也能用" | `agent-reach skill link <它的 skill 目录>` | 给不在自动名单里的 AI 也放一个说明链接 |
 
@@ -176,9 +178,9 @@ flowchart LR
 
 平台改版、工具失效是常态。换后端只是调整这个列表，Agent 的调用方式不变。
 
-### 📌 固定版本，私有安装
+### 📌 保持最新，私有安装
 
-Agent Reach 装的工具（OpenCLI、bili-cli、boss-agent-cli、mcporter）都固定在验证过的版本，装在 `~/.agent-reach/tools/` 里，不污染你的全局环境。`agent-reach update` 会把它们一起更新到新版本验证过的版本。
+Agent Reach 装的工具（OpenCLI、bili-cli、boss-agent-cli、mcporter 等）装在 `~/.agent-reach/tools/` 里，不污染你的全局环境。工具不锁版本：每次装的都是最新版，`agent-reach update` 会把它们升到最新，即使 Agent Reach 本身没有新版本。已知有问题的上游版本会在新的 Agent Reach 版本里排除掉；`agent-reach doctor` 会显示每个工具实际装的版本。
 
 ### 🩺 能用要靠实测
 

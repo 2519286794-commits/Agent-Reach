@@ -137,10 +137,11 @@ curl --fail --show-error --location --silent \
 FILE_SIZE=$(ls -lh "$WORK_DIR/original.$EXT" | awk '{print $5}')
 echo "📦 文件大小: $FILE_SIZE"
 
-# Step 3: 获取时长
-if ! DURATION_RAW=$(ffprobe -v quiet -show_entries format=duration -of csv=p=0 \
-    "$WORK_DIR/original.$EXT" 2>/dev/null); then
-    echo "❌ ffprobe 无法读取音频时长" >&2
+# Step 3: 获取时长（用 ffmpeg 自己读：Agent Reach 自带的 ffmpeg 没有 ffprobe）
+DURATION_RAW=$(ffmpeg -hide_banner -i "$WORK_DIR/original.$EXT" 2>&1 \
+    | awk '/Duration: [0-9]+:[0-9]+:[0-9.]+/ { split($2, t, ":"); sub(",", "", t[3]); printf "%.3f", t[1] * 3600 + t[2] * 60 + t[3]; exit }')
+if [ -z "$DURATION_RAW" ]; then
+    echo "❌ ffmpeg 无法读取音频时长" >&2
     exit 1
 fi
 if DURATION=$(DURATION_RAW="$DURATION_RAW" MAX_DURATION_SECONDS="$MAX_DURATION_SECONDS" \
@@ -166,7 +167,7 @@ else
     if [ "$duration_status" -eq 3 ]; then
         echo "❌ 音频时长超过 3 小时限制" >&2
     else
-        echo "❌ ffprobe 返回无效音频时长: ${DURATION_RAW:-<empty>}" >&2
+        echo "❌ ffmpeg 返回无效音频时长: ${DURATION_RAW:-<empty>}" >&2
     fi
     exit 1
 fi

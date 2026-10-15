@@ -8,6 +8,20 @@ All notable changes to this project will be documented in this file.
 
 ## [1.6.0] - unreleased
 
+中文：
+
+- 加一个平台只要一句话，需要的软件（Node.js、Chrome、ffmpeg、浏览器扩展）都会自动装好，不需要管理员密码；你只需要登录或者填一个 Key。
+- 默认平台也能去掉，去掉后更新不会再加回来；去掉时会一起清掉它的登录和专用工具。
+- 更新会把各平台用到的工具升到最新版；有新版本时，AI 会用大白话告诉你改了什么，你同意了才更新。
+- 登录不再读你自己浏览器的 Cookie，而是在 Agent Reach 专用浏览器里由你本人登录。
+
+English:
+
+- Adding a platform takes one sentence. Whatever it needs (Node.js, Chrome, ffmpeg, the browser extension) is installed for you, with no admin password; you only log in or enter a key.
+- Default platforms can be removed, and updates won't add them back; removing one also clears its login and private tools.
+- Updating also moves each platform's tools to their latest versions. When a new version is out, your AI tells you in plain words what changed and updates only if you say yes.
+- Logins no longer read your own browser's cookies; you log in yourself in the dedicated Agent Reach browser.
+
 1.6 is a rebuild. Agents call one command, `agent-reach`; everything Agent Reach installs or stores lives under `~/.agent-reach/`.
 1.6 是重构版本：Agent 只调一个命令 `agent-reach`，Agent Reach 装的、存的东西全部在 `~/.agent-reach/` 下。
 
@@ -17,10 +31,15 @@ All notable changes to this project will be documented in this file.
 - **Management / 管理命令**: `setup`, `add` / `remove <channel>`, `login` / `logout <channel>`, `doctor`, `check`, `skill`, `skill link <dir>`, `update`, `configure`, `uninstall`.
 - **One-step setup / 一步装好**: `setup` adds every default channel through the same path as `add` (bili-cli goes into `~/.agent-reach/tools/`) and reports what works, which AIs can read the skill, optional channels and optional logins. / `setup` 用和 `add` 同一套逻辑开启全部默认渠道，并汇报哪些能用、哪些 AI 能读到 skill、可选渠道和可选登录。
 - **Skill placement / skill 放置**: one real copy at `~/.agents/skills/agent-reach/SKILL.md` (read directly by Codex, OpenCode, Cline, Warp, Zed); a link to it in the skill folder of Claude Code, OpenClaw, Hermes, Cursor, Gemini CLI, GitHub Copilot and Windsurf when installed (a copy where links are not allowed, e.g. Windows). `agent-reach skill link <dir>` covers any other AI. / 只放一份真文件，其他 AI 的 skill 目录里放指向它的链接（链接：一个指向原文件的快捷方式）。
-- **Private, pinned upstream installs / 上游私有安装**: tools go into `~/.agent-reach/tools/` at versions we tested; the user's own copies are untouched. Single-instance tools (OpenCLI) reuse the user's copy and are upgraded only with `--allow-upgrade`.
-- **Login state under `~/.agent-reach/` / 登录状态统一管理**: CLI tool logins in `sessions/`, browser logins in a dedicated Agent Reach browser (`agent-reach browser setup` once). The browser opens by itself when a channel needs it and closes after 10 minutes without use. Agent Reach never logs in for the user and never reads the user's own browser cookies. / 专用浏览器按需自动打开，10 分钟不用自动关闭。
+- **Private upstream installs, latest allowed version / 上游私有安装，用最新可用版本**: tools go into `~/.agent-reach/tools/`; the user's own copies are untouched. Versions are not pinned: each tool installs its latest version, limited only by an optional `floor` (minimum) and `exclude` (known-bad versions shipped in a release). `state.json` records the version actually installed and `doctor` shows it. Single-instance tools (OpenCLI) reuse the user's copy; if it is older than the floor, it is upgraded only with `--allow-upgrade`. / 工具不锁版本，装最新可用版；已知有问题的版本在新版本里排除；doctor 显示实际版本。
+- **`add` gives a finished result / `add` 一步到位**: missing prerequisites are installed without an admin password: uv (official script), ffmpeg (`imageio-ffmpeg` in a private venv), Node.js (official release under `~/.agent-reach/tools/node/` when the system has none), Chrome (system Chrome, else Chrome for Testing under `~/.agent-reach/tools/chrome/`). git is no longer needed (Boss installs from a GitHub archive). The user only logs in or enters a key. / 缺的依赖自动装好，用户只需登录或填 Key。
+- **Login state under `~/.agent-reach/` / 登录状态统一管理**: CLI tool logins in `sessions/`, browser logins in a dedicated Agent Reach browser. The browser opens by itself when a channel needs it and closes after 10 minutes without use. On macOS and Linux the OpenCLI extension is loaded automatically on every launch (no click); on Windows the user clicks "Add to Chrome" once. Agent Reach never logs in for the user and never reads the user's own browser cookies. / 专用浏览器按需自动打开，10 分钟不用自动关闭；macOS/Linux 自动装好扩展。
+- **remove cleans up / 去掉渠道会清理干净**: deletes the channel's private tools nobody else uses, its CLI session, its login keys and its site cookies in the Agent Reach browser. When no browser-login channel is left, the Agent Reach browser folder is deleted and OpenCLI is uninstalled if Agent Reach installed it.
+- **Removable default channels / 默认渠道可去掉**: `state.json` records `removed_defaults`; `setup` and `update` never add them back; `add` brings one back.
 - **doctor states / 体检**: not_added, needs_setup, needs_login, unverified, ready, broken; plus `regressed` per channel (passed in the previous check, fails in the latest).
-- **update** runs `uv tool install --force` on the latest release, syncs tools to pinned versions and refreshes the skill. uv is the only supported installer. Pre-2.0 installs are migrated on first `setup` / `update`; `config.yaml` keys are kept.
+- **update** runs `uv tool install --force` on the latest release, upgrades every added channel's tools to the latest allowed version (also when Agent Reach itself has no new release), prunes tools no added channel uses, drops channels no longer in the registry, and refreshes the skill. `result.user_actions` lists in plain sentences what the user must do afterwards. Rollback: `uv tool install --force <previous release zip>`, then `agent-reach update --sync-only`. uv is the only supported installer. 1.5 and earlier installs are migrated on first `setup` / `update`; `config.yaml` keys are kept.
+- **Update notice / 新版本提醒**: at most once per 24 h, any command except `update` starts a short background check of the latest GitHub release (never waits on the network; offline is silent). When a newer version exists, every JSON envelope carries `meta.update = {current, latest, notes}`; the skill tells the AI to explain the notes to the user and update only with their yes. / 有新版本时 AI 用大白话告诉用户，用户同意才更新。
+- **Release notes / 发布说明**: every CHANGELOG version section starts with a plain summary for users in Chinese and English; it becomes the GitHub release body the AI shows users.
 - Xueqiu quotes and stock search via Tencent public quotes (no login); Xueqiu community data uses a session the user imports with `agent-reach login xueqiu --sync`.
 - YouTube `transcribe`; LinkedIn uses its own MCP registration in `~/.agent-reach/mcporter.json`.
 

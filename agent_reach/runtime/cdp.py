@@ -1,6 +1,8 @@
 """Minimal Chrome DevTools Protocol client for the Agent Reach browser (127.0.0.1 only).
 
 Only used against the dedicated browser, never the user's own Chrome.
+Two transports: the 127.0.0.1 debugging port (`call`, any process) and the
+launch pipe (`PipeConnection`, only the idle watcher, which owns the browser).
 """
 
 from __future__ import annotations
@@ -11,8 +13,9 @@ import json
 import os
 import socket
 import struct
+import threading
 import urllib.request
-from typing import List, Optional
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from .browser import CDP_URL
@@ -109,8 +112,92 @@ def call(method: str, params: Optional[dict] = None) -> Optional[dict]:
     return None
 
 
+def domain_matches(cookie_domain: str, domain: str) -> bool:
+    """`cookie_domain` is `domain` or one of its subdomains (".a.reddit.com" yes, "notreddit.com" no)."""
+    c, d = cookie_domain.lstrip(".").lower(), domain.lstrip(".").lower()
+    return c == d or c.endswith("." + d)
+
+
 def cookies(domain: str) -> List[dict]:
     """Cookies the dedicated browser holds for `domain` (and its subdomains)."""
     result = call("Storage.getCookies") or {}
-    d = domain.lstrip(".")
-    return [c for c in result.get("cookies", []) if c.get("domain", "").lstrip(".").endswith(d)]
+    return [c for c in result.get("cookies", []) if domain_matches(c.get("domain", ""), domain)]
+
+
+class PipeConnection:
+    """CDP over `--remote-debugging-pipe`: NUL-delimited JSON, we write `wfd`, read `rfd`.
+
+    A reader thread drains the pipe for as long as the browser lives (an
+    undrained pipe would stall Chrome); `closed` is set when Chrome exits.
+    Closing our write end makes Chrome exit.
+    """
+
+    def __init__(self, wfd: int, rfd: int) -> None:
+        self._wfd, self._rfd = wfd, rfd
+        self._lock = threading.Lock()
+        self._next_id = 0
+        self._waiting: Dict[int, list] = {}
+        self.closed = threading.Event()
+        threading.Thread(target=self._read_loop, name="cdp-pipe", daemon=True).start()
+
+    def _read_loop(self) -> None:
+        buf = b""
+        try:
+            while True:
+                chunk = os.read(self._rfd, 65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\0" in buf:
+                    raw, buf = buf.split(b"\0", 1)
+                    try:
+                        msg = json.loads(raw.decode("utf-8"))
+                    except ValueError:
+                        continue
+                    with self._lock:
+                        slot = self._waiting.get(msg.get("id")) if isinstance(msg, dict) else None
+                    if slot is not None:
+                        slot.append(msg)
+                        slot[0].set()
+        except OSError:
+            pass
+        finally:
+            self.closed.set()
+            with self._lock:
+                for slot in self._waiting.values():
+                    slot[0].set()
+
+    def call(self, method: str, params: Optional[dict] = None, timeout: float = 30.0) -> dict:
+        """Send one command; returns the whole reply ({"result": ...} or {"error": ...})."""
+        with self._lock:
+            self._next_id += 1
+            msg_id = self._next_id
+            slot: list = [threading.Event()]
+            self._waiting[msg_id] = slot
+        try:
+            if self.closed.is_set():
+                return {"error": {"message": "browser closed"}}
+            data = json.dumps({"id": msg_id, "method": method, "params": params or {}}).encode("utf-8") + b"\0"
+            try:
+                while data:
+                    data = data[os.write(self._wfd, data):]
+            except OSError as exc:
+                return {"error": {"message": f"pipe write failed: {exc}"}}
+            if not slot[0].wait(timeout) or len(slot) < 2:
+                return {"error": {"message": "browser closed" if self.closed.is_set() else f"no reply in {timeout:.0f}s"}}
+            return slot[1]
+        finally:
+            with self._lock:
+                self._waiting.pop(msg_id, None)
+
+    def close(self) -> None:
+        """Close our write end (Chrome exits); the reader thread closes the read end when it stops."""
+        try:
+            os.close(self._wfd)
+        except OSError:
+            pass
+        if self.closed.wait(15):
+            try:
+                os.close(self._rfd)
+            except OSError:
+                pass

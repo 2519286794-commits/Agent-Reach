@@ -66,7 +66,7 @@ CLI agents such as Claude Code, Codex, Hermes Agent and OpenClaw come with web s
 - **Chinese platforms**: Bilibili, XiaoHongShu, V2EX, Xueqiu, Xiaoyuzhou, which general search covers poorly.
 - **Clean structured data**: Xueqiu quotes, V2EX topics and replies, GitHub repos and issues, as fields instead of HTML to guess from.
 
-Agent Reach installs the open-source tools behind these platforms, pins their versions, health-checks them, and gives the agent one entry point:
+Agent Reach installs the open-source tools behind these platforms, keeps them up to date, health-checks them, and gives the agent one entry point:
 
 ```bash
 agent-reach channels                          # which channels exist and what each can do
@@ -84,6 +84,8 @@ Every command prints the same JSON shape, so the agent doesn't have to learn eac
 - **Does it cost money?** The program and its backends are open source and free. The only keys you may need are for speech-to-text: Groq (has a free tier) or OpenAI Whisper.
 - **Does it touch my browser or accounts?** It never reads your own browser's cookies and never logs in for you. For login channels, you log in yourself in the dedicated Agent Reach browser. See [Security](#security).
 - **Which OS?** macOS first, Linux works, Windows best effort.
+- **Do I have to install anything else?** No. Whatever a channel needs (Node.js, Chrome, ffmpeg, the browser extension) is installed by `agent-reach add` itself, with no admin password. All you do is log in or provide a key.
+- **How do I hear about new versions?** Agent Reach checks at most once a day in the background. When there is a new version, your agent tells you in plain words what changed and asks whether to update; it updates only if you say yes.
 
 ---
 
@@ -100,18 +102,18 @@ Every command prints the same JSON shape, so the agent doesn't have to learn eac
 | bilibili | default | search, video info, trending, subtitles | nothing; subtitles need a login (QR scan) |
 | xiaohongshu | optional | search notes, read a note | browser + login |
 | reddit | optional | search, read posts with comments, browse a subreddit | browser + login |
-| linkedin | optional | job search | login (needs Node.js and uv) |
-| boss | optional | job and JD search | browser + login (needs git) |
-| xiaoyuzhou | optional | full podcast transcripts | Groq key + ffmpeg |
+| linkedin | optional | job search | login |
+| boss | optional | job and JD search | browser + login |
+| xiaoyuzhou | optional | full podcast transcripts | Groq key |
 | xueqiu | optional | real-time quotes, stock search, hot posts, hot stocks | quotes need nothing; hot posts/stocks need a browser login |
 | twitter | experimental | search tweets, profiles, user tweets, threads | browser + login |
 | facebook | experimental | search, profiles | browser + login |
 | instagram | experimental | user search, profiles, user posts | browser + login |
 
-- **default**: works right after install.
-- **optional**: turn on with `agent-reach add <channel>`; Agent Reach installs the tools it needs into its own folder.
+- **default**: works right after install; you can remove one (`agent-reach remove <channel>`) and updates won't add it back.
+- **optional**: turn on with `agent-reach add <channel>`; Agent Reach installs everything it needs into its own folder.
 - **experimental**: works, but the platform fights automation harder and it can break at any time.
-- **browser**: the Agent Reach browser, a separate Chrome window (needs Google Chrome and Node.js). The first time, you add the OpenCLI extension to it; `agent-reach browser setup` walks you through it. After that it opens by itself when needed (the first open takes about 40 seconds) and closes after 10 minutes without use.
+- **browser**: the Agent Reach browser, a separate Chrome window. If the machine has no Chrome, Agent Reach downloads its own copy; it also installs the OpenCLI extension in it by itself (on Windows you click "Add to Chrome" once in the window that opens). After that it opens by itself when needed (the first open takes about 40 seconds) and closes after 10 minutes without use.
 
 ---
 
@@ -127,7 +129,7 @@ The agent does the rest by following [install.md](install.md). Along the way you
 
 - **Let it run commands**: if the agent says it can't run commands, turn on command execution in its settings.
 - **Allow installing uv**: uv is a small tool that installs command-line programs; no admin password needed. The agent installs it first if it's missing and tells you.
-- **Pick optional channels**: afterwards the agent tells you what works now (web, YouTube, GitHub, V2EX, Bilibili) and what else you can add and what each needs. Pick now, or later just say "add Xiaohongshu".
+- **Pick optional channels**: afterwards the agent tells you what works now (web, YouTube, GitHub, V2EX, Bilibili) and what else you can add. Pick now, or later just say "add Xiaohongshu"; one command sets it up.
 
 The only thing you do yourself is log in; the agent never logs in for you and never asks for your password:
 
@@ -158,9 +160,9 @@ Just tell your agent in plain words; it runs the command for you:
 | You say | Agent runs | What it does |
 |---|---|---|
 | "How is Agent Reach doing?" | `agent-reach doctor --text` | status of every channel: not_added / needs_setup / needs_login / unverified / ready / broken, and which ones broke since the last check |
-| "Add Xiaohongshu" / "Remove Xiaohongshu" | `agent-reach add` / `remove <channel>` | turn a channel on / off; after adding, `agent-reach login <channel>` |
+| "Add Xiaohongshu" / "Remove Xiaohongshu" | `agent-reach add` / `remove <channel>` | turn a channel on and install everything it needs; you only log in or provide a key / turn it off and clear its login and private tools (default channels too) |
 | "My Bilibili login expired" / "Log out" | `agent-reach login` / `logout <channel>` | log in (you do it) / forget the login |
-| "Upgrade Agent Reach" | `agent-reach update` | update the program, its tools and the skill in one go, see [update.md](update.md) |
+| "Upgrade Agent Reach" | `agent-reach update` | update the program, every channel's tools (to their latest versions) and the skill in one go, and tell you anything left to do, see [update.md](update.md) |
 | "Uninstall Agent Reach" | `agent-reach uninstall` | see Uninstall under Security below |
 | "Let my other AI use it too" | `agent-reach skill link <its skills folder>` | link the instructions for an AI not covered automatically |
 
@@ -178,9 +180,9 @@ Each action of each channel has an ordered list of backends. `bilibili read` tri
 
 Platforms change and tools break all the time. Switching backends only reorders that list; the way the agent calls Agent Reach stays the same.
 
-### 📌 Pinned versions, private installs
+### 📌 Kept current, private installs
 
-The tools Agent Reach installs (OpenCLI, bili-cli, boss-agent-cli, mcporter) are pinned to tested versions and live in `~/.agent-reach/tools/`, away from your global environment. `agent-reach update` moves them to the versions tested with the new release.
+The tools Agent Reach installs (OpenCLI, bili-cli, boss-agent-cli, mcporter and others) live in `~/.agent-reach/tools/`, away from your global environment. Versions are not pinned: each install takes the latest version, and `agent-reach update` upgrades them to the latest even when Agent Reach itself has no new release. Known-bad upstream versions are excluded in a new Agent Reach release; `agent-reach doctor` shows the version actually installed for each tool.
 
 ### 🩺 Working means live-tested
 

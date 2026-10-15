@@ -8,6 +8,9 @@ Everything prints one JSON object to stdout so agents never parse prose; logs
 go to stderr. Exit code 0 = ok, 1 = error. Exceptions for humans: `help`, and
 `--text` on doctor / check. `login` shows the upstream's interactive
 output (QR codes, prompts) on stderr so stdout still carries only the JSON.
+
+When a newer release is known (cached by a background check at most once a
+day, never waited on), every JSON object carries meta.update = {current, latest, notes}.
 """
 
 from __future__ import annotations
@@ -48,13 +51,14 @@ For agents:
 
 For the user:
   agent-reach setup                       first run: install the default channels and the agent skill
-  agent-reach add|remove <channel>        install / remove an optional channel
+  agent-reach add <channel>               add a channel; installs everything it needs, opens its login
+  agent-reach remove <channel>            remove a channel (defaults too) and what only it used
   agent-reach login|logout <channel>      log in (the user does it) / forget the login
   agent-reach browser setup|status        the Agent Reach browser for browser-login channels
   agent-reach skill [link <skills-dir>]   where the agent skill is; link it for another AI
-  agent-reach doctor [--text]             status of every channel (no network)
+  agent-reach doctor [--text]             status of every channel and installed tool versions (no network)
   agent-reach check [channel] [--text]    live-test channels
-  agent-reach update [--check]            upgrade Agent Reach, its tools and the skill
+  agent-reach update [--check]            upgrade Agent Reach, every added channel's tools and the skill
   agent-reach configure <key> [value]     groq-key | openai-key | proxy | github-token
   agent-reach uninstall [--dry-run]       remove everything Agent Reach installed
 """
@@ -91,7 +95,18 @@ class _Parser(argparse.ArgumentParser):
         raise _ArgError(message)
 
 
+#: Attach meta.update to JSON output (off for `update`, which reports versions itself).
+_SHOW_NOTICE = True
+
+
 def _emit(payload: dict) -> int:
+    if _SHOW_NOTICE:
+        from .update_notice import notice
+
+        info = notice()
+        if info:
+            meta = payload.get("meta")
+            payload["meta"] = {**(meta if isinstance(meta, dict) else {}), "update": info}
     sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
     sys.stdout.flush()
     return 0 if payload.get("ok") else 1
@@ -245,6 +260,10 @@ def _cmd_doctor(args: Sequence[str]) -> int:
         if c["regressed"]:
             extra = f"REGRESSED (worked at the previous check) {extra}"
         sys.stdout.write(f"{c['status']:<12} {c['channel']:<12} {c['level']:<13} {extra}\n")
+    if result["tools"]:
+        sys.stdout.write("\nTools\n")
+        for t in result["tools"]:
+            sys.stdout.write(f"{t['tool']:<16} {str(t.get('version') or '?'):<12} {t.get('owner', '')}\n")
     return 0
 
 
@@ -360,11 +379,9 @@ def _cmd_login(args: Sequence[str]) -> int:
             browser.start(ch.login_url)
         except ReachError as err:
             return _emit(envelope(channel=ch.name, action="login", error=err))
-        needs_sync = bool(ch.session) or type(ch).sync_login is not Channel.sync_login
-        nxt = (
-            f"After the user logs in, run `agent-reach login {ch.name} --sync`."
-            if needs_sync else "The user logs in in that window; then retry the action."
-        )
+        from . import manage
+
+        nxt = manage.browser_login_next(ch)
         return _emit(envelope(channel=ch.name, action="login", backend="agent-reach-browser",
                               items=[{"opened": ch.login_url, "next": nxt}]))
     try:
@@ -413,8 +430,6 @@ def _cmd_logout(args: Sequence[str]) -> int:
 
 
 def _cmd_browser(args: Sequence[str]) -> int:
-    from agent_reach.backends.opencli import OPENCLI_EXTENSION_URL
-
     parser = _Parser(prog="browser", add_help=False)
     parser.add_argument("op", choices=("setup", "status"))
     try:
@@ -423,30 +438,25 @@ def _cmd_browser(args: Sequence[str]) -> int:
         return _bad_input(None, "browser", f"{exc}; usage: agent-reach browser setup|status")
     action = f"browser {ns.op}"
     try:
-        if ns.op == "setup":
-            browser.touch()
-            result = browser.bind()
-            if result["status"] == "waiting_for_extension":
-                browser.start(OPENCLI_EXTENSION_URL)
-                raise ReachError(
-                    NEED_SETUP, "waiting for the OpenCLI extension in the Agent Reach browser",
-                    hint="Ask the user to click 'Add to Chrome' in the window that just opened, then run `agent-reach browser setup` again.",
-                )
-            if result["status"] == "ambiguous":
-                raise ReachError(
-                    NEED_SETUP, f"more than one new OpenCLI profile connected: {', '.join(result['candidates'])}",
-                    hint="Ask the user to close other Chrome windows that have the OpenCLI extension, then run setup again.",
-                )
+        item = browser.setup() if ns.op == "setup" else browser.status()
     except ReachError as err:
         return _emit(envelope(channel=None, action=action, error=err))
-    return _emit(envelope(channel=None, action=action, backend="agent-reach-browser", items=[browser.status()]))
+    return _emit(envelope(channel=None, action=action, backend="agent-reach-browser", items=[item]))
 
 
 
 def main(argv: Sequence[str]) -> int:
+    global _SHOW_NOTICE
+
     if not argv or argv[0] in ("help", "-h", "--help"):
         sys.stdout.write(HELP)
         return 0
+    from . import tools, update_notice
+
+    tools.extend_path()
+    _SHOW_NOTICE = argv[0] != "update"
+    if argv[0] not in ("update", "uninstall"):
+        update_notice.maybe_refresh()
     _apply_saved_proxy()
     head, rest = argv[0], argv[1:]
     if head == "channels":

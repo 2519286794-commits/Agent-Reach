@@ -356,18 +356,32 @@ def fake_browser(monkeypatch, tmp_path):
     from agent_reach.runtime import browser
 
     monkeypatch.setenv("HOME", str(tmp_path))
-    state = {"contexts": ["daily"], "running": True, "opened": [], "launches": 0, "launch_delay": 0.0}
+    state = {"contexts": ["daily"], "running": True, "opened": [], "launches": 0, "launch_delay": 0.0,
+             "watched": False}
 
     def fake_launch(url):
         state["launches"] += 1
         time.sleep(state["launch_delay"])
         state["running"] = True
+        state["watched"] = True  # a real launch starts the owning watcher
         state["contexts"].append("dedicated")
 
+    def fake_stop(timeout=10.0):
+        state["running"] = False
+        state["watched"] = False
+        if "dedicated" in state["contexts"]:
+            state["contexts"].remove("dedicated")
+        return True
+
+    real_watcher_running = browser.watcher_running
     monkeypatch.setattr(browser, "connected_contexts", lambda: list(state["contexts"]))
     monkeypatch.setattr(browser, "is_running", lambda: state["running"])
+    monkeypatch.setattr(browser, "watcher_running", lambda: state["watched"] or real_watcher_running())
     monkeypatch.setattr(browser, "start", lambda url="about:blank": state["opened"].append(url))
     monkeypatch.setattr(browser, "_launch", fake_launch)
+    monkeypatch.setattr(browser, "stop", fake_stop)
+    monkeypatch.setattr(browser, "ensure_chrome", lambda: "/fake/chrome")
+    monkeypatch.setattr(browser, "refresh_extension", lambda: {"version": "1.0.0", "updated": False})
     monkeypatch.setattr(browser, "_RUNNING_GRACE", 0.0)
     return state
 
@@ -380,26 +394,21 @@ def _bind_dedicated(fake_browser):
     browser.bind()
 
 
-def test_browser_action_opens_closed_browser_only_when_set_up(fake_browser):
+def test_browser_action_sets_up_unbound_browser_by_itself(fake_browser):
     from agent_reach.backends.opencli import _dedicated_profile_env
     from agent_reach.runtime import browser
 
     fake_browser["running"] = False
-    with pytest.raises(ReachError) as info:
-        _dedicated_profile_env()
-    assert info.value.code == "NEED_SETUP"
-    assert "browser setup" in info.value.hint
-    assert fake_browser["launches"] == 0
-
-    fake_browser["running"] = True
-    _bind_dedicated(fake_browser)
-    assert _dedicated_profile_env() == {"OPENCLI_PROFILE": "dedicated"}
-    assert fake_browser["launches"] == 0  # already open: no second browser
-
-    fake_browser["running"] = False
-    fake_browser["contexts"].remove("dedicated")
-    assert _dedicated_profile_env() == {"OPENCLI_PROFILE": "dedicated"}
+    assert _dedicated_profile_env() == {"OPENCLI_PROFILE": "dedicated"}  # no NEED_SETUP, no user click
+    assert browser.bound_context() == "dedicated"  # the user's own "daily" profile is never picked
     assert fake_browser["launches"] == 1
+
+    assert _dedicated_profile_env() == {"OPENCLI_PROFILE": "dedicated"}
+    assert fake_browser["launches"] == 1  # already open: no second browser
+
+    browser.stop()
+    assert _dedicated_profile_env() == {"OPENCLI_PROFILE": "dedicated"}
+    assert fake_browser["launches"] == 2  # closed: reopened, not set up again
     assert browser.last_used() is not None
 
 
@@ -501,26 +510,48 @@ def test_bind_refuses_to_guess_between_two_new_profiles(fake_browser):
     assert browser.bound_context() is None
 
 
-def test_opencli_calls_fail_fast_without_dedicated_browser(fake_browser):
-    from agent_reach.backends.opencli import opencli_call
+def test_windows_without_extension_still_needs_the_users_click(fake_browser, monkeypatch):
+    from agent_reach.backends.opencli import OPENCLI_EXTENSION_URL, opencli_call
+    from agent_reach.runtime import browser
 
+    monkeypatch.setattr(browser, "can_load_extension", lambda: False)
+    monkeypatch.setattr(browser, "_STORE_WAIT", 0.0)
     with pytest.raises(ReachError) as info:
         opencli_call("reddit", ["search", "x"], timeout=5)
     assert info.value.code == "NEED_SETUP"
+    assert fake_browser["opened"] == [OPENCLI_EXTENSION_URL]
+    assert browser.setup_problems()
 
 
-def test_opencli_calls_fail_fast_when_dedicated_browser_disconnected(fake_browser):
+def test_mac_and_linux_report_no_setup_problem_before_first_use(fake_browser):
+    from agent_reach.runtime import browser
+
+    assert browser.setup_problems() == []
+
+
+def test_opencli_calls_fail_fast_when_dedicated_browser_disconnected(fake_browser, monkeypatch):
     from agent_reach.backends.opencli import opencli_call
     from agent_reach.runtime import browser
 
-    browser.bind()
-    fake_browser["contexts"].append("dedicated")
-    browser.bind()
+    browser.setup()
+    monkeypatch.setattr(browser, "watcher_running", lambda: True)  # our own browser, extension just gone
     fake_browser["contexts"].remove("dedicated")
     with pytest.raises(ReachError) as info:
         opencli_call("reddit", ["search", "x"], timeout=5)
-    assert info.value.code == "NEED_SETUP"
+    assert info.value.code == "UPSTREAM_BROKEN"
     assert "not connected" in info.value.message
+    assert fake_browser["launches"] == 1
+
+
+def test_browser_left_open_without_watcher_is_reopened_with_extension(fake_browser, monkeypatch):
+    from agent_reach.backends.opencli import _dedicated_profile_env
+    from agent_reach.runtime import browser
+
+    browser.setup()
+    fake_browser["contexts"].remove("dedicated")  # e.g. opened by an older Agent Reach, no extension
+    monkeypatch.setattr(browser, "watcher_running", lambda: False)
+    assert _dedicated_profile_env() == {"OPENCLI_PROFILE": "dedicated"}
+    assert fake_browser["launches"] == 2
 
 
 def test_login_opens_site_in_dedicated_browser(capsys, monkeypatch, fake_browser):

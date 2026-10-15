@@ -64,10 +64,15 @@ class Channel(ABC):
     #: copied into the session only when the user asks (`login --import-existing`).
     legacy_state: Tuple[str, ...] = ()
     #: Page the user logs in on, opened in the Agent Reach browser by `agent-reach login`.
+    #: A login_url makes the channel need Chrome (installed by `add` when missing).
     login_url: str = ""
+    #: Cookie domains `agent-reach remove` clears in the Agent Reach browser
+    #: (empty = the login_url host without "www.").
+    domains: Tuple[str, ...] = ()
     #: Upstream tools (keys of runtime.tools.TOOLS) `agent-reach add` installs.
     tools: Tuple[str, ...] = ()
-    #: Machine prerequisites we only check (keys of runtime.manage.PREREQS).
+    #: Machine prerequisites (node, uv, ffmpeg, chrome; keys of runtime.tools.TOOLS)
+    #: that `agent-reach add` installs when the machine has none.
     prereqs: Tuple[str, ...] = ()
     #: Config keys `agent-reach logout` clears.
     logout_keys: Tuple[str, ...] = ()

@@ -28,7 +28,7 @@ _RAW_KEYS = ("id", "duration", "view_count", "like_count", "channel_id", "tags",
 
 
 def _ytdlp_argv(*args: str) -> list:
-    """Run the yt-dlp bundled with Agent Reach (pinned via our dependencies)."""
+    """Run the yt-dlp installed with Agent Reach (one of its dependencies)."""
     runtime = []
     if shutil.which("deno") is None and shutil.which("node"):
         runtime = ["--js-runtimes", "node"]
@@ -94,6 +94,8 @@ class YouTubeChannel(Channel):
     description = "YouTube 视频和字幕"
 
     level = "default"
+    #: transcribe re-encodes and chunks audio
+    prereqs = ("ffmpeg",)
     actions = (
         Action(
             "read",

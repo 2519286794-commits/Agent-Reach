@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for agent_reach.transcribe — provider routing, fallback, and errors."""
 
+import os
 import subprocess
 from pathlib import Path
 from typing import List
@@ -281,12 +282,13 @@ class TestOrchestrator:
         events = []
 
         def fake_run(cmd, **_kwargs):
-            events.append(cmd[0])
+            events.append(os.path.basename(cmd[0]))
+            seconds = tr.MAX_AUDIO_SECONDS + 1
             return subprocess.CompletedProcess(
                 cmd,
-                0,
-                stdout=str(tr.MAX_AUDIO_SECONDS + 1),
-                stderr="",
+                1,
+                stdout="",
+                stderr=f"  Duration: {seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}.00, start: 0\n",
             )
 
         monkeypatch.setattr(tr, "_require", lambda _binary: None)
@@ -302,7 +304,7 @@ class TestOrchestrator:
         with pytest.raises(tr.TranscribeError, match="duration.*limit"):
             tr.transcribe(str(chunk_file), config=fake_config)
 
-        assert events == ["ffprobe"]
+        assert events == ["ffmpeg"]
 
     def test_duration_probe_timeout_fails_before_compression(
         self, monkeypatch, fake_config, chunk_file
@@ -314,7 +316,7 @@ class TestOrchestrator:
             observed["timeout"] = _kwargs.get("timeout")
             raise subprocess.TimeoutExpired(
                 cmd,
-                timeout=tr.FFPROBE_TIMEOUT_SECONDS,
+                timeout=tr.PROBE_TIMEOUT_SECONDS,
             )
 
         monkeypatch.setattr(tr, "_require", lambda _binary: None)
@@ -329,11 +331,11 @@ class TestOrchestrator:
 
         with pytest.raises(
             tr.TranscribeError,
-            match=r"ffprobe timed out.*30s",
+            match=r"ffmpeg timed out.*30s",
         ):
             tr.transcribe(str(chunk_file), config=fake_config)
 
-        assert observed["timeout"] == tr.FFPROBE_TIMEOUT_SECONDS
+        assert observed["timeout"] == tr.PROBE_TIMEOUT_SECONDS
 
     def test_unparseable_duration_fails_before_compression(
         self, monkeypatch, fake_config, chunk_file
@@ -345,9 +347,9 @@ class TestOrchestrator:
             "run",
             lambda cmd, **_kwargs: subprocess.CompletedProcess(
                 cmd,
-                0,
-                stdout="N/A\n",
-                stderr="",
+                1,
+                stdout="",
+                stderr="  Duration: N/A, bitrate: N/A\n",
             ),
         )
         monkeypatch.setattr(
@@ -360,7 +362,7 @@ class TestOrchestrator:
 
         with pytest.raises(
             tr.TranscribeError,
-            match=r"ffprobe could not parse.*duration",
+            match=r"ffmpeg could not parse.*duration",
         ):
             tr.transcribe(str(chunk_file), config=fake_config)
 

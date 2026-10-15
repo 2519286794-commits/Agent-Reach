@@ -47,7 +47,7 @@ agent-reach read <链接>                   # 给链接，自动认出渠道
 
 {{CHANNEL_TABLE}}
 
-`default` 装好就能用；其余要用户先 `agent-reach add <渠道>`。
+`default` 装好就能用；其余要用户先 `agent-reach add <渠道>`。默认渠道也可以去掉，去掉后更新不会再加回来。
 
 ## 浏览器
 
@@ -58,11 +58,21 @@ agent-reach read <链接>                   # 给链接，自动认出渠道
 | 用户说 | 你运行 |
 |---|---|
 | 看看状态 / 哪些能用 | `agent-reach doctor --text`（要实测再跑 `agent-reach check --text`） |
-| 加上某个平台（如"加上小红书"） | `agent-reach add <渠道>`，照 `result.next` 做，再 `agent-reach login <渠道>` 让用户本人登录 |
+| 加上某个平台（如"加上小红书"） | `agent-reach add <渠道>`，一条命令就装好它需要的一切。只告诉用户他本人要做的事：在弹出的窗口里登录（`agent-reach login <渠道>`），或者提供一个 Key |
 | 登录过期了 | `agent-reach login <渠道>`（用户本人登录） |
-| 去掉某个平台 / 退出登录 | `agent-reach remove <渠道>` / `agent-reach logout <渠道>` |
-| 升级 / 更新 | `agent-reach update` |
+| 去掉某个平台 / 退出登录 | `agent-reach remove <渠道>`（默认渠道也能去掉）/ `agent-reach logout <渠道>` |
+| 升级 / 更新 | `agent-reach update`（同时把各渠道的工具升到最新），然后按下面"有新版本时"把结果告诉用户 |
 | 卸载 | 先 `agent-reach uninstall --dry-run` 给用户看，确认后 `agent-reach uninstall` |
 | 让另一个 AI 也能用 | `agent-reach skill link <那个 AI 的 skill 目录>`；`agent-reach skill` 查看现在放在哪 |
 
 首次安装：`agent-reach setup`。
+
+## 有新版本时
+
+任何结果里出现 `meta.update`，就说明有新版本。每次对话只提一次，用用户的语言、大白话：
+
+1. 告诉用户 Agent Reach 有新版本（`meta.update.latest`）。
+2. 从 `meta.update.notes` 里挑 1 到 3 个简短要点，说清楚这次改了什么。
+3. 问用户要不要更新。
+
+用户说要，才运行 `agent-reach update`；没得到同意绝不更新。更新完再用大白话说一遍改了什么，并把 `result.user_actions` 里每一条（比如某个渠道要重新登录）告诉用户。

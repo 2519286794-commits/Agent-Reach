@@ -11,37 +11,22 @@ import os
 import shutil
 import subprocess
 import sys
-import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 from agent_reach import __version__
 from agent_reach.utils.paths import home_dir
 
-from . import state, tools
+from . import state, tools, update_notice
 from .result import BAD_INPUT, NEED_SETUP, UPSTREAM_BROKEN, ReachError
 
-REPO = "Panniantong/Agent-Reach"
+REPO = update_notice.REPO
 CHECK_FRESH_SECONDS = 24 * 3600
 
-
-def _chrome_present() -> bool:
-    from .browser import chrome_binary
-
-    return chrome_binary() is not None
-
-
-# ── prerequisites we only check and explain ──
-
-PREREQS: Dict[str, dict] = {
-    "node": {"check": lambda: bool(shutil.which("node") and shutil.which("npm")),
-             "hint": "Install Node.js: https://nodejs.org (macOS: brew install node)"},
-    "git": {"check": lambda: bool(shutil.which("git")), "hint": "Install git (macOS: xcode-select --install)"},
-    "chrome": {"check": lambda: _chrome_present(), "hint": "Install Google Chrome: https://www.google.com/chrome"},
-    "ffmpeg": {"check": lambda: bool(shutil.which("ffmpeg")), "hint": "Install ffmpeg (macOS: brew install ffmpeg)"},
-    "uv": {"check": lambda: bool(shutil.which("uvx")),
-           "hint": "Install uv: https://docs.astral.sh/uv/getting-started/installation/"},
-}
+#: Machine prerequisites a channel may list in `prereqs` (keys of tools.TOOLS).
+#: `add` installs them when the machine has none, without an admin password.
+PREREQS = ("node", "uv", "ffmpeg", "chrome")
 
 
 def _channels():
@@ -59,16 +44,45 @@ def _channel(name: str):
 
 
 def is_added(ch, data: Optional[dict] = None) -> bool:
-    return ch.level == "default" or ch.name in (data or state.load())["channels"]
+    data = data or state.load()
+    if ch.name in data["channels"]:
+        return True
+    return ch.level == "default" and ch.name not in data["removed_defaults"]
 
 
-def missing_prereqs(ch) -> List[str]:
-    return [p for p in ch.prereqs if not PREREQS[p]["check"]()]
+def _uses_browser(ch) -> bool:
+    return bool(ch.login_url)
+
+
+def channel_tools(ch) -> List[str]:
+    """Everything `add` installs for the channel, prerequisites first."""
+    names = list(ch.prereqs) + (["chrome"] if _uses_browser(ch) else []) + list(ch.tools)
+    return list(dict.fromkeys(names))
+
+
+def site_domains(ch) -> List[str]:
+    """Cookie domains of the channel's site in the Agent Reach browser."""
+    if getattr(ch, "domains", ()):
+        return list(ch.domains)
+    host = (urlparse(ch.login_url).hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return [host] if host else []
 
 
 def _has_login(ch) -> bool:
     return bool(ch.login_url or ch.login_argv or ch.logout_keys)
 
+
+def browser_login_next(ch) -> str:
+    """The single sentence for the user after the login page opened in the Agent Reach browser."""
+    from agent_reach.channels.base import Channel
+
+    needs_sync = bool(ch.session) or type(ch).sync_login is not Channel.sync_login
+    if needs_sync:
+        return (f"The user logs in to {ch.name} in the Agent Reach browser window that just opened; "
+                f"then run `agent-reach login {ch.name} --sync`.")
+    return f"The user logs in to {ch.name} in the Agent Reach browser window that just opened; then retry the action."
 
 # ── checks ──
 
@@ -128,9 +142,7 @@ def regressed(check: Optional[dict]) -> bool:
 def channel_status(ch, data: dict) -> dict:
     if not is_added(ch, data):
         return {"status": "not_added", "problems": [], "hint": f"agent-reach add {ch.name}"}
-    problems = [f"missing {p}: {PREREQS[p]['hint']}" for p in missing_prereqs(ch)]
-    problems += [f"{t} not installed: run `agent-reach add {ch.name}`" for t in ch.tools
-                 if not tools.resolve(tools.TOOLS[t].commands[0])]
+    problems = [f"{t} not installed: run `agent-reach add {ch.name}`" for t in channel_tools(ch) if not tools.present(t)]
     problems += ch.setup_problems()
     if problems:
         return {"status": "needs_setup", "problems": problems}
@@ -154,37 +166,76 @@ def doctor() -> dict:
     for ch in _channels():
         channels.append({"channel": ch.name, "level": ch.level, **channel_status(ch, data),
                          "regressed": regressed(data["checks"].get(ch.name))})
-    return {"version": __version__, "channels": channels}
+    return {"version": __version__, "channels": channels, "tools": tools.recorded()}
 
 
 # ── add / remove ──
 
-def add(name: str, *, allow_upgrade: bool = False) -> dict:
-    ch = _channel(name)
-    missing = missing_prereqs(ch)
-    if missing:
-        raise ReachError(NEED_SETUP, f"missing prerequisites: {', '.join(missing)}",
-                         hint="; ".join(PREREQS[p]["hint"] for p in missing))
-    installed = [tools.ensure(t, allow_upgrade=allow_upgrade) for t in ch.tools]
+def _install_channel(ch, *, allow_upgrade: bool = False) -> List[dict]:
+    installed = [tools.ensure(t, allow_upgrade=allow_upgrade) for t in channel_tools(ch)]
     ch.on_add()
+    return installed
+
+
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return text if text.endswith((".", "。")) else text + "."
+
+
+def _next_step(ch) -> Optional[str]:
+    """What the user still does after `add`, as one plain sentence (None = nothing).
+
+    Browser-login channels: the Agent Reach browser is made ready (extension
+    loaded and bound) and the login page opened; the user only logs in there.
+    """
+    if _uses_browser(ch):
+        from . import browser
+
+        try:
+            if "opencli" in channel_tools(ch):
+                browser.setup()
+            browser.start(ch.login_url)
+        except ReachError as err:
+            return _sentence(err.hint or err.message)
+        return browser_login_next(ch)
+    parts = [_sentence(p) for p in ch.setup_problems()]
+    if ch.login_argv:
+        parts.append(f"The user logs in to {ch.name}: run `agent-reach login {ch.name}`.")
+    return " ".join(parts) or None
+
+
+def add(name: str, *, allow_upgrade: bool = False) -> dict:
+    """Install whatever the channel needs (prerequisites included), add it, open its login."""
+    ch = _channel(name)
+    installed = _install_channel(ch, allow_upgrade=allow_upgrade)
     data = state.load()
     data["channels"][name] = {"added_at": state.now()}
+    data["removed_defaults"] = [n for n in data["removed_defaults"] if n != name]
     state.save(data)
-    nxt = list(ch.setup_problems())
-    if _has_login(ch):
-        nxt.append(f"log in: `agent-reach login {name}`")
-    return {"channel": name, "added": True, "tools": installed, "next": nxt}
+    return {"channel": name, "added": True, "tools": installed, "next": _next_step(ch)}
+
+
+def _needed_tools(data: dict) -> set:
+    return tools.closure(t for c in _channels() if is_added(c, data) for t in channel_tools(c))
+
+
+def _prune(data: dict) -> List[str]:
+    """Remove our tools no added channel uses."""
+    return tools.prune(_needed_tools(data))
 
 
 def remove(name: str) -> dict:
-    ch = _channel(name)
-    if ch.level == "default":
-        raise ReachError(BAD_INPUT, f"{name} is a default channel and cannot be removed")
+    """Remove a channel (defaults too) and everything only it used."""
+    from . import browser
     from .sessions import clear_session
 
+    ch = _channel(name)
     data = state.load()
-    was_added = data["channels"].pop(name, None) is not None
+    was_added = is_added(ch, data)
+    data["channels"].pop(name, None)
     data["checks"].pop(name, None)
+    if ch.level == "default" and name not in data["removed_defaults"]:
+        data["removed_defaults"].append(name)
     state.save(data)
     ch.on_remove()
     if ch.session:
@@ -196,9 +247,19 @@ def remove(name: str) -> dict:
         for key in ch.logout_keys:
             if cfg.get(key):
                 cfg.delete(key)
-    still_needed = {t for c in _channels() if c.name != name and is_added(c, data) for t in c.tools}
-    removed_tools = [t for t in ch.tools if t not in still_needed and tools.remove_private(t)]
-    return {"channel": name, "removed": was_added, "removed_tools": removed_tools}
+    cookies, browser_deleted, warnings = 0, False, []
+    if _uses_browser(ch):
+        others = [c for c in _channels() if c.name != name and _uses_browser(c) and is_added(c, data)]
+        try:
+            if others:
+                if browser.profile_dir().is_dir():
+                    cookies = browser.clear_site(site_domains(ch))
+            else:
+                browser_deleted = browser.delete_profile()
+        except ReachError as err:
+            warnings.append(err.message)
+    return {"channel": name, "removed": was_added, "removed_tools": _prune(data),
+            "cleared_cookies": cookies, "browser_deleted": browser_deleted, "warnings": warnings}
 
 
 # ── skill (the agent-facing instructions) ──
@@ -468,35 +529,31 @@ def migrate() -> dict:
     }
 
 
+def _optional_entry(c) -> dict:
+    """What the user must do for an optional channel; installs happen by themselves."""
+    needs = (["login"] if (c.login_url or c.login_argv) else []) + ([c.needs_key] if c.needs_key else [])
+    return {"channel": c.name, "level": c.level, "add": f"agent-reach add {c.name}", "needs": needs}
+
+
 def setup() -> dict:
+    """Add the default channels (except ones the user removed) and place the skill."""
     migration = migrate() if not state.exists() and (state.root() / "config.yaml").exists() else None
     if not state.exists():
         state.save(state.load())
     skill = place_skill()
-    defaults = [c for c in _channels() if c.level == "default"]
+    data = state.load()
+    defaults = [c for c in _channels() if c.level == "default" and is_added(c, data)]
     added = []
     for ch in defaults:
         try:
-            out = add(ch.name)
-            added.append({"channel": ch.name, "ok": True, "tools": out["tools"]})
+            added.append({"channel": ch.name, "ok": True, "tools": _install_channel(ch)})
         except ReachError as err:
             added.append({"channel": ch.name, "ok": False, "tools": [],
                           "error": {"code": err.code, "message": err.message, "hint": err.hint}})
-    needed = list(dict.fromkeys(p for ch in defaults for p in ch.prereqs))
-    prereqs = {}
-    for p in needed:
-        ok = PREREQS[p]["check"]()
-        prereqs[p] = {"ok": ok, **({} if ok else {"hint": PREREQS[p]["hint"]})}
-    optional = [
-        {"channel": c.name, "level": c.level, "add": f"agent-reach add {c.name}",
-         "needs": list(c.prereqs) + (["login"] if (c.login_url or c.login_argv) else [])
-                  + ([c.needs_key] if c.needs_key else [])}
-        for c in _channels() if c.level != "default"
-    ]
+    optional = [_optional_entry(c) for c in _channels() if not is_added(c, data)]
     return {
         "version": __version__,
         "default_channels": added,
-        "prerequisites": prereqs,
         "skill": skill,
         "optional_channels": optional,
         "logins": [{"channel": c.name, "command": f"agent-reach login {c.name}"} for c in defaults if _has_login(c)],
@@ -506,27 +563,21 @@ def setup() -> dict:
 
 # ── update ──
 
-def _version_tuple(v: str) -> tuple:
-    try:
-        return tuple(int(x) for x in v.strip().lstrip("v").split("."))
-    except ValueError:
-        return ()
-
-
 def update_check() -> dict:
+    """Live check of the latest release; also refreshes the background notice cache."""
     try:
-        req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/latest",
-                                     headers={"User-Agent": "agent-reach", "Accept": "application/vnd.github+json"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            rel = json.loads(resp.read())
+        rel = update_notice.fetch_latest(timeout=15)
     except Exception as exc:  # noqa: BLE001
         raise ReachError(UPSTREAM_BROKEN, f"could not reach GitHub: {exc}") from None
-    latest = str(rel.get("tag_name", "")).lstrip("v")
+    try:
+        update_notice.write_cache(rel)
+    except OSError:
+        pass
     return {
         "current": __version__,
-        "latest": latest,
-        "update_available": _version_tuple(latest) > _version_tuple(__version__),
-        "notes": (rel.get("body") or "")[:2000],
+        "latest": rel["latest"],
+        "update_available": update_notice.version_tuple(rel["latest"]) > update_notice.version_tuple(__version__),
+        "notes": rel["notes"],
     }
 
 
@@ -556,25 +607,66 @@ def upgrade_command(version: str) -> List[str]:
 UNINSTALL_PROGRAM = "uv tool uninstall agent-reach"
 
 
+def _ordered_tools(names) -> List[str]:
+    """Tools plus what they need, dependencies first, each once."""
+    out: List[str] = []
+
+    def visit(n: str) -> None:
+        if n in out or n not in tools.TOOLS:
+            return
+        for d in tools.TOOLS[n].needs:
+            visit(d)
+        out.append(n)
+
+    for n in names:
+        visit(n)
+    return out
+
+
 def sync() -> dict:
-    """After the program itself changed: bring tools to this version's pins, refresh the skill."""
+    """Bring every added channel's tools to their latest allowed version, prune unused
+    tools, drop channels this version no longer has, refresh the skill.
+
+    `user_actions` are plain sentences for what the user must do now.
+    """
     migration = migrate() if not state.exists() else None
     data = state.load()
-    synced, problems = [], []
-    for ch in _channels():
-        if not is_added(ch, data):
+    known = {c.name for c in _channels()}
+    dropped = sorted(set(data["channels"]) - known)
+    for n in dropped:
+        data["channels"].pop(n, None)
+        data["checks"].pop(n, None)
+    data["removed_defaults"] = [n for n in data["removed_defaults"] if n in known]
+    state.save(data)
+    actions = [f"The {n} channel is no longer part of Agent Reach and was removed." for n in dropped]
+    added = [c for c in _channels() if is_added(c, data)]
+    synced, problems, failed = [], [], set()
+    for t in _ordered_tools(t for c in added for t in channel_tools(c)):
+        try:
+            synced.append(tools.ensure(t, upgrade=True))
+        except ReachError as err:
+            failed.add(t)
+            problems.append({"tool": t, "code": err.code, "message": err.message, "hint": err.hint})
+    for c in added:
+        bad = [t for t in channel_tools(c) if t in failed]
+        if bad:
+            hint = next((p["hint"] for p in problems if p["tool"] in bad and p.get("hint")), None)
+            actions.append(_sentence(f"{c.name} could not update {', '.join(bad)}" + (f": {hint}" if hint else "")))
             continue
-        for t in ch.tools:
-            try:
-                synced.append(tools.ensure(t))
-            except ReachError as err:
-                problems.append({"tool": t, "code": err.code, "message": err.message, "hint": err.hint})
-        ch.on_add()
-    return {"version": __version__, "tools": synced, "problems": problems,
-            "skill": place_skill(), "migration": migration}
+        try:
+            c.on_add()
+        except ReachError as err:
+            actions.append(_sentence(f"{c.name}: {err.hint or err.message}"))
+        actions += [_sentence(f"{c.name}: {p}") for p in c.setup_problems()]
+        check = data["checks"].get(c.name) or {}
+        if "NEED_LOGIN" in (check.get("codes") or {}).values():
+            actions.append(f"The user needs to log in to {c.name} again: run `agent-reach login {c.name}`.")
+    return {"version": __version__, "tools": synced, "problems": problems, "removed_tools": _prune(state.load()),
+            "dropped_channels": dropped, "user_actions": actions, "skill": place_skill(), "migration": migration}
 
 
 def update(check_only: bool = False) -> dict:
+    """Upgrade Agent Reach when a release is newer, then upgrade every added channel's tools."""
     info = update_check()
     if check_only:
         return info
@@ -587,26 +679,31 @@ def update(check_only: bool = False) -> dict:
                 hint=f"Reinstall once with uv: `{' '.join(cmd)}`, then remove the old copy "
                      "(e.g. `pipx uninstall agent-reach` or `pip uninstall agent-reach`).",
             )
+        run = [tools.resolve("uv") or cmd[0], *cmd[1:]]
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+            proc = subprocess.run(run, capture_output=True, text=True, timeout=900)
         except FileNotFoundError:
-            raise ReachError(NEED_SETUP, "uv is not on PATH", hint=PREREQS["uv"]["hint"]) from None
+            raise ReachError(NEED_SETUP, "uv is not on PATH",
+                             hint="Install uv: https://docs.astral.sh/uv/getting-started/installation/") from None
         if proc.returncode != 0:
             raise ReachError(UPSTREAM_BROKEN, f"upgrade failed: {proc.stderr.strip()[-300:]}",
                              hint=f"Run manually: {' '.join(cmd)}")
         exe = shutil.which("agent-reach") or sys.argv[0]
         out = subprocess.run([exe, "update", "--sync-only"], capture_output=True, text=True, timeout=1800)
         try:
-            synced = json.loads(out.stdout.strip().splitlines()[-1]).get("result")
+            synced = json.loads(out.stdout.strip().splitlines()[-1]).get("result") or {}
         except (ValueError, IndexError):
             synced = {"raw": out.stdout[-500:]}
-        return {**info, "upgraded": True, "method": method, "sync": synced}
-    return {**info, "upgraded": False, "method": method, "sync": sync()}
+        return {**info, "upgraded": True, "method": method, "sync": synced,
+                "user_actions": synced.get("user_actions", [])}
+    synced = sync()
+    return {**info, "upgraded": False, "method": method, "sync": synced, "user_actions": synced["user_actions"]}
 
 
 # ── uninstall ──
 
-_OWNED = ("config.yaml", "state.json", "mcporter.json", "sessions", "browser")
+_OWNED = ("config.yaml", "state.json", "mcporter.json", "sessions", "browser",
+          "update-check.json", "update-check.started")
 
 
 def uninstall(dry_run: bool = False) -> dict:
@@ -615,7 +712,7 @@ def uninstall(dry_run: bool = False) -> dict:
     root = state.root()
     targets = _skill_uninstall_targets()  # before state.json goes: it records the links
     targets += [root / n for n in _OWNED]
-    targets += [tools.tool_dir(n) for n in tools.TOOLS] + [root / "tools" / "xiaoyuzhou"]
+    targets += [tools.tool_dir(n) for n in tools.TOOLS] + [tools.npm_global_dir(), root / "tools" / "xiaoyuzhou"]
     targets = [t for t in targets if t.exists() or t.is_symlink()]
     globals_ = tools.uninstall_global_owned(dry_run=True)
     if not dry_run:

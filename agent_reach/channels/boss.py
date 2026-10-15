@@ -15,7 +15,6 @@ import json
 
 from agent_reach.runtime.result import (
     NEED_LOGIN,
-    NEED_SETUP,
     UPSTREAM_BROKEN,
     ReachError,
     make_item,
@@ -38,7 +37,7 @@ class BossChannel(Channel):
     login_argv = ("boss", "--cdp-url", "http://localhost:9222", "login", "--cdp")
     legacy_state = (".boss-agent",)
     tools = ("boss-agent-cli",)
-    prereqs = ("git", "chrome")
+    prereqs = ("chrome",)
     actions = (
         Action(
             "search",
@@ -63,9 +62,10 @@ class BossChannel(Channel):
         from agent_reach.runtime import browser
 
         if not (browser.is_running() or browser.profile_dir().is_dir()):
+            # boss needs no extension, only a zhipin.com login in the browser, which a never-opened one lacks.
             raise ReachError(
-                NEED_SETUP,
-                "the Agent Reach browser has never been opened",
+                NEED_LOGIN,
+                "nobody has logged in to zhipin.com in the Agent Reach browser yet",
                 hint="Run `agent-reach login boss`, let the user log in to zhipin.com in that window, then run `agent-reach login boss --sync`.",
             )
         browser.ensure_running()

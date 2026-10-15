@@ -2,7 +2,6 @@
 """Xiaoyuzhou Podcast (小宇宙播客) — transcribe podcasts via Groq Whisper API."""
 
 import os
-import shutil
 import tempfile
 
 from agent_reach.config import Config
@@ -55,11 +54,17 @@ class XiaoyuzhouChannel(Channel):
                 NEED_SETUP, "no Groq API key configured",
                 hint="Ask the user for a free key from https://console.groq.com, then run `agent-reach configure groq-key`.",
             )
-        if not shutil.which("ffmpeg"):
-            raise ReachError(NEED_SETUP, "ffmpeg is not installed", hint="Ask the user to install ffmpeg (macOS: brew install ffmpeg).")
+        from agent_reach.runtime.tools import ffmpeg_path
+
+        ffmpeg = ffmpeg_path()
+        if not ffmpeg:
+            raise ReachError(NEED_SETUP, "ffmpeg is not installed", hint="Run `agent-reach add xiaoyuzhou`.")
+        # our private ffmpeg goes first on the script's PATH
+        path = os.pathsep.join([os.path.dirname(ffmpeg), os.environ.get("PATH", "")])
         with tempfile.TemporaryDirectory(prefix="agent-reach-xyz-") as tmp:
             out = os.path.join(tmp, "transcript.txt")
-            run_cmd(["bash", _SCRIPT, str(target).strip(), out], timeout=timeout, env={"GROQ_API_KEY": str(key)}, label="transcribe")
+            run_cmd(["bash", _SCRIPT, str(target).strip(), out], timeout=timeout,
+                    env={"GROQ_API_KEY": str(key), "PATH": path}, label="transcribe")
             with open(out, encoding="utf-8", errors="replace") as fh:
                 text = fh.read().strip()
         return [make_item(url=str(target).strip(), text=text)]
