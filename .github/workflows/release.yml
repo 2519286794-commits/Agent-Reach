@@ -1,6 +1,6 @@
 name: release
 
-# Push a tag like v2.0.0 to publish. Users install from the tagged archive,
+# Push a tag like v1.6.0 to publish. Users install from the tagged archive,
 # so a release is only created after the tests pass and the tag matches the
 # version in pyproject.toml and agent_reach/__init__.py.
 

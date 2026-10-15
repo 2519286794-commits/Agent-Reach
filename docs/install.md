@@ -7,7 +7,7 @@ For the AI doing the install. Run every command yourself. Each `agent-reach` com
 ## 0. Before you start
 
 - You must be able to run terminal commands. If you can't, tell the user: "Please turn on command execution for me in my settings, then ask again."
-- Already have it (`command -v agent-reach` prints a path)? Run `agent-reach update` and stop here. Coming from a version before 2.0: follow [update.md](update.md).
+- Already have it (`command -v agent-reach` prints a path)? Run `agent-reach update` and stop here. Coming from 1.5 or earlier: follow [update.md](update.md).
 - `uv` missing (`uv --version` fails)? Tell the user: "I'm installing uv, a small tool that installs command-line programs. It needs no admin password." Then run:
   - macOS / Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
   - Windows: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
@@ -16,7 +16,7 @@ For the AI doing the install. Run every command yourself. Each `agent-reach` com
 ## 1. Install and set up
 
 ```bash
-uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v2.0.0.zip
+uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v1.6.0.zip
 agent-reach setup
 agent-reach check --text
 ```

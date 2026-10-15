@@ -6,10 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.0.0] - unreleased
+## [1.6.0] - unreleased
 
-v2 is a rebuild. Agents call one command, `agent-reach`; everything Agent Reach installs or stores lives under `~/.agent-reach/`.
-v2 是重构版本：Agent 只调一个命令 `agent-reach`，Agent Reach 装的、存的东西全部在 `~/.agent-reach/` 下。
+1.6 is a rebuild. Agents call one command, `agent-reach`; everything Agent Reach installs or stores lives under `~/.agent-reach/`.
+1.6 是重构版本：Agent 只调一个命令 `agent-reach`，Agent Reach 装的、存的东西全部在 `~/.agent-reach/` 下。
 
 ### ✨ New / 新增
 

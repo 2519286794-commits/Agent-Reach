@@ -1,6 +1,6 @@
 # Update Agent Reach
 
-## 2.0 and later
+## 1.6 and later
 
 ```bash
 agent-reach update
@@ -18,12 +18,12 @@ Afterwards, `agent-reach check --text` confirms your channels still work.
 
 If the upgrade step fails, the error `hint` holds the exact command to run by hand. Installed some other way than uv? The hint says to reinstall once with uv, as below.
 
-## Coming from a version before 2.0
+## Coming from 1.5 or earlier
 
 Older versions installed differently, so reinstall once with the same command as [install.md](install.md) (no `uv` yet? see step 0 there):
 
 ```bash
-uv tool install --force https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v2.0.0.zip
+uv tool install --force https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v1.6.0.zip
 agent-reach setup
 ```
 
@@ -31,7 +31,7 @@ agent-reach setup
 
 - keys in `~/.agent-reach/config.yaml` stay as they are
 - `result.migration.suggested_channels` lists channels you used before; add them again with `agent-reach add <channel>`
-- tools the old version installed globally are not removed; Agent Reach 2.0 uses its own private copies
+- tools the old version installed globally are not removed; Agent Reach 1.6 uses its own private copies
 - old CLI logins (bilibili, boss) can be copied over instead of logging in again:
 
 ```bash

@@ -458,7 +458,7 @@ def migrate() -> dict:
         hints.append("xiaoyuzhou")
     defaults = {c.name for c in _channels() if c.level == "default"}
     data = state.load()
-    data["migrated_from"] = "pre-2.0"
+    data["migrated_from"] = "1.5"
     state.save(data)
     return {
         "migrated": True,
