@@ -56,7 +56,7 @@ def run_cmd(
         stdin=subprocess.DEVNULL,
         env=run_env,
         cwd=cwd or os.path.expanduser("~"),
-        start_new_session=(os.name != "nt"),
+        start_new_session=(sys.platform != "win32"),
     )
     try:
         out, err = proc.communicate(timeout=max(timeout, 0.1))
