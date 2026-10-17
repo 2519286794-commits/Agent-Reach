@@ -17,6 +17,8 @@ Use `agent-reach check CHANNEL --search` for one bounded live search check. Save
 
 `setup` installs default channels. XHS and BOSS are optional: `agent-reach add xiaohongshu` or `agent-reach add boss` installs Cloak SDK and its browser binary without opening a browser. Installation does not import credentials.
 
+窗口生命周期：`cloak login CHANNEL` 打开一次可视 Cloak 窗口。用户完成登录后关闭该窗口，Reach 才保存会话；15 分钟内未关闭则超时并结束该窗口，不要自动重试。Cloak 查询和导入验收是 headless，执行结束会关闭自己的上下文。`browser setup` 属于旧的专用 OpenCLI Chrome 路径，可能显示 `OpenCLI Browser` 和 `about:blank`；它闲置约 10 分钟后关闭。通过 `browser use ID` 复用用户 Chrome 时，Reach 不关闭用户窗口。若同时出现两种窗口，先查实际执行的命令，不要把 OpenCLI Browser 称为 Ego Lite。
+
 ## Cloak：小红书与 BOSS / XHS and BOSS
 
 独立路径：运行 `agent-reach cloak login CHANNEL`，用户登录完成后关闭窗口；再用 `--backend cloakbrowser` 验收查询。关闭窗口只标记会话已保存，不声称登录或业务验收成功。窗口等待上限 15 分钟；关闭登录窗口后再执行查询。

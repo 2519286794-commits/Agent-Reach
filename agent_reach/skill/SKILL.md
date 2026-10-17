@@ -60,6 +60,8 @@ agent-reach read <链接>                   # 给链接，自动认出渠道
 
 Cloak 查询和导入验收默认 `headless=True`。独立登录使用 `agent-reach cloak login CHANNEL`：由用户在可视窗口登录，完成后关闭窗口保存会话，再验收查询。此路径不需要 OpenCLI；OpenCLI 使用自己的 Chrome 会话，Cookie 导入仅为可选迁移方式。
 
+登录时只应弹出一个 Cloak 窗口；普通 Cloak 查询在后台运行并自动关闭窗口。`cloak login` 最多等待 15 分钟，用户未完成并关窗时返回超时，不能自行反复重开。旧的 `browser setup` 会另开标有 OpenCLI Browser 的专用 Chrome，只有用户明确选择该路径时才执行；它闲置约 10 分钟后关闭。复用用户已有 Chrome 时，不要关闭原窗口。
+
 安装和 `add` 不打开浏览器。`ensure <渠道>` 优先复用已有会话并执行正式验收；显式 `--reuse-profile ID` 授权从该 Chrome 配置导入指定站点的 Cookie，该授权在本机保存，可用 `--forget-source` 撤销。`login <渠道>` 默认只查看现有连接。连接正常或保存过状态不等于当前已登录。
 
 后端按动作选择：小红书 search/read、Twitter/Reddit search、Facebook search、Instagram search/profile/posts 使用 CloakBrowser → OpenCLI；BOSS search 使用 CloakBrowser → OpenCLI → boss-agent-cli，BOSS read 仅支持 CloakBrowser；LinkedIn jobs 使用 CloakBrowser → linkedin-mcp。其他动作以 `agent-reach channels` 中的后端声明为准。具体会话选择见 [会话配置](references/sessions.md)。

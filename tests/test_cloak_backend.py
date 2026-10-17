@@ -97,6 +97,17 @@ def test_native_login_needs_no_opencli(monkeypatch, tmp_path):
     assert json.loads((cloak.folder('instagram')/'configured.json').read_text())['source'] == 'native login'
 
 
+def test_native_login_timeout_explains_window_lifecycle(monkeypatch, tmp_path):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setattr(cloak, 'call', lambda *a, **kw: (_ for _ in ()).throw(ReachError('TIMEOUT', 'worker timeout')))
+    with pytest.raises(ReachError) as caught:
+        cloak.login('xiaohongshu')
+    assert caught.value.code == 'TIMEOUT'
+    assert '15 minutes' in caught.value.message
+    assert 'do not retry automatically' in caught.value.message
+    assert not (cloak.folder('xiaohongshu') / 'configured.json').exists()
+
+
 def test_import_removes_staging_file_after_failure(monkeypatch,tmp_path):
     monkeypatch.setenv('HOME',str(tmp_path))
     source=tmp_path/'cookies.json'

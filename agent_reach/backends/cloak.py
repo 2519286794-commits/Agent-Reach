@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from agent_reach.runtime.result import BAD_INPUT, NEED_SETUP, ReachError
+from agent_reach.runtime.result import BAD_INPUT, NEED_SETUP, TIMEOUT, ReachError
 from agent_reach.utils.paths import (
     atomic_write_private_text,
     ensure_no_symlink_path,
@@ -88,7 +88,18 @@ def setup():
 def login(channel):
     """User completes login in Cloak's own persistent browser, then closes it."""
     from agent_reach.runtime import state
-    items = call(channel, "login", timeout=900)
+    try:
+        items = call(channel, "login", timeout=900)
+    except ReachError as exc:
+        if exc.code != TIMEOUT:
+            raise
+        raise ReachError(
+            TIMEOUT,
+            "Cloak login window closed after 15 minutes without a saved session. "
+            "Ask the user whether to reopen it; do not retry automatically.",
+            hint="The user must finish login and close the Cloak window to save the session. "
+                 "Then run agent-reach ensure for this channel.",
+        ) from None
     path = folder(channel)
     atomic_write_private_text(path / "configured.json", json.dumps({"source": "native login", "channel": channel}))
     saved = state.load()
