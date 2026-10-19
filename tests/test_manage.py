@@ -495,7 +495,7 @@ def test_setup_adds_default_channels_and_survives_a_failing_install(env, monkeyp
     assert result["skill"]["installed"] is True
     assert env["calls"] == [], "setup opens no login window"
     report = result['installation_report']
-    assert report['markdown'] == (state.root() / 'installation-report.md').read_text()
+    assert report['markdown'] == (state.root() / 'installation-report.md').read_text(encoding='utf-8')
     assert report['path'] == str(state.root() / 'installation-report.md')
     assert '安装失败：UPSTREAM_BROKEN' in report['markdown']
 
@@ -619,8 +619,9 @@ def test_skill_falls_back_to_a_copy_without_symlink_rights(env, monkeypatch):
     result = manage.place_skill()
     copy = home / ".claude" / "skills" / "agent-reach"
     assert not copy.is_symlink() and (copy / "SKILL.md").is_file()
-    for name in ("sessions.md", "maintenance.md"):
-        assert (copy / "references" / name).read_text() == (manage.skill_dir() / "references" / name).read_text()
+    for name in ("sessions.md", "maintenance.md", "capabilities.md"):
+        assert (copy / "references" / name).read_text(encoding="utf-8") == (
+            manage.skill_dir() / "references" / name).read_text(encoding="utf-8")
     assert result["copies"] == [str(copy)] and result["links"] == []
     (copy / "SKILL.md").write_text("---\nname: agent-reach\n---\nstale\n")
     manage.place_skill()
