@@ -1,6 +1,7 @@
 """Read-only session discovery and explicit connection choices. Never logs a user in."""
 import json
 import urllib.request
+from datetime import datetime
 from urllib.parse import urlsplit
 
 from agent_reach.config import Config
@@ -43,26 +44,26 @@ _CAPABILITY_LIMITS = {
 }
 
 
-# Short user-facing receipt; detailed actions and limits stay in capability_summary.
+# Public web options and authenticated Reach actions; detailed limits stay in capability_summary.
 _QUICK_ACCESS = {
-    'github': '✅ 仓库、README、Issue/PR 和公开评论',
-    'youtube': '✅ 视频搜索、简介、已有字幕；转录需配置 Key',
-    'bilibili': '✅ 视频搜索、简介；🔐 部分字幕路径',
-    'v2ex': '✅ 主题正文、部分回复',
-    'web': '✅ 网页搜索、公开正文',
-    'reddit': '✅ 公开帖子、部分评论；🔐 站内搜索/列表',
-    'twitter': '⚠️ 索引、部分单帖；🔐 站内搜索/推文串',
-    'xiaohongshu': '⚠️ 部分公开列表；🔐 笔记正文、评论',
-    'instagram': '⚠️ 部分主页/索引；🔐 用户搜索、帖子描述',
-    'facebook': '⚠️ 公开摘要；🔐 站内搜索、主页',
-    'linkedin': '⚠️ 职位索引；🔐 职位搜索、JD',
-    'boss': '⚠️ 职位索引；🔐 职位搜索、JD',
-    'xueqiu': '✅ 公开行情；🔐 社区热门内容',
+    'github': ('✅ 找项目、读文档、看讨论、看评论', '—'),
+    'youtube': ('✅ 找视频、读简介、读字幕', '—'),
+    'bilibili': ('✅ 找视频、读简介', '❌ 读字幕'),
+    'v2ex': ('✅ 读帖子、看回复', '—'),
+    'web': ('✅ 搜资料、读网页', '—'),
+    'reddit': ('✅ 搜帖子、读正文、看评论', '—'),
+    'twitter': ('✅ 搜摘要、试读原文', '❌ 搜推文、看动态、看回复'),
+    'xiaohongshu': ('✅ 看推荐（链接、作者）', '❌ 搜笔记、读正文、看评论'),
+    'instagram': ('✅ 搜简介', '❌ 找用户、看主页、看帖子'),
+    'facebook': ('✅ 搜摘要', '❌ 搜内容、看主页'),
+    'linkedin': ('✅ 搜标题、找链接', '❌ 找职位、读详情'),
+    'boss': ('✅ 搜标题、找链接', '❌ 找职位、读详情'),
+    'xueqiu': ('✅ 找股票、查行情', '❌ 看热帖、看热股'),
 }
 
 _DISPLAY_NAMES = {
     'github': 'GitHub', 'youtube': 'YouTube', 'bilibili': 'B站', 'v2ex': 'V2EX',
-    'web': 'Web', 'reddit': 'Reddit', 'twitter': 'X/Twitter', 'facebook': 'Facebook',
+    'web': '网页', 'reddit': 'Reddit', 'twitter': 'X / Twitter', 'facebook': 'Facebook',
     'instagram': 'Instagram', 'xiaohongshu': '小红书', 'linkedin': 'LinkedIn',
     'boss': 'BOSS直聘', 'xueqiu': '雪球',
 }
@@ -75,6 +76,20 @@ _STATUS_LABELS = {
 }
 
 
+def _local_greeting():
+    """Use the installing computer's clock and timezone, without a network lookup."""
+    hour = datetime.now().hour
+    if 5 <= hour < 11:
+        return '早上好呀，想搜点什么？☀️'
+    if 11 <= hour < 14:
+        return '中午好，想搜点什么？'
+    if 14 <= hour < 18:
+        return '下午好，想搜点什么？'
+    if 18 <= hour < 22:
+        return '晚上好，想搜点什么？'
+    return '夜深了，想搜点什么？🌙'
+
+
 def installation_report(result):
     """Render one short receipt; keep detailed evidence in the structured summary."""
     def cell(value):
@@ -83,12 +98,13 @@ def installation_report(result):
     entries = result['capability_summary']['channels']
     installs = {row['channel']: row for row in result['default_channels']}
     installed = sum(bool(row['ok']) for row in installs.values())
-    names = '、'.join(_DISPLAY_NAMES.get(name, name) for name, row in installs.items() if row['ok'])
+    completed = all(row['ok'] for row in installs.values())
     lines = [
-        f"Agent Reach {result['version']} 已初始化。", '',
-        f'默认依赖：{installed}/{len(installs)} 项准备成功' + (f'（{names}）。' if names else '。'), '',
-        '✅ 公开可用；⚠️ 公开范围有限；🔐 按需登录/配置。内容和网络条件以实际访问为准。', '',
-        '| 渠道 | 安装后能获取什么 |', '|---|---|',
+        _local_greeting(), '',
+        f"**Agent Reach {result['version']} {'安装完成' if completed else '安装还差一步'}。** "
+        f'默认功能：{installed}/{len(installs)} 项准备成功。', '',
+        '✅ 不用登录；❌ 登录后再试；— 不用额外登录。', '',
+        '| 平台 | 不登录可以查什么 | 需要登录后再试 |', '|---|---|---|',
     ]
     for entry in sorted(entries, key=lambda item: item['level'] != 'default'):
         name = entry['channel']
@@ -101,15 +117,17 @@ def installation_report(result):
                 label += '（保留用户移除）'
         elif entry['reach_status'] in {'needs_setup', 'needs_login', 'cooldown', 'needs_user_action', 'broken'}:
             label += '（' + _STATUS_LABELS[entry['reach_status']] + '）'
-        lines.append('| ' + cell(label) + ' | ' + cell(_QUICK_ACCESS.get(name, entry['public_access'])) + ' |')
+        public, login = _QUICK_ACCESS.get(name, (entry['public_access'], '—'))
+        lines.append('| ' + ' | '.join(cell(value) for value in (label, public, login)) + ' |')
     verified = [entry for entry in entries if entry['verified_actions']]
     if verified:
         names = '；'.join(_DISPLAY_NAMES.get(entry['channel'], entry['channel']) + '：' +
                          '/'.join(entry['verified_actions']) for entry in verified)
-        lines += ['', '有效验收：' + names + '。其余待实测；本次初始化未发起平台查询。']
+        lines += ['', '已测通过：' + names + '。其余还没逐项联网测试。']
     else:
-        lines += ['', '联网验收：待实测；本次初始化未发起平台查询。']
-    lines += ['公开内容优先用 Agent 已有能力；评论仅含实际返回样本。需要时再配置渠道，不要求逐个平台登录。']
+        lines += ['', '还没逐项联网测试。']
+    lines += ['摘要、标题和链接先从搜索引擎找；评论以已读内容为准，字幕需视频自带。', '',
+              '**想查什么，直接说。** 需要登录时，我帮你打开页面，你自己登录就行。']
     return '\n'.join(lines) + '\n'
 
 

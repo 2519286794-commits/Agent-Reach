@@ -7,6 +7,28 @@ All notable changes to this project will be documented in this file.
 ---
 
 
+## 1.6.5 — 2026-10-19（本地候选版）
+
+- 安装表格改用短语，如“读正文、看评论”“看热帖、看热股”；共用的范围说明只写一次。
+- 中英文 README 顶部新增 Discord 链接和加入徽章，校正 Reddit 公开内容的免登录说明。
+- Shorten feature labels while retaining public-first access, comment scope and subtitle requirements.
+
+
+## 1.6.4 — 2026-10-19（本地候选版）
+
+中文：
+- 安装后按本地时间问候，用三列表说明不用登录能查什么、哪些功能需要登录后再试。
+- 将“索引”“页面提示登录时”等说明改为具体内容；Reddit 的公开帖子和评论继续免登录先读。
+
+English:
+- Add a local-time greeting and a plain-language, three-column installation receipt.
+- Name concrete public content and authenticated features while preserving public-first access.
+
+Technical changes:
+- Generate the greeting locally with the standard library; no network lookup, new dependency or extra configuration.
+- Keep JSON output, private report saving, install failures and verification evidence intact; synchronize both Skill languages.
+
+
 ## 1.6.3 — 2026-10-19（本地候选版）
 
 中文：

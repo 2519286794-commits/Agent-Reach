@@ -22,7 +22,11 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a> · <a href="../README.md">中文</a> · <a href="#supported-platforms">Platforms</a> · <a href="#design-philosophy">Philosophy</a>
+  <a href="#quick-start">Quick Start</a> · <a href="../README.md">中文</a> · <a href="#supported-platforms">Platforms</a> · <a href="#design-philosophy">Philosophy</a> · <a href="https://discord.gg/NSZz22R39">Discord</a>
+</p>
+
+<p align="center">
+  <a href="https://discord.gg/NSZz22R39"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&amp;logoColor=white" alt="Join the Agent Reach Discord community"></a>
 </p>
 
 > **No token or crypto affiliation:** Agent Reach has no official token, coin, investment product, fee-claim program, wallet connection, or Solana/Pump.fun project. Any crypto project using the Agent Reach name, GitHub URL, or author identity is not affiliated with this repository. Do not connect a wallet or claim fees based on messages, posts, or links that say otherwise.
@@ -63,7 +67,7 @@
 
 CLI agents such as Claude Code, Codex, Hermes Agent and OpenClaw come with web search and page fetching, but they mostly can't reach:
 
-- **Login-walled platforms**: XiaoHongShu, Twitter/X, Reddit, LinkedIn, Boss Zhipin... a plain fetch gets nothing or a login page.
+- **Features that need a browser session**: searching XiaoHongShu notes, listing X account posts or reading job details. Reuse an authorized session for the selected action; public content stays on existing search and web tools.
 - **What's inside video**: YouTube and Bilibili subtitles, plus speech-to-text for YouTube videos.
 - **Chinese platforms**: Bilibili, XiaoHongShu, V2EX and Xueqiu, which general search covers poorly.
 - **Clean structured data**: Xueqiu quotes, V2EX topics and replies, GitHub repos and issues, as fields instead of HTML to guess from.
@@ -102,8 +106,8 @@ Every command prints the same JSON shape, so the agent doesn't have to learn eac
 | v2ex | default | hot topics, nodes, topics with replies, users | nothing |
 | web | default | web search, page reading (fallback) | nothing |
 | bilibili | default | search, video info, trending, subtitles | nothing; subtitles need a login (QR scan) |
-| xiaohongshu | optional | search notes, read a note | browser + login |
-| reddit | optional | search, read posts with comments, browse a subreddit | browser + login |
+| xiaohongshu | optional | search notes, read text, view comments | browser + login |
+| reddit | optional | search posts, read text/comments, browse a subreddit | public posts/comments use existing web tools first; browser actions request login only if needed |
 | linkedin | optional | job search | login |
 | boss | optional | job and JD search | browser + login |
 | xueqiu | optional | real-time quotes, stock search, hot posts, hot stocks | quotes need nothing; hot posts/stocks need a browser login |

@@ -1,5 +1,6 @@
 """Reuse contracts: no hidden browser launches, account switches or configuration overwrites."""
 import json
+from datetime import datetime
 from unittest.mock import Mock
 
 import pytest
@@ -201,16 +202,21 @@ def test_install_receipt_displays_depth_and_authentication_without_claiming_live
                              for ch in channels if ch.level == 'default'],
     })
     assert '5/5 项准备成功' in report
-    assert '| 渠道 | 安装后能获取什么 |' in report
-    assert report.count('|---|---|') == 1
-    assert '公开帖子、部分评论' in report
-    assert '🔐 站内搜索/列表' in report
-    assert '已有字幕' in report
-    assert '本次初始化未发起平台查询' in report
-    assert '联网验收：待实测' in report
-    assert len(report) <= 1000
-    for name in ('GitHub', 'YouTube', 'B站', 'V2EX', 'Web', 'Reddit', '小红书',
-                 'X/Twitter', 'Facebook', 'Instagram', 'LinkedIn', 'BOSS直聘', '雪球'):
+    assert '| 平台 | 不登录可以查什么 | 需要登录后再试 |' in report
+    assert report.count('|---|---|---|') == 1
+    assert '| Reddit | ✅ 搜帖子、读正文、看评论 | — |' in report
+    assert '✅ 不用登录；❌ 登录后再试' in report
+    assert '摘要、标题和链接先从搜索引擎找' in report
+    assert '试读原文' in report
+    assert '❌ 搜笔记、读正文、看评论' in report
+    assert '字幕需视频自带' in report
+    assert '还没逐项联网测试' in report
+    assert '页面提示登录时' not in report
+    assert '更多站内功能' not in report
+    assert '部分推文' not in report
+    assert len(report) <= 700
+    for name in ('GitHub', 'YouTube', 'B站', 'V2EX', '网页', 'Reddit', '小红书',
+                 'X / Twitter', 'Facebook', 'Instagram', 'LinkedIn', 'BOSS直聘', '雪球'):
         assert '| ' + name + ' |' in report
 
 
@@ -224,5 +230,41 @@ def test_install_receipt_preserves_failed_installs_and_user_removed_channels():
             'channel': 'bilibili', 'ok': False, 'error': {'code': 'TIMEOUT'}}],
     })
     assert '1/2 项准备成功' in report
+    assert '安装还差一步' in report
     assert '| B站（安装失败：TIMEOUT） |' in report
     assert '| GitHub（保留用户移除） |' in report
+
+
+@pytest.mark.parametrize(('hour', 'greeting'), [
+    (0, '夜深了'), (4, '夜深了'), (5, '早上好呀'), (10, '早上好呀'),
+    (11, '中午好'), (13, '中午好'), (14, '下午好'), (17, '下午好'),
+    (18, '晚上好'), (21, '晚上好'), (22, '夜深了'), (23, '夜深了'),
+])
+def test_install_greeting_uses_local_clock_at_period_boundaries(monkeypatch, hour, greeting):
+    class LocalClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is None, 'must use the installing computer local time'
+            return cls(2026, 10, 19, hour, 0)
+
+    monkeypatch.setattr(onboarding, 'datetime', LocalClock)
+    assert onboarding._local_greeting().startswith(greeting)
+
+
+def test_install_receipt_does_not_turn_reddit_or_web_failures_into_login(monkeypatch):
+    from agent_reach.runtime.cli import unified_channels
+
+    channels = unified_channels()
+    monkeypatch.setattr(onboarding, '_local_greeting', lambda: '中午好，想搜点什么？')
+    report = onboarding.installation_report({
+        'version': 'test', 'capability_summary': onboarding.capability_summary(channels, [
+            {'channel': 'reddit', 'status': 'broken'},
+            {'channel': 'web', 'status': 'cooldown'},
+        ]),
+        'default_channels': [{'channel': ch.name, 'ok': True}
+                             for ch in channels if ch.level == 'default'],
+    })
+    rows = [line for line in report.splitlines() if line.startswith(('| Reddit', '| 网页'))]
+    assert len(rows) == 2
+    assert all('❌' not in row and row.endswith('| — |') for row in rows)
+    assert report.startswith('中午好，想搜点什么？\n')

@@ -22,7 +22,11 @@
 </p>
 
 <p align="center">
-  <a href="#快速上手">快速开始</a> · <a href="docs/README_en.md">English</a> · <a href="#支持的平台">支持平台</a> · <a href="#设计理念">设计理念</a>
+  <a href="#快速上手">快速开始</a> · <a href="docs/README_en.md">English</a> · <a href="#支持的平台">支持平台</a> · <a href="#设计理念">设计理念</a> · <a href="https://discord.gg/NSZz22R39">Discord</a>
+</p>
+
+<p align="center">
+  <a href="https://discord.gg/NSZz22R39"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&amp;logoColor=white" alt="加入 Agent Reach Discord 社区"></a>
 </p>
 
 ---
@@ -61,7 +65,7 @@
 
 Claude Code、Codex、Hermes Agent、OpenClaw 这类 CLI Agent 自带搜索和网页读取，但下面这些它们基本够不着：
 
-- **要登录才能看的平台**：小红书、Twitter/X、Reddit、LinkedIn、Boss直聘……网页抓不到，或者只能看到登录页。
+- **需要浏览器会话的功能**：在小红书搜笔记、在 X 查账号动态、读职位详情等，按所选功能复用登录态。能公开读取的内容先用已有搜索和网页工具。
 - **视频里的内容**：YouTube 和 B站的字幕，以及 YouTube 视频的语音转文字。
 - **中文平台**：B站、小红书、V2EX、雪球，通用搜索覆盖很差。
 - **干净的结构化数据**：雪球行情、V2EX 帖子和回复、GitHub 仓库和 issue，直接给字段，不用从 HTML 里猜。
@@ -100,8 +104,8 @@ agent-reach read https://www.v2ex.com/t/123   # 按链接自动选渠道
 | v2ex | 默认 | 热门、节点、帖子和回复、用户 | 无 |
 | web | 默认 | 网页搜索、网页阅读（保底） | 无 |
 | bilibili | 默认 | 搜索、视频信息、热门、字幕 | 无；字幕需要登录（扫码） |
-| xiaohongshu | 可选 | 搜笔记、读笔记 | 浏览器 + 登录 |
-| reddit | 可选 | 搜索、读帖子和评论、看版块 | 浏览器 + 登录 |
+| xiaohongshu | 可选 | 搜笔记、读正文、看评论 | 浏览器 + 登录 |
+| reddit | 可选 | 搜帖子、读正文、看评论、看版块 | 公开帖子和评论先用已有网页工具；浏览器功能按需登录 |
 | linkedin | 可选 | 搜职位、读职位详情 | 登录 |
 | boss | 可选 | 搜职位和 JD | 浏览器 + 登录 |
 | xueqiu | 可选 | 实时行情、搜股票、热帖、热股 | 行情免登录；热帖热股需要浏览器登录 |

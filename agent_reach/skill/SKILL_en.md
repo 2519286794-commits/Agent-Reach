@@ -21,11 +21,13 @@ One command for every platform: `agent-reach`. Read-only; JSON by default, or a 
 
 ## Compact installation handoff
 
-Present `result.installation_report.markdown` directly: one default-install outcome, one short channel-to-capability table, and one verification line. Do not append two detailed matrices, repeated legends or internal action lists. Load [Capability scope](references/capabilities.md) only when the user asks for detail.
+Present `result.installation_report.markdown` directly: a greeting generated from the installing computer's local clock, the install outcome, an icon legend, one three-column table (platform / content without login / features to try after login), and one verification line. Do not add another greeting, detailed matrices or internal action lists. Load [Capability scope](references/capabilities.md) only when the user asks for detail.
 
-Use JSON `agent-reach setup`, or `setup --text` for direct terminal output. A report link is supplementary. Preserve failed installs, user removals and states requiring attention. Explain Reddit as public posts and some comments without login, with site-specific features enabled on demand; do not promise complete comment trees.
+Use JSON `agent-reach setup`, or `setup --text` for direct terminal output. A report link is supplementary. Preserve failed installs, user removals and states requiring attention. ✅ marks content to try without login; ❌ marks the listed authenticated Reach features, with no promise that login guarantees access; — means no additional login feature here. Public Reddit search, post bodies and available comments use existing web tools without login; do not promise complete comment trees.
 
-If `installation_report` is missing, check the build/source. Capability paths and local live verification remain separate, and public access does not require configuring every channel.
+Local greeting hours: morning 05–10, noon 11–13, afternoon 14–17, evening 18–21, late night otherwise. No geolocation or timezone question is needed. Name concrete content and actions; avoid vague phrases such as "when the page asks," "more site features" or "some tweets." Network failures, untested paths and unsupported actions must not become ❌ login requirements. If `installation_report` is missing, check the build/source.
+
+Keep feature labels short: "read posts, view replies" or "view posts, trending stocks." Preserve distinctions between snippets, links and full text; trending stocks are not investment picks. State shared comment coverage and subtitle availability once below the table.
 
 ## Usage
 

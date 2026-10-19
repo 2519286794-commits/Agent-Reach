@@ -500,13 +500,16 @@ def test_setup_adds_default_channels_and_survives_a_failing_install(env, monkeyp
     assert '安装失败：UPSTREAM_BROKEN' in report['markdown']
 
 
-def test_setup_text_displays_compact_capability_table_and_keeps_json_mode(env, capsys):
-    from agent_reach.runtime import cli
+def test_setup_text_displays_compact_capability_table_and_keeps_json_mode(env, capsys, monkeypatch):
+    from agent_reach.runtime import cli, onboarding
+
+    monkeypatch.setattr(onboarding, '_local_greeting', lambda: '早上好呀，想搜点什么？☀️')
 
     assert cli.main(['setup', '--text']) == 0
     text = capsys.readouterr().out
-    assert '| 渠道 | 安装后能获取什么 |' in text
-    assert text.count('|---|---|') == 1
+    assert text.startswith('早上好呀，想搜点什么？☀️\n')
+    assert '| 平台 | 不登录可以查什么 | 需要登录后再试 |' in text
+    assert text.count('|---|---|---|') == 1
     assert '完整报告已保存：' in text
     assert not text.startswith('{')
     assert cli.main(['setup']) == 0
@@ -529,7 +532,7 @@ def test_setup_receipt_never_overwrites_a_linked_foreign_file(env, tmp_path):
     assert foreign.read_text() == 'keep this'
     assert result['installation_report']['path'] is None
     assert result['installation_report']['write_error']
-    assert '| 渠道 | 安装后能获取什么 |' in result['installation_report']['markdown']
+    assert '| 平台 | 不登录可以查什么 | 需要登录后再试 |' in result['installation_report']['markdown']
 
 
 # ── uninstall ──
