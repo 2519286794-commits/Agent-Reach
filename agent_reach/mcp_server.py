@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import sys
+from typing import Any
 
 from agent_reach.runtime import flow, manage, tools
-from agent_reach.runtime.result import ReachError, classify
+from agent_reach.runtime.result import BAD_INPUT, DEFAULT_HINTS, ReachError, classify
 
-TOOLS = [
+TOOLS: list[dict] = [
     {"name": "reach_status", "description": "Inspect channel capabilities and local verification state.",
      "inputSchema": {"type": "object", "properties": {"channel": {"type": "string"}}}},
     {"name": "reach_ensure", "description": "Install, reuse an authorized session, and verify one channel. Returns a user step when needed.",
@@ -16,7 +17,7 @@ TOOLS = [
          "channel": {"type": "string"}, "action": {"type": "string"},
          "source_profile": {"type": "string", "description": "Explicit site-scoped consent to import from this connected profile"},
          "verify": {"type": "boolean", "default": True}}, "required": ["channel"]}},
-    {"name": "reach_execute", "description": "Prepare a channel and perform a read-only action once.",
+    {"name": "reach_execute", "description": "Prepare a channel and perform a declared read-only action once, including Xiaohongshu comments. Inspect reach_status for parameters. Login returns a resumable user step.",
      "inputSchema": {"type": "object", "properties": {
          "channel": {"type": "string"}, "action": {"type": "string"},
          "params": {"type": "object"}, "timeout": {"type": "number", "default": 60},
@@ -27,13 +28,38 @@ TOOLS = [
 ]
 
 
+def _validate_args(name: str, args: dict) -> None:
+    spec = next((t["inputSchema"] for t in TOOLS if t["name"] == name), None)
+    if spec is None:
+        raise ReachError(BAD_INPUT, "Unknown tool")
+    if not isinstance(args, dict):
+        raise ReachError(BAD_INPUT, "Tool arguments must be an object")
+    missing = set(spec.get("required", [])) - set(args)
+    unknown = set(args) - set(spec["properties"])
+    if missing or unknown:
+        raise ReachError(BAD_INPUT, "Invalid tool arguments: " + "; ".join(
+            part for part in (f"missing {', '.join(sorted(missing))}" if missing else "",
+                              f"unknown {', '.join(sorted(unknown))}" if unknown else "") if part))
+    kinds: dict[str, Any] = {"string": str, "object": dict, "boolean": bool, "number": (int, float)}
+    for key, value in args.items():
+        kind = spec["properties"][key]["type"]
+        if (not isinstance(value, kinds[kind]) or kind == "number" and isinstance(value, bool)
+                or kind == "string" and not value.strip()):
+            raise ReachError(BAD_INPUT, f"{key} must be a nonempty {kind}")
+
+
 def _invoke(name: str, args: dict) -> dict:
+    _validate_args(name, args)
     if name == "reach_status":
         channel = args.get("channel")
         if channel:
             ch = manage._channel(channel)
             return {"channel": channel, **manage.channel_status(ch, manage.state.load()),
-                    "actions": [{"name": a.name, "params": [p.name for p in a.params],
+                    "actions": [{"name": a.name, "description": a.help,
+                                 "params": [p.name for p in a.params],
+                                 "parameters": [{"name": p.name, "required": p.required,
+                                                 "default": p.default, "type": p.type.__name__,
+                                                 "description": p.help} for p in a.params],
                                  "backends": [b for b, _ in a.backends]} for a in ch.actions]}
         return manage.doctor()
     if name == "reach_ensure":
@@ -64,15 +90,17 @@ def _reply(request: dict) -> dict | None:
             result = {"tools": TOOLS}
         elif method == "tools/call":
             params = request.get("params") or {}
-            args = params.get("arguments") or {}
-            if not isinstance(args, dict):
-                raise ValueError("Tool arguments must be an object")
+            if not isinstance(params, dict):
+                raise ValueError("Tool call params must be an object")
+            args = params.get("arguments", {})
             try:
                 value = _invoke(params.get("name", ""), args)
-                failed = False
+                failed = value.get("ok") is False and value.get("status") != "needs_user_action"
             except (ReachError, ValueError, KeyError, TypeError) as exc:
                 err = classify(exc)
-                value = {"ok": False, "status": "failed", "error": {"code": err.code, "message": err.message}}
+                value = {"ok": False, "status": "failed", "error": {
+                    "code": err.code, "message": err.message,
+                    "hint": err.hint or DEFAULT_HINTS.get(err.code, "")}}
                 failed = True
             result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}],
                       "structuredContent": value, "isError": failed}

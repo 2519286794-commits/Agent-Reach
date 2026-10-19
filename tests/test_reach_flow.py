@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from agent_reach.mcp_server import _reply
 from agent_reach.runtime import flow, manage, state
 
@@ -178,3 +180,57 @@ def test_query_rate_limit_blocks_repeat_even_with_explicit_source(monkeypatch):
         data["checks"]["instagram"]["evidence"]["search"]["at"] = two_hours_ago
     state.mutate(expire)
     assert manage.channel_status(manage._channel("instagram"), state.load())["status"] == "unverified"
+
+
+@pytest.mark.parametrize("params,timeout", [({}, 60), ({"query": {}}, 60), ({"query": []}, 60),
+                                         ({"query": "  \t "}, 60), ({"query": "VLA", "limit": True}, 60),
+                                         ({"query": "VLA", "limit": 1.5}, 60), ({"query": "VLA"}, True)])
+def test_invalid_execute_does_not_install_or_request_login(monkeypatch, params, timeout):
+    from agent_reach.runtime.result import ReachError
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("invalid input cannot start setup")
+
+    monkeypatch.setattr(flow, "prepare", unexpected)
+    with pytest.raises(ReachError) as exc:
+        flow.execute("xiaohongshu", "search", params, timeout=timeout)
+    assert exc.value.code == "BAD_INPUT"
+
+
+def test_execute_honors_prepared_backend_and_empty_read_is_success(monkeypatch):
+    monkeypatch.setattr(flow, "prepare", lambda *a, **k: {"ok": True, "backend": "opencli"})
+    seen = {}
+
+    def run(*args, **kwargs):
+        seen.update(kwargs)
+        return {"ok": True, "items": [], "backend": "opencli", "error": None,
+                "meta": {"attempts": [], "elapsed_ms": 1}}
+
+    monkeypatch.setattr(flow, "run_action", run)
+    result = flow.execute("xiaohongshu", "read", {"target": "https://www.xiaohongshu.com/explore/test"})
+    assert result["ok"] is True and result["items"] == []
+    assert seen["preferred_backend"] == "opencli"
+    check = state.load()["checks"]["xiaohongshu"]
+    assert check["scope"] == "read" and check["codes"] == {}
+    assert check["actions"]["read"] is True
+    assert check["evidence"]["read"]["verified"] is False
+    assert manage.fresh_actions("xiaohongshu", check) == {}
+
+
+def test_empty_query_keeps_fresh_acceptance_without_extending_it():
+    import datetime
+
+    out = {"ok": True, "items": [{"title": "a result"}], "backend": "cloakbrowser", "error": None}
+    flow._record("xiaohongshu", "search", out)
+    hour_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    state.mutate(lambda data: data["checks"]["xiaohongshu"]["evidence"]["search"].__setitem__("at", hour_ago))
+    flow._record("xiaohongshu", "search", {**out, "items": []})
+    check = state.load()["checks"]["xiaohongshu"]
+    assert check["evidence"]["search"]["at"] == hour_ago
+    assert check["last_result"]["item_count"] == 0
+    assert manage.fresh_actions("xiaohongshu", check) == {"search": True}
+    state.mutate(lambda data: data["checks"]["xiaohongshu"]["evidence"]["search"].__setitem__(
+        "at", "2020-01-01T00:00:00Z"))
+    flow._record("xiaohongshu", "search", {**out, "items": []})
+    assert manage.fresh_actions("xiaohongshu", state.load()["checks"]["xiaohongshu"]) == {}

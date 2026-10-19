@@ -148,3 +148,82 @@ def test_linkedin_add_does_not_overwrite_malformed_config():
     with pytest.raises(ReachError):
         LinkedInChannel().on_add()
     assert path.read_text() == '{malformed-but-user-owned'
+
+
+def test_capability_summary_keeps_public_options_separate_from_reach_readiness():
+    from agent_reach.runtime.cli import unified_channels
+
+    channels = unified_channels()
+    summary = onboarding.capability_summary(
+        channels, [{'channel': ch.name, 'status': 'not_added'} for ch in channels])
+    entries = {entry['channel']: entry for entry in summary['channels']}
+    assert len(entries) == 13
+    assert not {'arxiv', 'hackernews', 'xiaoyuzhou', 'xianyu'} & entries.keys()
+    for channel in channels:
+        entry = entries[channel.name]
+        assert entry['reach_status'] == 'not_added'
+        assert entry['verified_actions'] == []
+        assert [action['action'] for action in entry['actions']] == [a.name for a in channel.actions]
+        assert set(entry['authentication']['may_enable_actions']) <= {a.name for a in channel.actions}
+        assert entry['authentication']['when'] == 'only_if_required'
+    assert 'parent_id' in entries['reddit']['public_access']
+    assert set(entries['reddit']['authentication']['may_enable_actions']) == {'search', 'read', 'subreddit'}
+    assert '不保证完整评论树' in entries['reddit']['limits'][0]
+    assert entries['bilibili']['authentication']['may_enable_actions'] == ['subtitle']
+    for name in ('youtube', 'bilibili'):
+        assert 'comments' not in [a['action'] for a in entries[name]['actions']]
+        assert any('没有独立 comments 动作' in limit for limit in entries[name]['limits'])
+    assert entries['youtube']['authentication']['may_enable_actions'] == []
+
+
+def test_capability_summary_only_labels_evidenced_actions_as_verified():
+    from agent_reach.channels.reddit import RedditChannel
+
+    summary = onboarding.capability_summary([RedditChannel()], [{
+        'channel': 'reddit', 'status': 'search_ready', 'verified_actions': ['search']}])
+    entry = summary['channels'][0]
+    assert entry['verified_actions'] == ['search']
+    assert entry['reach_status'] == 'search_ready'
+    assert '仅搜索已有验收' in summary['message']
+    assert '公开搜索' in summary['message']
+
+
+def test_install_receipt_displays_depth_and_authentication_without_claiming_live_success():
+    from agent_reach.runtime.cli import unified_channels
+
+    channels = unified_channels()
+    summary = onboarding.capability_summary(channels, [
+        {'channel': ch.name, 'status': 'unverified' if ch.level == 'default' else 'not_added'}
+        for ch in channels])
+    report = onboarding.installation_report({
+        'version': 'test', 'capability_summary': summary,
+        'default_channels': [{'channel': ch.name, 'ok': True}
+                             for ch in channels if ch.level == 'default'],
+    })
+    assert '5/5 项准备成功' in report
+    assert '| 搜索/列表 | 正文/详情 | 评论/回复 | 字幕/转录 |' in report
+    assert '✅ 仓库搜索' in report and '✅ 已有字幕' in report
+    assert '❌ Reach 无独立评论动作' in report
+    assert '| Reddit | 未接入，可按需添加 |' in report
+    assert '搜索、帖子及返回评论、板块帖子列表' in report
+    assert '❌ 不提供发评论' in report
+    assert '完整评论树与全部回复不作保证' in report
+    assert '本次安装没有发起平台查询' in report
+    assert '暂无有效动作验收记录' in report
+    for name in ('GitHub', 'YouTube', 'B站', 'V2EX', 'Web', 'Reddit', '小红书',
+                 'X/Twitter', 'Facebook', 'Instagram', 'LinkedIn', 'BOSS直聘', '雪球'):
+        assert '| ' + name + ' |' in report
+
+
+def test_install_receipt_preserves_failed_installs_and_user_removed_channels():
+    from agent_reach.runtime.cli import unified_channels
+
+    channels = unified_channels()
+    report = onboarding.installation_report({
+        'version': 'test', 'capability_summary': onboarding.capability_summary(channels, []),
+        'default_channels': [{'channel': 'web', 'ok': True}, {
+            'channel': 'bilibili', 'ok': False, 'error': {'code': 'TIMEOUT'}}],
+    })
+    assert '1/2 项准备成功' in report
+    assert '| B站 | 安装失败：TIMEOUT |' in report
+    assert '| GitHub | 保留用户移除 |' in report

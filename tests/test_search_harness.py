@@ -215,3 +215,112 @@ def test_boss_native_risk_stops_without_retry(monkeypatch):
     out = run_action(BossChannel(), "search", {"query": "Python"})
     assert out["error"]["code"] == "PLATFORM_BLOCKED"
     assert run.call_count == 1
+
+
+def test_failed_backend_is_remembered_and_explicit_diagnostic_recovers():
+    ch = SearchChannel()
+    calls = []
+
+    def fail(**kwargs):
+        calls.append("first")
+        raise ReachError("TIMEOUT", "page did not appear")
+
+    ch.first = fail
+    ch.second = lambda **kwargs: [{"title": "fallback"}]
+    assert run_action(ch, "search", {"query": "one"})["backend"] == "second"
+    again = run_action(ch, "search", {"query": "two"})
+    assert again["backend"] == "second" and calls == ["first"]
+    assert again["meta"]["attempts"][0]["skipped"] is True
+    saved = state.load()["backend_health"]["fixture"]["search"]["first"]
+    assert set(saved) == {"code", "at", "fingerprint"}
+    assert saved["code"] == "TIMEOUT"
+    ch.first = lambda **kwargs: [{"title": "recovered"}]
+    assert run_action(ch, "search", {"query": "three"}, only_backend="first")["ok"]
+    assert "first" not in state.load()["backend_health"]["fixture"]["search"]
+    assert run_action(ch, "search", {"query": "four"})["backend"] == "first"
+
+
+def test_technical_pause_expires_when_configuration_changes(monkeypatch):
+    signature = ["old"]
+    monkeypatch.setattr(manage, "fingerprint", lambda channel: signature[0])
+    ch = SearchChannel()
+    ch.first = lambda **kwargs: (_ for _ in ()).throw(ReachError("UPSTREAM_BROKEN", "failed"))
+    ch.second = lambda **kwargs: [{"title": "fallback"}]
+    run_action(ch, "search", {"query": "one"})
+    signature[0] = "new"
+    ch.first = lambda **kwargs: [{"title": "repaired"}]
+    assert run_action(ch, "search", {"query": "two"})["backend"] == "first"
+
+
+def test_cached_failure_does_not_hide_a_new_fallback_error():
+    ch = SearchChannel()
+    ch.first = lambda **kwargs: (_ for _ in ()).throw(ReachError("TIMEOUT", "old failure"))
+    ch.second = lambda **kwargs: [{"title": "fallback"}]
+    run_action(ch, "search", {"query": "one"})
+    ch.second = lambda **kwargs: (_ for _ in ()).throw(ReachError("UPSTREAM_BROKEN", "current failure"))
+    out = run_action(ch, "search", {"query": "two"})
+    assert out["meta"]["attempts"][0]["skipped"]
+    assert out["error"]["message"] == "current failure"
+
+
+def test_technical_pause_expires_without_affecting_other_actions():
+    ch = SearchChannel()
+    ch.actions += (Action("read", "read", (Param("target", "target"),), (("first", "first"),)),)
+    ch.first = lambda **kwargs: (_ for _ in ()).throw(ReachError("TIMEOUT", "failed"))
+    ch.second = lambda **kwargs: [{"title": "fallback"}]
+    run_action(ch, "search", {"query": "one"})
+    ch.first = lambda **kwargs: [{"title": "now working"}]
+    assert run_action(ch, "read", {"target": "https://example.test"})["backend"] == "first"
+    state.mutate(lambda data: data["backend_health"]["fixture"]["search"]["first"].__setitem__(
+        "at", "2020-01-01T00:00:00Z"))
+    assert run_action(ch, "search", {"query": "two"})["backend"] == "first"
+
+
+def test_direct_dispatch_cannot_bypass_confirmed_platform_cooldown():
+    ch = SearchChannel()
+    ch.first = lambda **kwargs: (_ for _ in ()).throw(ReachError("RATE_LIMITED", "HTTP 429"))
+    assert run_action(ch, "search", {"query": "one"})["error"]["code"] == "RATE_LIMITED"
+    ch.first = Mock(side_effect=AssertionError("must remain paused"))
+    forced = run_action(ch, "search", {"query": "two"}, only_backend="first")
+    assert forced["error"]["code"] == "RATE_LIMITED"
+    assert forced["meta"]["attempts"] == []
+    ch.first.assert_not_called()
+
+
+def test_prepared_backend_is_first_and_can_still_fall_back():
+    ch = SearchChannel()
+    ch.first = Mock(return_value=[{"title": "first"}])
+    ch.second = Mock(return_value=[{"title": "selected"}])
+    assert run_action(ch, "search", {"query": "x"}, preferred_backend="second")["backend"] == "second"
+    ch.first.assert_not_called()
+    ch.second = Mock(side_effect=ReachError("TIMEOUT", "failed"))
+    assert run_action(ch, "search", {"query": "x"}, preferred_backend="second")["backend"] == "first"
+
+
+def test_browser_pacing_respects_budget_without_claiming_platform_rate_limit(monkeypatch):
+    from agent_reach.runtime import dispatch
+
+    ch = SearchChannel()
+    ch.actions = (Action("search", "search", (Param("query", "query"),),
+                         (("cloakbrowser", "first"), ("second", "second"))),)
+    state.mutate(lambda data: data.setdefault("request_starts", {}).__setitem__(ch.name, state.now()))
+    monkeypatch.setattr(dispatch.state, "age_seconds", lambda stamp: 0 if stamp else float("inf"))
+    ch.first = Mock(side_effect=AssertionError("no budget for paced request"))
+    out = run_action(ch, "search", {"query": "x"}, timeout=1)
+    assert out["error"]["code"] == "TIMEOUT"
+    assert not state.load().get("cooldowns")
+    assert not state.load().get("backend_health")
+    ch.first.assert_not_called()
+
+
+def test_empty_search_succeeds_but_live_acceptance_remains_unverified(monkeypatch):
+    ch = SearchChannel()
+    ch.first = lambda **kwargs: []
+    monkeypatch.setattr(manage, "_channels", lambda: [ch])
+    assert run_action(ch, "search", {"query": "none"})["ok"] is True
+    result = manage.run_checks(search_only=True)
+    assert result["ok"] is False
+    assert result["results"][0]["passed"] is False
+    assert result["results"][0]["verified"] is False
+    assert result["results"][0]["error"]["code"] == "EMPTY"
+    assert manage.channel_status(ch, state.load())["status"] == "broken"

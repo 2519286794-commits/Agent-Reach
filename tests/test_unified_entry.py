@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Unified entry: backend fallback, error selection, JSON contract, routing, parsers."""
 
+import http.client
 import json
 import time
 import urllib.error
@@ -561,3 +562,52 @@ def test_opencli_errors_map_to_unified_codes(yaml_text, code):
     from agent_reach.backends.opencli import _opencli_error
 
     assert _opencli_error(yaml_text, "").code == code
+
+
+@pytest.mark.parametrize("declared", [None, "3", "invalid"])
+def test_http_bounded_read_accepts_complete_or_unknown_length(monkeypatch, declared):
+    from contextlib import nullcontext
+
+    from agent_reach.runtime.run import http_request
+
+    class Response:
+        headers = {"Content-Length": declared}
+
+        def read(self, size):
+            return b"abc"
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: nullcontext(Response()))
+    assert http_request("https://example.com", timeout=1, max_bytes=10) == b"abc"
+
+
+def test_http_short_response_is_not_silently_accepted(monkeypatch):
+    from contextlib import nullcontext
+
+    from agent_reach.runtime.run import http_request
+
+    class Response:
+        headers = {"Content-Length": "3905"}
+
+        def read(self, size):
+            return b"x" * 2756
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: nullcontext(Response()))
+    with pytest.raises(http.client.IncompleteRead) as error:
+        http_request("https://example.com", timeout=1)
+    assert len(error.value.partial) == 2756 and error.value.expected == 1149
+
+
+def test_http_response_size_limit_precedes_incomplete_length(monkeypatch):
+    from contextlib import nullcontext
+
+    from agent_reach.runtime.run import http_request
+
+    class Response:
+        headers = {"Content-Length": "3905"}
+
+        def read(self, size):
+            return b"x" * size
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: nullcontext(Response()))
+    with pytest.raises(ReachError, match="response exceeds"):
+        http_request("https://example.com", timeout=1, max_bytes=10)

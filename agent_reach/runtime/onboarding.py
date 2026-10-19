@@ -9,6 +9,177 @@ from agent_reach.utils.url import host_matches
 from . import state
 from .result import BAD_INPUT, NEED_SETUP, ReachError
 
+# These describe public routes an agent can try, not authenticated Reach readiness.
+# A successful sample depends on the tool, network exit, content and platform response.
+_PUBLIC_ACCESS = {
+    'web': '先用 Agent 已有网页搜索和读取；只为剩余缺口调用 Reach。',
+    'github': '公开仓库、README、Issue/PR 及公开评论可先用网页或公开接口。',
+    'youtube': '公开搜索、简介可先读；原生工具的部分样本可取评论、字幕和时间戳。',
+    'bilibili': '公开搜索、简介、统计可先读；部分公开接口可取评论及回复关系。',
+    'v2ex': '公开主题正文和部分回复可先读；完整性、分页需要单独核对。',
+    'reddit': '公开搜索、正文和部分评论可先读；部分公开 JSON 样本可含评论及 parent_id。',
+    'twitter': '公开搜索摘要、部分单帖全文可先尝试；公开嵌入不提供评论流。',
+    'xiaohongshu': '公开发现页可能提供笔记 ID 和作者；不据此认定正文、评论可读。',
+    'instagram': '公开搜索或主页信息可先尝试；HTML 可能只有应用外壳，Caption 和评论未获统一验证。',
+    'facebook': '公开搜索摘要可先尝试；帖子正文和评论取决于页面与访问路径。',
+    'linkedin': '公开职位搜索和职位页可先尝试；本轮未做匿名粒度验收。',
+    'boss': '公开职位索引和页面可先尝试；本轮未做匿名粒度验收。',
+    'xueqiu': '公开股票行情和名称搜索可先尝试；社区内容另按所选路径判断。',
+}
+
+_CAPABILITY_LIMITS = {
+    'youtube': ['read 返回元信息和简介；没有独立 comments 动作。',
+                '字幕依赖可用轨道；转录还需配置服务及额度，登录不保证有字幕。'],
+    'bilibili': ['read 返回元信息和简介；没有独立 comments 动作。',
+                 'Reach subtitle 路径可能要求登录，且视频须有可用字幕。'],
+    'reddit': ['read 仅承诺其返回的帖子和评论；不保证完整评论树，不提供发评论动作。'],
+    'twitter': ['thread 仅覆盖实际返回的回复；不保证完整评论流，不提供发帖动作。'],
+    'xiaohongshu': ['只报告实际读取的正文、已加载评论和回复，不承诺完整导出。'],
+    'instagram': ['search 搜索用户；没有任意帖子 read 或独立 comments 动作。'],
+    'facebook': ['当前仅声明 search/profile，不承诺独立帖文读取或评论导出。'],
+    'linkedin': ['当前仅声明职位搜索和 JD 读取，不承诺联系人或动态抓取。'],
+    'boss': ['当前仅声明职位搜索和 JD 读取；登录不保证平台始终允许访问。'],
+    'v2ex': ['回复是否完整须核对分页与实际返回数量。'],
+}
+
+
+# Capability depth is separate from installation and live-check status.
+# Standalone native/API evidence must not masquerade as a declared Reach action.
+_ANONYMOUS_DEPTH = {
+    'github': ('✅ 仓库搜索', '✅ README、Issue/PR 正文', '✅ 公开 Issue/PR 评论', '—'),
+    'youtube': ('✅ 视频搜索', '✅ 简介；不等同视频内容',
+                '⚠️ 原生工具样本可读；❌ Reach 无独立评论动作', '✅ 已有字幕；⚙️ 音频转录需服务 Key'),
+    'bilibili': ('✅ 视频搜索、热门', '✅ 简介、元信息；不等同视频内容',
+                 '⚠️ 公开接口样本可读；❌ Reach 无独立评论动作', '🔐 Reach 字幕路径按需登录；须有字幕'),
+    'v2ex': ('✅ 热门、节点列表', '✅ 主题正文', '⚠️ 返回的回复；完整性需核对', '—'),
+    'web': ('✅ 网页搜索', '⚠️ 可公开读取的正文', '⚠️ 仅页面已返回的评论', '❌ 无独立字幕动作'),
+}
+
+_DISPLAY_NAMES = {
+    'github': 'GitHub', 'youtube': 'YouTube', 'bilibili': 'B站', 'v2ex': 'V2EX',
+    'web': 'Web', 'reddit': 'Reddit', 'twitter': 'X/Twitter', 'facebook': 'Facebook',
+    'instagram': 'Instagram', 'xiaohongshu': '小红书', 'linkedin': 'LinkedIn',
+    'boss': 'BOSS直聘', 'xueqiu': '雪球',
+}
+
+_ACTION_NAMES = {
+    'search': '搜索', 'read': '详情读取', 'subreddit': '板块帖子列表',
+    'profile': '个人主页', 'tweets': '用户推文', 'thread': '推文串',
+    'posts': '指定用户帖子', 'comments': '评论读取', 'jobs': '职位搜索',
+    'hot_posts': '热门帖子', 'hot_stocks': '热门股票',
+}
+
+_STATUS_LABELS = {
+    'not_added': '未接入，可按需添加', 'needs_setup': '待配置', 'unverified': '已接入，待实测',
+    'ready': '已有有效验收', 'search_ready': '仅搜索已有验收',
+    'needs_login': '所测动作要求登录', 'cooldown': '暂缓访问',
+    'needs_user_action': '等待人工验证', 'broken': '当前路径故障',
+}
+
+
+def installation_report(result):
+    """Render the complete install receipt, without discovery or network access."""
+    def cell(value):
+        return str(value).replace('|', r'\|').replace('\n', ' ')
+
+    entries = result['capability_summary']['channels']
+    installs = {row['channel']: row for row in result['default_channels']}
+    installed = sum(bool(row['ok']) for row in installs.values())
+    lines = [
+        f"# Agent Reach {result['version']} · 安装与能力清单", '',
+        f'默认渠道依赖：{installed}/{len(installs)} 项准备成功。安装结果与联网验收分别列出。', '',
+        '✅ 提供免登录路径；⚠️ 部分内容或受访问条件影响；🔐 该路径按需登录；'
+        '⚙️ 需要额外配置；❌ 本版未提供相应动作；— 不适用。',
+        '表中勾叉表示能力范围，不表示本机已经联网测通；公开路径可能使用 Agent 自带工具、原生工具或公开接口。', '',
+        '## 默认渠道：安装结果与免登录粒度', '',
+        '| 渠道 | 本次安装 | 搜索/列表 | 正文/详情 | 评论/回复 | 字幕/转录 |',
+        '|---|---|---|---|---|---|',
+    ]
+    for entry in entries:
+        if entry['level'] != 'default':
+            continue
+        name = entry['channel']
+        item = installs.get(name)
+        status = ('已安装' if item['ok'] else
+                  '安装失败：' + item.get('error', {}).get('code', 'UNKNOWN')) if item else '保留用户移除'
+        depth = _ANONYMOUS_DEPTH.get(name, ('⚠️ 以声明动作与实际返回为准',) * 4)
+        lines.append('| ' + ' | '.join(map(cell, (_DISPLAY_NAMES.get(name, name), status, *depth))) + ' |')
+    lines += [
+        '', '## 按需渠道：公开可读与登录后的增量', '',
+        '| 渠道 | 当前接入 | 免登录先尝试 | 按需登录/配置后可启用 | 当前边界 |',
+        '|---|---|---|---|---|',
+    ]
+    for entry in entries:
+        if entry['level'] == 'default':
+            continue
+        name = entry['channel']
+        actions = entry['authentication']['may_enable_actions']
+        labels = [_ACTION_NAMES.get(action, action) for action in actions]
+        if name == 'instagram':
+            labels = ['用户搜索' if action == 'search' else label for action, label in zip(actions, labels)]
+        elif name == 'reddit':
+            labels = ['帖子及返回评论' if action == 'read' else label for action, label in zip(actions, labels)]
+        elif name == 'boss':
+            labels = ['职位搜索' if action == 'search' else label for action, label in zip(actions, labels)]
+        extra = ('🔐 ' + '、'.join(labels) + '（该路径要求认证时）') if actions else '⚙️ 按声明动作配置'
+        lines.append('| ' + ' | '.join(map(cell, (
+            _DISPLAY_NAMES.get(name, name), _STATUS_LABELS.get(entry['reach_status'], entry['reach_status']),
+            '⚠️ ' + entry['public_access'], extra, ' '.join(entry['limits']) or '仅覆盖实际返回内容',
+        ))) + ' |')
+    lines += ['', '**本机联网验收**：本次安装没有发起平台查询。已存在且仍有效的验收如下；其余待实测。']
+    verified = [entry for entry in entries if entry['verified_actions']]
+    lines += ['- ' + _DISPLAY_NAMES.get(entry['channel'], entry['channel']) + '：' +
+              ' / '.join(entry['verified_actions']) for entry in verified] if verified else ['- 暂无有效动作验收记录。']
+    lines += [
+        '', '**Reddit 怎么用**：⚠️ 先尝试公开搜索、正文和部分评论，公开 JSON 样本可能含父子 ID；'
+        '🔐 需要时启用站内搜索、板块列表及帖子/返回评论读取；'
+        '❌ 不提供发评论；⚠️ 完整评论树与全部回复不作保证，登录后仍需实际验证。', '',
+        '直接告诉我你想查什么即可。已有公开结果够用就交付；缺少某项内容时再准备渠道、复用授权会话，实际需要时才请你登录。',
+    ]
+    return '\n'.join(lines) + '\n'
+
+
+def capability_summary(channels, statuses):
+    """Describe public options, declared actions and local evidence without any I/O.
+
+    Management supplies status records so this summary cannot initiate discovery,
+    installation, login or a live request. Actions always come from the registry.
+    """
+    by_name = {entry['channel']: entry for entry in statuses}
+    entries = []
+    for ch in channels:
+        current = by_name.get(ch.name, {})
+        names = [action.name for action in ch.actions]
+        can_login = bool(ch.login_url or ch.login_argv)
+        auth_actions = {'bilibili': ['subtitle'], 'xueqiu': ['hot_posts', 'hot_stocks']}.get(
+            ch.name, names if can_login else [])
+        entries.append({
+            'channel': ch.name,
+            'level': ch.level,
+            'reach_status': current.get('status', 'unverified'),
+            'verified_actions': current.get('verified_actions', []),
+            'actions': [{'action': action.name, 'detail': action.help} for action in ch.actions],
+            'public_access': _PUBLIC_ACCESS.get(ch.name, '先尝试 Agent 已有公开搜索和读取。'),
+            'authentication': {
+                'when': 'only_if_required',
+                'may_enable_actions': [name for name in auth_actions if name in names],
+                'note': '剩余任务的选定路径实际要求认证时，先复用已授权会话，再请用户登录；登录后仍需验证动作。',
+            },
+            'limits': _CAPABILITY_LIMITS.get(ch.name, []),
+        })
+    message = ['先使用 Agent 已有公开搜索和读取；Reach 按需补充能力，安装不要求逐个平台登录。']
+    for entry in entries:
+        actions = '/'.join(action['action'] for action in entry['actions'])
+        status_label = _STATUS_LABELS.get(entry['reach_status'], entry['reach_status'])
+        limits = ' '.join(entry['limits'])
+        message.append(f"{entry['channel']}：{entry['public_access']} Reach {actions}（{status_label}）。{limits}")
+    return {
+        'policy': 'public_first; login_only_for_remaining_task_when_required',
+        'evidence_note': '公开路径说明来自样本与访问条件，不能代替本机 Reach 验收；网络、403、超时或验证码均不能单独证明需要登录。',
+        'channels': entries,
+        'message': '\n'.join(message),
+    }
+
 
 def cdp_url():
     value = Config(read_only=True).get('boss_cdp_url', 'http://127.0.0.1:9222')
@@ -89,6 +260,8 @@ def use_profile(value, label=None):
     for ch in get_all_channels():
         if 'opencli' in ch.tools and ch.name not in overrides:
             data['checks'].pop(ch.name, None)
+            for action in data.get('backend_health', {}).get(ch.name, {}).values():
+                action.pop('opencli', None)
     state.save(data)
     return {'profile': value, 'scope': 'OpenCLI channels without a per-channel override', 'verified': False}
 

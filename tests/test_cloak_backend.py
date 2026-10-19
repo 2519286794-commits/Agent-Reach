@@ -85,16 +85,18 @@ def test_unconfigured_does_not_start_process(monkeypatch,tmp_path):
         cloak.call('boss','search',query='data',timeout=30)
 
 
-def test_native_login_needs_no_opencli(monkeypatch, tmp_path):
+@pytest.mark.parametrize('channel', ['instagram', 'linkedin'])
+def test_native_login_needs_no_opencli(monkeypatch, tmp_path, channel):
     from agent_reach.runtime import tools
     monkeypatch.setenv('HOME', str(tmp_path))
     monkeypatch.setattr(tools, 'resolve', lambda name: pytest.fail('login must not resolve OpenCLI'))
     calls = []
     monkeypatch.setattr(cloak, 'call', lambda *a, **kw: calls.append((a, kw)) or [{'identity_verified': False}])
-    result = cloak.login('instagram')
-    assert calls[0][0] == ('instagram', 'login')
+    result = cloak.login(channel)
+    assert calls[0][0] == (channel, 'login')
     assert result['logged_in'] is None
-    assert json.loads((cloak.folder('instagram')/'configured.json').read_text())['source'] == 'native login'
+    assert result['next'] == f'agent-reach ensure {channel}'
+    assert json.loads((cloak.folder(channel)/'configured.json').read_text())['source'] == 'native login'
 
 
 def test_native_login_timeout_explains_window_lifecycle(monkeypatch, tmp_path):
@@ -104,7 +106,8 @@ def test_native_login_timeout_explains_window_lifecycle(monkeypatch, tmp_path):
         cloak.login('xiaohongshu')
     assert caught.value.code == 'TIMEOUT'
     assert '15 minutes' in caught.value.message
-    assert 'do not retry automatically' in caught.value.message
+    assert 'do not retry automatically' in caught.value.message.lower()
+    assert 'automatically' in caught.value.hint
     assert not (cloak.folder('xiaohongshu') / 'configured.json').exists()
 
 
@@ -174,11 +177,15 @@ def test_native_login_keeps_window_alive_and_uses_own_profile(monkeypatch, tmp_p
     binary.touch()
     calls = []
     class Page:
+        url = 'about:blank'
+        def add_init_script(self, script):
+            assert 'role' in script and '自动保存' in script
         def close(self):
             assert len(ctx.pages) > 1, 'closing last tab exits headed Chrome'
             ctx.pages.remove(self)
         def goto(self, url, **kw):
             assert url == 'https://www.instagram.com'
+            self.url = url
         def wait_for_timeout(self, ms):
             ctx.pages.clear()  # user closes the login window
     class Context:
@@ -190,6 +197,8 @@ def test_native_login_keeps_window_alive_and_uses_own_profile(monkeypatch, tmp_p
             return p
         def close(self):
             calls.append('closed')
+        def cookies(self, urls):
+            return []
     ctx = Context()
     def launch(profile, **kw):
         assert profile == str(tmp_path / 'own-profile')
@@ -201,8 +210,10 @@ def test_native_login_keeps_window_alive_and_uses_own_profile(monkeypatch, tmp_p
         PLATFORM_CHROMIUM_VERSIONS={'win': 'test'}, get_platform_tag=lambda: 'win', get_binary_path=lambda _: binary))
     monkeypatch.setitem(sys.modules, 'playwright.sync_api', types.SimpleNamespace(Error=RuntimeError))
     monkeypatch.setenv('REACH_CLOAK_PROXY', 'http://127.0.0.1:7897')
-    result = cloak_worker.execute({'channel': 'instagram', 'action': 'login', 'profile': str(tmp_path/'own-profile')})
-    assert result == [{'session_saved': True, 'identity_verified': False}]
+    with pytest.raises(ReachError) as caught:
+        cloak_worker.execute({'channel': 'instagram', 'action': 'login', 'profile': str(tmp_path/'own-profile')})
+    assert caught.value.code == 'NEED_LOGIN'
+    assert 'closed before login' in caught.value.message
     assert calls == ['closed']
 
 
@@ -225,3 +236,47 @@ def test_proxy_override_is_per_process(monkeypatch, tmp_path):
         return '{"items":[]}'
     monkeypatch.setattr(run, 'run_cmd', execute)
     assert cloak.call('boss', 'search', query='data', timeout=30) == []
+
+
+def test_binary_setup_shares_proxy_and_reports_only_its_stage(monkeypatch):
+    from agent_reach.runtime import run, tools
+    monkeypatch.setattr(tools, 'ensure', lambda name: None)
+    monkeypatch.setattr(tools, 'resolve', lambda name: '/fake/cloakbrowser')
+    monkeypatch.setattr(tools, 'install_env', lambda: {'HTTPS_PROXY': 'http://user:PRIVATE@localhost:7890'})
+    def download(argv, **kwargs):
+        assert kwargs['env']['HTTPS_PROXY'].endswith('@localhost:7890')
+        assert argv == ['/fake/cloakbrowser', 'install']
+        raise ReachError('TIMEOUT', 'PRIVATE download error')
+    monkeypatch.setattr(run, 'run_cmd', download)
+    with pytest.raises(ReachError) as caught:
+        cloak.setup()
+    assert caught.value.code == 'TIMEOUT'
+    assert 'binary_download' in caught.value.message
+    assert 'PRIVATE' not in caught.value.message + caught.value.hint
+    assert 'cache is retained' in caught.value.hint
+
+
+@pytest.mark.parametrize('platform', ['posix', 'nt'])
+@pytest.mark.parametrize('action,timeout,grace', [('search', 30, 5), ('login', 900, 20)])
+def test_worker_deadline_precedes_supervisor_on_each_platform(monkeypatch, tmp_path, platform, action, timeout, grace):
+    import os
+    import types
+
+    from agent_reach.runtime import run, tools
+    # Replace only this module's os binding; changing os.name globally would
+    # change pathlib and pytest's own platform behavior on the test host.
+    monkeypatch.setattr(cloak, 'os', types.SimpleNamespace(name=platform, environ=os.environ))
+    exe = tmp_path / 'tool' / 'cloakbrowser'
+    exe.parent.mkdir()
+    (exe.parent / ('python.exe' if platform == 'nt' else 'python')).touch()
+    monkeypatch.setattr(tools, 'resolve', lambda name: str(exe))
+    profile = cloak.folder('xiaohongshu')
+    profile.mkdir(parents=True)
+    (profile / 'configured.json').write_text('{}')
+    def execute(argv, **kwargs):
+        request = json.loads(argv[-1])
+        assert kwargs['timeout'] == timeout - (12 if platform == 'nt' else 2)
+        assert request['action_timeout'] == kwargs['timeout'] - grace
+        return '{"items":[]}'
+    monkeypatch.setattr(run, 'run_cmd', execute)
+    assert cloak.call('xiaohongshu', action, timeout=timeout) == []

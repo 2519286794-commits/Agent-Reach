@@ -18,23 +18,28 @@ For the AI doing the install. Run every command yourself. Each `agent-reach` com
 ```bash
 uv tool install --reinstall .  # run from this checkout; alternatively pass its built wheel path
 agent-reach setup
-agent-reach check --text
+agent-reach doctor --text
 ```
+
+`agent-reach setup --text` prints the same capability tables directly. Plain `setup` preserves the JSON contract and saves `installation-report.md` under the private Reach directory.
 
 `agent-reach` not found after install? Run `uv tool update-shell` and open a new shell.
 
 `setup` turns on the default channels (web, YouTube, GitHub, V2EX, Bilibili), installs the Skill, and registers the Reach MCP server in an existing Cursor profile. Run `agent-reach mcp status` to inspect that registration.
 
-`check --text` tests the channels that are on and exits 1 if any action fails. A `NEED_LOGIN` failure (e.g. Bilibili subtitles) is normal: that feature needs an optional login. Any other failure: tell the user which feature does not work yet.
+`doctor --text` reads local status without opening browsers or querying every platform. Installation is separate from acceptance. When the user needs a specific channel, use one bounded `check CHANNEL --search --text` or the requested formal action. Diagnose actual errors; a failure does not establish a platform-wide login requirement.
 
 ## 2. Report to the user
 
-Keep it short and plain:
+Display the generated report in the final response. The two capability tables are required:
 
-1. **Works now**: the channels in `result.default_channels` with `ok: true`. Mention features that failed `check` only as "needs login" or "not working yet".
-2. **Which AIs can use it**: `result.skill.agents` (the AIs found on this machine).
-3. **Optional, add any time**: each entry of `result.optional_channels`. Say only what the user will have to do, such as log in or provide a key. Agent Reach installs the channel tools itself. Mention that `experimental` channels can break at any time. Optional logins for channels already on are listed in `result.logins` (e.g. Bilibili login unlocks subtitles).
-4. **How to add or remove one later**: "Just tell me, e.g. 'add Xiaohongshu' or 'remove V2EX'." Default channels can be removed too.
+1. **Installation outcome**: version, default dependency results and AIs in `result.skill.agents`. An `ok: true` dependency install is not a live business check.
+2. **Supported depth**: present `result.installation_report.markdown` with both tables, symbol legend and verification scope. This lists installation outcomes and anonymous search/body/comment/subtitle depth, then optional channels and authentication increments. The report path is supplementary; do not replace the tables with a link, a dependency count or "pending live tests".
+3. **Optional capabilities**: add only for a missing capability or explicit setup request. `login_if_required` and `logins[].when=only_if_required` are conditional, not a to-do list. Existing public content remains available if login is skipped.
+4. **Example, Reddit**: public search, bodies and some comments can be attempted with existing web tools. Reach browser actions add search, post reading and subreddit lists; reuse an authorized session and log in only when the selected path requires it. Full comment trees, all replies and writing comments are outside the guarantee.
+5. **Later management**: the user can say 'add Xiaohongshu' or 'remove V2EX'. Default channels can be removed too.
+
+Before selecting Reach for a platform mention, check whether existing public tools already satisfy the task. For a structured/site-specific action, use its declared Reach route directly; no redundant search is required.
 
 When the user asks for a channel, run `agent-reach ensure <channel>` or MCP `reach_ensure`. Reach installs missing dependencies, checks existing sessions and runs the formal action. For OpenCLI select a connected existing profile with `agent-reach browser use ID`. To authorize a site-scoped Cloak import, run `agent-reach ensure <channel> --reuse-profile ID`; this selection is remembered. If a query returns `operation_id`, the user completes login or verification and the agent calls `resume`. Boss's native CLI fallback needs CDP; Cloak does not. Install the runtime and Skill from the same build.
 

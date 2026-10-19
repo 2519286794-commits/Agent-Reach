@@ -6,7 +6,7 @@ Management commands: setup, add, remove, login, logout, browser, skill, doctor,
 
 Everything prints one JSON object to stdout so agents never parse prose; logs
 go to stderr. Exit code 0 = ok, 1 = error. Exceptions for humans: `help`, and
-`--text` on doctor / check. `login` shows the upstream's interactive
+`--text` on setup / doctor / check. `login` shows the upstream's interactive
 output (QR codes, prompts) on stderr so stdout still carries only the JSON.
 
 When a newer release is known (cached by a background check at most once a
@@ -56,8 +56,8 @@ For agents:
   agent-reach read <url>                  read a link with the matching channel
 
 For the user:
-  agent-reach setup                       first run: install the default channels and the agent skill
-  agent-reach add <channel>               add a channel; installs everything it needs, opens its login
+  agent-reach setup [--text]              install defaults and skill; --text displays the capability tables
+  agent-reach add <channel>               install a channel; no browser opens during installation
   agent-reach remove <channel>            remove a channel (defaults too) and what only it used
   agent-reach login|logout <channel>      log in (the user does it) / forget the login
   agent-reach browser bind CHANNEL ID    bind an existing OpenCLI profile (IDs: opencli profile list)
@@ -65,7 +65,7 @@ For the user:
   agent-reach browser profiles           discover existing OpenCLI sessions
   agent-reach browser use ID              select a reusable default session
   agent-reach cloak setup                 install optional CloakBrowser runtime
-  agent-reach cloak login CHANNEL         log in yourself, then close the Cloak window
+  agent-reach cloak login CHANNEL         log in yourself; Reach saves and closes on detection
   agent-reach cloak import CHANNEL --opencli-profile ID  explicitly copy site cookies
   agent-reach cloak status CHANNEL        inspect local CloakBrowser setup
   agent-reach ensure CHANNEL --reuse-profile ID  authorize site-scoped session import
@@ -185,6 +185,8 @@ def _cmd_read(args: Sequence[str]) -> int:
     readers = [ch for ch in unified_channels() if find_action(ch, "read")]
     specific = [ch for ch in readers if ch.name != "web"]
     target = next((ch for ch in specific if ch.can_handle(ns.url)), None)
+    if target is not None and target.name == "reddit" and ns.backend in (None, "jina", "exa"):
+        target = next((ch for ch in readers if ch.name == "web"), None) or target
     target = target or next((ch for ch in readers if ch.name == "web"), None)
     if target is None:
         return _bad_input(None, "read", "no channel can read this URL")
@@ -303,7 +305,9 @@ def _cmd_management(head: str, args: Sequence[str]) -> int:
     from . import manage
 
     parser = _Parser(prog=head, add_help=False)
-    if head in ("add", "remove"):
+    if head == "setup":
+        parser.add_argument("--text", action="store_true")
+    elif head in ("add", "remove"):
         parser.add_argument("channel")
         if head == "add":
             parser.add_argument("--allow-upgrade", action="store_true")
@@ -321,6 +325,19 @@ def _cmd_management(head: str, args: Sequence[str]) -> int:
     except _ArgError as exc:
         return _bad_input(None, head, str(exc))
     if head == "setup":
+        if ns.text:
+            try:
+                result = manage.setup()
+            except ReachError as err:
+                sys.stdout.write(f"安装未完成：{err.code} {err.message}\n{err.hint or ''}\n")
+                return 1
+            sys.stdout.write(result['installation_report']['markdown'])
+            report = result['installation_report']
+            if report.get('path'):
+                sys.stdout.write(f"\n完整报告已保存：{report['path']}\n")
+            if report.get('write_error'):
+                sys.stdout.write(f"\n{report['write_error']}\n")
+            return 0 if all(row['ok'] for row in result['default_channels']) else 1
         return _mgmt(head, manage.setup)
     if head == "add":
         return _mgmt(head, manage.add, ns.channel, allow_upgrade=ns.allow_upgrade)

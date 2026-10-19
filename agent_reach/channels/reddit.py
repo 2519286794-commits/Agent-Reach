@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Reddit — OpenCLI in the Agent Reach browser. Login is mandatory.
+"""Reddit browser actions supplement public web search and reading.
 
-Live-verified 2026-06: there is NO zero-config path. Anonymous .json
-endpoints are blocked (403 anti-bot, all variants), and the official API
-closed self-service registration in 2025-11.
+Public posts and some comments can be available through an agent's existing
+web tools without Reddit login. A blocked anonymous JSON endpoint does not
+establish a site-wide login requirement. These actions use managed browser
+sessions; request authentication only when the selected path requires it.
 """
 
 from agent_reach.backends.opencli import opencli_call, opencli_items
@@ -41,7 +42,7 @@ class RedditChannel(Channel):
     actions = (
         Action(
             "search",
-            "Search posts",
+            "Browser search; prefer existing web search for public Reddit posts",
             (
                 Param("query", "what to search for"),
                 Param("limit", "max results", required=False, type=int, default=5),
@@ -51,7 +52,7 @@ class RedditChannel(Channel):
         ),
         Action(
             "read",
-            "Read a post and its top comments",
+            "Browser read of a post and top comments; prefer web fetch for public posts",
             (Param("target", "post link or id"),),
             (("opencli", "_opencli_read"),),
         ),

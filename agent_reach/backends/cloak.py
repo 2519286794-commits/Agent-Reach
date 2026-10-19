@@ -55,10 +55,14 @@ def call(channel, action, *, timeout, profile_dir=None, **params):
     if not python.is_file():
         raise ReachError(NEED_SETUP, "CloakBrowser needs a Python venv installation; run agent-reach cloak setup")
     make_private_dir(path)
-    request = {"channel": channel, "action": action, "profile": str(profile), **params}
+    # Leave time for Chromium to close normally and flush its profile before the
+    # subprocess supervisor's hard deadline.
+    process_timeout = max(0.1, timeout - (12 if os.name == "nt" else 2))
+    request = {"channel": channel, "action": action, "profile": str(profile), **params,
+               "action_timeout": max(0.1, process_timeout - (20 if action == "login" else 5))}
     with execution_lock(str(profile)):
         out = run_cmd([str(python), "-m", "agent_reach.backends.cloak_worker", json.dumps(request)],
-                      timeout=max(0.1, timeout - (12 if os.name == "nt" else 2)), env={
+                      timeout=process_timeout, env={
                           "PYTHONPATH": str(Path(__file__).parents[2]),
                           "CLOAKBROWSER_AUTO_UPDATE": "false",
                           "CLOAKBROWSER_CACHE_DIR": str(path.parents[1] / "cloak-binaries"),
@@ -69,7 +73,7 @@ def call(channel, action, *, timeout, profile_dir=None, **params):
     except ValueError:
         raise ReachError("UPSTREAM_BROKEN", "CloakBrowser returned invalid JSON") from None
     if result.get("error"):
-        raise ReachError(result["error"]["code"], result["error"]["message"])
+        raise ReachError(result["error"]["code"], result["error"]["message"], result["error"].get("hint"))
     return result["items"]
 
 
@@ -80,13 +84,21 @@ def setup():
     exe = tools.resolve("cloakbrowser")
     if not exe:
         raise ReachError(NEED_SETUP, "CloakBrowser installation did not provide its executable")
-    run_cmd([exe, "install"], timeout=600, env={"CLOAKBROWSER_AUTO_UPDATE": "false",
-            "CLOAKBROWSER_CACHE_DIR": str(state.root() / "cloak-binaries")})
+    try:
+        run_cmd([exe, "install"], timeout=600, env={**tools.install_env(),
+                "CLOAKBROWSER_AUTO_UPDATE": "false",
+                "CLOAKBROWSER_CACHE_DIR": str(state.root() / "cloak-binaries")})
+    except ReachError as exc:
+        # Do not repeat stderr: download tools can include credential-bearing
+        # proxy URLs. The completed Python installation and cache are retained.
+        raise ReachError(exc.code, "Cloak browser binary download failed or timed out (stage: binary_download)",
+                         hint="The Python package is already installed. Check that the terminal proxy works, "
+                              "then rerun agent-reach cloak setup; downloaded cache is retained.") from None
     return {"installed": True, "backend": "cloakbrowser", "opened_browser": False}
 
 
 def login(channel):
-    """User completes login in Cloak's own persistent browser, then closes it."""
+    """Detect the user's completed login, save it, and close the owned window."""
     from agent_reach.runtime import state
     try:
         items = call(channel, "login", timeout=900)
@@ -95,19 +107,17 @@ def login(channel):
             raise
         raise ReachError(
             TIMEOUT,
-            "Cloak login window closed after 15 minutes without a saved session. "
-            "Ask the user whether to reopen it; do not retry automatically.",
-            hint="The user must finish login and close the Cloak window to save the session. "
-                 "Then run agent-reach ensure for this channel.",
+            "Cloak login was not confirmed within 15 minutes. "
+            "Any previous saved session is retained. Do not retry automatically.",
+            hint="Login normally saves and closes automatically. When ready, run agent-reach cloak login "
+                 f"{channel} once, then agent-reach ensure {channel}.",
         ) from None
     path = folder(channel)
     atomic_write_private_text(path / "configured.json", json.dumps({"source": "native login", "channel": channel}))
-    saved = state.load()
-    saved["checks"].pop(channel, None)
-    state.save(saved)
-    return {"backend": "cloakbrowser", "session_saved": True, "logged_in": None,
-            "verification": items, "next": f"agent-reach {channel} search nasa --backend cloakbrowser" if channel == "instagram"
-            else f"agent-reach {channel} search VLA --backend cloakbrowser"}
+    state.mutate(lambda saved: saved["checks"].pop(channel, None))
+    logged_in = any(item.get("login_detected") is True for item in items if isinstance(item, dict))
+    return {"backend": "cloakbrowser", "session_saved": True, "logged_in": True if logged_in else None,
+            "verification": items, "next": f"agent-reach ensure {channel}"}
 
 
 def scoped_cookies(channel, data):

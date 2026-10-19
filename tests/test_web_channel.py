@@ -8,11 +8,14 @@ URL before handing it to Jina Reader. Follow-up to #331 / #360 / #361,
 completing dedicated coverage for the channels that still lacked it.
 """
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from agent_reach.channels.web import _UA, WebChannel
+from agent_reach.runtime.dispatch import run_action
+from agent_reach.runtime.result import BAD_INPUT, RATE_LIMITED, UPSTREAM_BROKEN
 
 _MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 
@@ -23,6 +26,50 @@ def test_search_does_not_turn_unrecognized_payload_into_empty_success():
     with patch("agent_reach.channels.web._exa_call", return_value="Service temporarily unavailable"):
         with pytest.raises(ReachError, match="no recognizable search results"):
             WebChannel()._exa_search(query="python", limit=3, timeout=5)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Request failed with status code 429",
+        "You have reached the free hosted Exa MCP rate limit",
+        "Monthly quota exceeded",
+        "Your account has insufficient credits",
+        "Free usage limit reached",
+    ],
+)
+@pytest.mark.parametrize("rpc_error", [False, True])
+def test_exa_hosted_limits_stop_as_rate_limited(message, rpc_error):
+    payload = {"error": {"message": message}} if rpc_error else {
+        "result": {"isError": True, "content": [{"type": "text", "text": message}]},
+    }
+    with patch("agent_reach.channels.web.http_request", return_value=json.dumps(payload).encode()) as request:
+        out = run_action(WebChannel(), "search", {"query": "python"})
+    assert out["error"]["code"] == RATE_LIMITED
+    assert "built-in web search" in out["error"]["hint"]
+    request.assert_called_once()
+
+
+def test_exa_invalid_rpc_params_are_bad_input():
+    payload = {"error": {"code": -32602, "message": "Invalid params: missing query"}}
+    with patch("agent_reach.channels.web.http_request", return_value=json.dumps(payload).encode()):
+        out = run_action(WebChannel(), "search", {"query": "python"})
+    assert out["error"]["code"] == BAD_INPUT
+
+
+def test_exa_generic_failure_and_result_size_error_are_not_rate_limits():
+    for message in ("Service temporarily unavailable", "Invalid result limit: expected a number"):
+        payload = {"result": {"isError": True, "content": [{"type": "text", "text": message}]}}
+        with patch("agent_reach.channels.web.http_request", return_value=json.dumps(payload).encode()):
+            out = run_action(WebChannel(), "search", {"query": "python"})
+        assert out["error"]["code"] == UPSTREAM_BROKEN
+
+
+def test_web_missing_query_is_rejected_without_calling_exa():
+    with patch("agent_reach.channels.web.http_request") as request:
+        out = run_action(WebChannel(), "search", {})
+    assert out["error"]["code"] == BAD_INPUT
+    request.assert_not_called()
 
 
 def _resp(body=b"# Example\nfull text\n"):

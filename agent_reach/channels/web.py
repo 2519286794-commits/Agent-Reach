@@ -26,6 +26,24 @@ _MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 _ANTIBOT_SCAN_BYTES = 4096
 _EXA_MCP = "https://mcp.exa.ai/mcp"
 _EXA_HEADER_RE = re.compile(r"^(Title|URL|Published|Author):\s*(.*)$")
+_EXA_LIMIT_RE = re.compile(
+    r"\b429\b|rate[ _-]?limit|too many requests|\bquota\b|"
+    r"(?:usage|request|daily|monthly|free)[ _-]+limit|"
+    r"(?:credit|credits|balance).{0,40}(?:exhaust|deplet|insufficient|exceed|reach)|"
+    r"(?:out of|insufficient|exhausted).{0,20}credits?",
+    re.IGNORECASE,
+)
+
+
+def _exa_error(text: str, rpc_code=None) -> ReachError:
+    if rpc_code in (-32602, "-32602"):
+        return ReachError(BAD_INPUT, f"Exa rejected the arguments: {text[:300]}")
+    if rpc_code in (429, "429") or _EXA_LIMIT_RE.search(text):
+        return ReachError(
+            RATE_LIMITED, f"Exa: {text[:300]}",
+            hint="Exa's hosted search limit was reached. Use the agent's built-in web search or wait before retrying.",
+        )
+    return ReachError(UPSTREAM_BROKEN, f"Exa: {text[:300]}")
 
 
 def _is_antibot_page(body: bytes) -> bool:
@@ -69,13 +87,11 @@ def _exa_call(tool: str, arguments: dict, timeout: float) -> str:
     msg = json.loads(payloads[-1])
     if "error" in msg:
         text = str(msg["error"].get("message", msg["error"]))
-        code = RATE_LIMITED if "rate" in text.lower() or "limit" in text.lower() else UPSTREAM_BROKEN
-        raise ReachError(code, f"Exa: {text}")
+        raise _exa_error(text, msg["error"].get("code"))
     result = msg.get("result") or {}
     text = "\n".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
     if result.get("isError"):
-        code = RATE_LIMITED if "rate" in text.lower() else UPSTREAM_BROKEN
-        raise ReachError(code, f"Exa: {text[:300]}")
+        raise _exa_error(text)
     return text
 
 

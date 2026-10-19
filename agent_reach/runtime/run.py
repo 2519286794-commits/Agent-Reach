@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import os
 import signal
 import subprocess
@@ -118,6 +119,12 @@ def http_request(
     req = urllib.request.Request(url, data=data, headers=merged)
     with urllib.request.urlopen(req, timeout=max(timeout, 0.1)) as resp:
         body = resp.read(max_bytes + 1)
+        declared = getattr(resp, "headers", {}).get("Content-Length", "")
+        if isinstance(declared, str) and declared.strip().isdigit() and len(body) <= max_bytes:
+            expected = int(declared)
+            if len(body) < expected:
+                # A bounded read can silently return a short body on early EOF.
+                raise http.client.IncompleteRead(body, expected - len(body))
     if len(body) > max_bytes:
         raise ReachError("UPSTREAM_BROKEN", f"response exceeds {max_bytes} bytes")
     return body

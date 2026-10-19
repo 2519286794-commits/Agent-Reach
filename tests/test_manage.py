@@ -246,7 +246,8 @@ def test_browser_channel_add_never_opens_login_and_explicit_dedicated_remove_cle
     out = manage.add("site")
     assert "ensure_chrome" in env["calls"]
     assert env["calls"] == ["ensure_chrome"]
-    assert isinstance(out["next"], str) and "Reuse existing login" in out["next"]
+    assert isinstance(out["next"], str) and "Reuse existing login only when needed" in out["next"]
+    assert out["capability_summary"]["channels"][0]["reach_status"] == "unverified"
     manage.add("site2")
     browser.profile_dir().mkdir(parents=True)
     first = manage.remove("site")
@@ -481,12 +482,55 @@ def test_setup_adds_default_channels_and_survives_a_failing_install(env, monkeyp
     assert by_name["web"]["ok"] is True
     assert by_name["broken"]["ok"] is False and by_name["broken"]["error"]["code"] == "UPSTREAM_BROKEN"
     assert "prerequisites" not in result, "prerequisites are installed, not reported"
-    assert result["logins"] == [{"channel": "broken", "command": "agent-reach login broken"}]
+    assert result["logins"] == [{"channel": "broken", "command": "agent-reach login broken",
+                                  "when": "only_if_required"}]
     optional = {c["channel"]: c["needs"] for c in result["optional_channels"]}
     assert set(optional) == {"bili", "bili2", "needy", "site", "site2", "linky"}
-    assert optional["needy"] == [] and optional["site"] == ["login"]
+    assert optional["needy"] == [] and optional["site"] == ["login_if_required"]
+    capabilities = {c["channel"]: c for c in result["capability_summary"]["channels"]}
+    assert capabilities["site"]["reach_status"] == "not_added"
+    assert capabilities["broken"]["reach_status"] == "needs_setup"
+    assert capabilities["site"]["authentication"]["when"] == "only_if_required"
+    assert capabilities["web"]["verified_actions"] == [], "installation is not a live acceptance"
     assert result["skill"]["installed"] is True
     assert env["calls"] == [], "setup opens no login window"
+    report = result['installation_report']
+    assert report['markdown'] == (state.root() / 'installation-report.md').read_text()
+    assert report['path'] == str(state.root() / 'installation-report.md')
+    assert '安装失败：UPSTREAM_BROKEN' in report['markdown']
+
+
+def test_setup_text_displays_both_capability_tables_and_keeps_json_mode(env, capsys):
+    from agent_reach.runtime import cli
+
+    assert cli.main(['setup', '--text']) == 0
+    text = capsys.readouterr().out
+    assert '默认渠道：安装结果与免登录粒度' in text
+    assert '按需渠道：公开可读与登录后的增量' in text
+    assert '| 搜索/列表 | 正文/详情 | 评论/回复 | 字幕/转录 |' in text
+    assert '完整报告已保存：' in text
+    assert not text.startswith('{')
+    assert cli.main(['setup']) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload['ok']
+    assert payload['result']['installation_report']['markdown'] == text.split('\n完整报告已保存：')[0]
+
+
+def test_setup_receipt_never_overwrites_a_linked_foreign_file(env, tmp_path):
+    manage.setup()
+    report = state.root() / 'installation-report.md'
+    report.unlink()
+    foreign = tmp_path / 'keep.txt'
+    foreign.write_text('keep this')
+    try:
+        report.symlink_to(foreign)
+    except OSError:
+        pytest.skip('symlink creation not available')
+    result = manage.setup()
+    assert foreign.read_text() == 'keep this'
+    assert result['installation_report']['path'] is None
+    assert result['installation_report']['write_error']
+    assert '默认渠道：安装结果与免登录粒度' in result['installation_report']['markdown']
 
 
 # ── uninstall ──

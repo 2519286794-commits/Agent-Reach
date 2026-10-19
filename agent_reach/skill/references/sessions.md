@@ -2,11 +2,19 @@
 
 仅在安装、登录、导入或退出时加载。Load only for setup, login, import or logout.
 
+## 所有平台：先判断公开能力 / Public capabilities first
+
+公开搜索、正文、评论与字幕分别判断已有工具能否满足请求。足够就交付；缺少内容、工具不可用或需要声明的结构化/站内动作时，再进入渠道配置。平台名称、URL 和本节的登录入口都不构成登录要求。
+
+浏览器未连接需要连接；所选路径实际返回登录要求时才需要本人登录。403、验证码、DNS/TLS 错误、限流、超时分别诊断；HTTP 200 还要检查内容是否为验证页、登录页或空壳。需要更多评论不能证明必须登录，登录也不保证读全。保留公开结果并只为剩余缺口请求用户操作。
+
+On every platform, use sufficient public evidence first. Inspect browser sessions only for a selected browser action. Request authentication only for the remaining capability that actually needs it; preserve public results. Distinguish access paths and verify content rather than HTTP status alone.
+
 ## Cloak 默认运行模式 / Default mode
 
-小红书、BOSS、Instagram、Facebook、Twitter、Reddit、LinkedIn 的 Cloak 查询和导入验收统一使用 `headless=True`，不弹出浏览器窗口，无需额外参数。`cloak login CHANNEL` 是显式可视登录入口，用户登录完成后关闭窗口保存会话。Cloak 登录和查询不需要 OpenCLI；已有浏览器登录态导入仅为可选迁移路径。
+小红书、BOSS、Instagram、Facebook、Twitter、Reddit、LinkedIn 的 Cloak 查询和导入验收统一使用 `headless=True`，不弹出浏览器窗口，无需额外参数。`cloak login CHANNEL` 是显式可视登录入口，用户完成登录后，程序检测认证信号、自动保存并关闭。Cloak 登录和查询不需要 OpenCLI；已有浏览器登录态导入仅为可选迁移路径。
 
-Cloak queries and import verification run headless by default for XHS, BOSS and Instagram. No extra flag is needed. Use `cloak login CHANNEL` for independent visible login, then close the window to save. Existing Chrome cookie import is optional.
+Cloak queries and import verification run headless by default. No extra flag is needed. Use `cloak login CHANNEL` for independent visible login; Reach detects authentication, saves and closes automatically. Existing Chrome cookie import is optional.
 
 ## 先检查 / Inspect first
 
@@ -17,11 +25,11 @@ Use `agent-reach check CHANNEL --search` for one bounded live search check. Save
 
 `setup` installs default channels. XHS and BOSS are optional: `agent-reach add xiaohongshu` or `agent-reach add boss` installs Cloak SDK and its browser binary without opening a browser. Installation does not import credentials.
 
-窗口生命周期：`cloak login CHANNEL` 打开一次可视 Cloak 窗口。用户完成登录后关闭该窗口，Reach 才保存会话；15 分钟内未关闭则超时并结束该窗口，不要自动重试。Cloak 查询和导入验收是 headless，执行结束会关闭自己的上下文。`browser setup` 属于旧的专用 OpenCLI Chrome 路径，可能显示 `OpenCLI Browser` 和 `about:blank`；它闲置约 10 分钟后关闭。通过 `browser use ID` 复用用户 Chrome 时，Reach 不关闭用户窗口。若同时出现两种窗口，先查实际执行的命令，不要把 OpenCLI Browser 称为 Ego Lite。
+窗口生命周期：`cloak login CHANNEL` 打开一次可视 Cloak 窗口，窗口提示自动保存。检测登录成功后，Reach 写入自身站点会话并正常关闭；提前关闭提示登录尚未确认，15 分钟内未完成则提示登录等待超时。旧会话保留，不要自动重开。Cloak 查询和导入验收是 headless，执行结束会关闭自己的上下文。`browser setup` 属于旧的专用 OpenCLI Chrome 路径，可能显示 `OpenCLI Browser` 和 `about:blank`；它闲置约 10 分钟后关闭。通过 `browser use ID` 复用用户 Chrome 时，Reach 不关闭用户窗口。
 
 ## Cloak：小红书与 BOSS / XHS and BOSS
 
-独立路径：运行 `agent-reach cloak login CHANNEL`，用户登录完成后关闭窗口；再用 `--backend cloakbrowser` 验收查询。关闭窗口只标记会话已保存，不声称登录或业务验收成功。窗口等待上限 15 分钟；关闭登录窗口后再执行查询。
+独立路径：运行 `agent-reach cloak login CHANNEL`，用户完成登录，程序自动保存并关闭；再用 `--backend cloakbrowser` 验收查询。认证 Cookie 与页面检测说明会话已保存，业务访问另行验收。窗口等待上限 15 分钟。
 
 可选导入路径：
 

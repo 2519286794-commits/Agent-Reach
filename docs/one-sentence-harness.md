@@ -2,6 +2,13 @@
 
 ## User contract
 
+For public content, the host agent first uses sufficient existing capabilities.
+Only missing evidence or a requested structured/site-specific action enters Reach.
+A platform name alone does not require setup or login. Keep public evidence when a
+remaining action requests authentication. The standalone \`ask\` planner uses the
+anonymous web route for ordinary public requests; it does not control the host
+agent's own web tools.
+
 The user can request a read-only search in one sentence. The local model chooses a
 declared channel/action and parameters. Reach prepares the machine, runs the
 normal channel route once, and the model summarizes the returned evidence.
@@ -48,7 +55,8 @@ operation lock, keeping the same action API.
 
 - Missing dependency: `ensure` installs the declared primary backend once.
 - Missing session: return `needs_user_action`, top-level `required_actions`,
-  and a resumable operation ID. Summarization waits for the login step.
+  and a resumable operation ID. Return any public evidence already retrieved;
+  only the missing action waits for login.
 - Mixed success and tool failure: return `partial` with the successful sources
   and the failed channel in `results`, without claiming all channels passed.
 - Phone verification or platform block: stop the route; user resolves it in
@@ -57,11 +65,14 @@ operation lock, keeping the same action API.
   `retry_after_seconds`; do not switch accounts or repeatedly retry. Both
   import verification and normal queries use this gate.
 - Tool/network failure: return the structured error and backend attempts.
-- Empty success: record it as failed verification, never as `ready`.
+- Tool/network failure is remembered per channel/action/backend for a short pause;
+  automatic routing skips it, explicit backend diagnostics can recheck it.
+- Empty query results are successful with zero items. Live channel verification
+  still needs at least one item; an empty probe stays unverified.
 
-`configured`, `prepared`, and `ready` are distinct. `ready` requires at least
-one nonempty result from the formal Reach action. A pilot script does not
-qualify. Pending queries remain private to this machine and expire after seven
+`configured`, `prepared`, and verified channel readiness are distinct. Verified
+readiness requires a nonempty result from a formal Reach action. A successful
+zero-result query does not establish channel readiness. Pending queries remain private to this machine and expire after seven
 days; at most 32 are retained.
 
 ## Interfaces
@@ -80,6 +91,12 @@ The MCP tools are `reach_status`, `reach_ensure`, `reach_execute`, and
 `reach_resume`. `reach_execute` accepts only a declared channel action and
 parameter object. The model key is read from the private config or
 `AGENT_REACH_MODEL_KEY`; no key or site cookie is returned in tool results.
+
+Xiaohongshu `comments` is a declared action shared by CLI, MCP and `ask`.
+It accepts a full signed note URL and a top-level comment limit; loaded replies
+are included with their thread relationship and a non-exhaustive scope.
+Login detection saves the managed site session automatically and closes its
+visible window. Login detection and successful business queries have separate evidence.
 
 ## Acceptance gates
 

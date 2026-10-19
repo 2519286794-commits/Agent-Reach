@@ -33,9 +33,11 @@ def bind_profile(channel: str, profile: str):
     config.set(KEY, profiles)
     from . import state
 
-    data = state.load()
-    data["checks"].pop(channel, None)
-    state.save(data)
+    def reset(data):
+        data["checks"].pop(channel, None)
+        for action in data.get("backend_health", {}).get(channel, {}).values():
+            action.pop("opencli", None)
+    state.mutate(reset)
     return {
         "channel": channel,
         "profile": profile.strip(),
@@ -51,9 +53,11 @@ def unbind_profile(channel: str):
     config.set(KEY, profiles)
     from . import state
 
-    data = state.load()
-    data["checks"].pop(channel, None)
-    state.save(data)
+    def reset(data):
+        data["checks"].pop(channel, None)
+        for action in data.get("backend_health", {}).get(channel, {}).values():
+            action.pop("opencli", None)
+    state.mutate(reset)
     return {"channel": channel, "unbound": removed, "browser_cookies_changed": False}
 
 

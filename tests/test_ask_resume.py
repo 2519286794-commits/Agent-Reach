@@ -74,3 +74,24 @@ def test_partial_request_does_not_claim_every_channel_succeeded(monkeypatch):
     result = ask.ask("两个平台找 VLA")
     assert result["status"] == "partial" and result["ok"] is False
     assert result["answer"] == "Partial summary"
+
+
+def test_public_evidence_survives_a_browser_login_step(monkeypatch):
+    monkeypatch.setattr(ask, "_plan", lambda instruction: [
+        {"channel": "web", "action": "search", "params": {"query": "site:reddit.com DeepSeek"}},
+        {"channel": "reddit", "action": "search", "params": {"query": "DeepSeek"}}])
+    def execute(name, args):
+        if args["channel"] == "web":
+            return {"ok": True, "channel": "web", "action": "search", "items": [
+                {"title": "Public discussion", "url": "https://www.reddit.com/r/DeepSeek/comments/test/",
+                 "text": "Public post and a visible comment"}]}
+        return {"ok": False, "channel": "reddit", "status": "needs_user_action",
+                "operation_id": "op_browser", "required_action": {"type": "login"}}
+    monkeypatch.setattr(mcp_server, "_invoke", execute)
+    monkeypatch.setattr(ask, "_model", lambda *a, **k: "已读取的公开内容摘要")
+    result = ask.ask("查公开讨论，并尝试补充站内结果")
+    assert result["ok"] is False and result["status"] == "needs_user_action"
+    assert result["answer"].startswith("已读取的公开内容摘要")
+    assert "https://www.reddit.com/r/DeepSeek/comments/test/" in result["answer"]
+    assert result["pending_operations"] == ["op_browser"]
+    assert result["results"][0]["items"][0]["text"] == "Public post and a visible comment"

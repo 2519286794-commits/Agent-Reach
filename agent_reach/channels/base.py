@@ -86,6 +86,9 @@ class Channel(ABC):
         """What still blocks this channel after its tools are installed (keys, browser...)."""
         return []
 
+    def validate_params(self, action: str, params: dict) -> None:
+        """Reject site-specific invalid input before installation or session setup."""
+
     def on_add(self) -> None:
         """Extra setup after tools are installed (e.g. register an MCP server)."""
 
