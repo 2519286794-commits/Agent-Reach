@@ -500,14 +500,13 @@ def test_setup_adds_default_channels_and_survives_a_failing_install(env, monkeyp
     assert '安装失败：UPSTREAM_BROKEN' in report['markdown']
 
 
-def test_setup_text_displays_both_capability_tables_and_keeps_json_mode(env, capsys):
+def test_setup_text_displays_compact_capability_table_and_keeps_json_mode(env, capsys):
     from agent_reach.runtime import cli
 
     assert cli.main(['setup', '--text']) == 0
     text = capsys.readouterr().out
-    assert '默认渠道：安装结果与免登录粒度' in text
-    assert '按需渠道：公开可读与登录后的增量' in text
-    assert '| 搜索/列表 | 正文/详情 | 评论/回复 | 字幕/转录 |' in text
+    assert '| 渠道 | 安装后能获取什么 |' in text
+    assert text.count('|---|---|') == 1
     assert '完整报告已保存：' in text
     assert not text.startswith('{')
     assert cli.main(['setup']) == 0
@@ -530,7 +529,7 @@ def test_setup_receipt_never_overwrites_a_linked_foreign_file(env, tmp_path):
     assert foreign.read_text() == 'keep this'
     assert result['installation_report']['path'] is None
     assert result['installation_report']['write_error']
-    assert '默认渠道：安装结果与免登录粒度' in result['installation_report']['markdown']
+    assert '| 渠道 | 安装后能获取什么 |' in result['installation_report']['markdown']
 
 
 # ── uninstall ──

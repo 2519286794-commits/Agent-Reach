@@ -7,6 +7,20 @@ All notable changes to this project will be documented in this file.
 ---
 
 
+## 1.6.3 — 2026-10-19（本地候选版）
+
+中文：
+- 安装输出精简为一张短表，保留默认安装结果、免登录可获取内容及按需登录提示。
+
+English:
+- Installation now shows one compact table with default installs, public content and optional sign-in.
+
+Technical changes:
+- Replace the two detailed matrices with a short, generated receipt; retain full structured capabilities and reference documentation.
+- Preserve installation failures, user removals and live-verification scope in the compact view.
+
+
+
 ## 1.6.2 — 2026-10-19（本地候选版）
 
 中文：

@@ -43,16 +43,21 @@ _CAPABILITY_LIMITS = {
 }
 
 
-# Capability depth is separate from installation and live-check status.
-# Standalone native/API evidence must not masquerade as a declared Reach action.
-_ANONYMOUS_DEPTH = {
-    'github': ('✅ 仓库搜索', '✅ README、Issue/PR 正文', '✅ 公开 Issue/PR 评论', '—'),
-    'youtube': ('✅ 视频搜索', '✅ 简介；不等同视频内容',
-                '⚠️ 原生工具样本可读；❌ Reach 无独立评论动作', '✅ 已有字幕；⚙️ 音频转录需服务 Key'),
-    'bilibili': ('✅ 视频搜索、热门', '✅ 简介、元信息；不等同视频内容',
-                 '⚠️ 公开接口样本可读；❌ Reach 无独立评论动作', '🔐 Reach 字幕路径按需登录；须有字幕'),
-    'v2ex': ('✅ 热门、节点列表', '✅ 主题正文', '⚠️ 返回的回复；完整性需核对', '—'),
-    'web': ('✅ 网页搜索', '⚠️ 可公开读取的正文', '⚠️ 仅页面已返回的评论', '❌ 无独立字幕动作'),
+# Short user-facing receipt; detailed actions and limits stay in capability_summary.
+_QUICK_ACCESS = {
+    'github': '✅ 仓库、README、Issue/PR 和公开评论',
+    'youtube': '✅ 视频搜索、简介、已有字幕；转录需配置 Key',
+    'bilibili': '✅ 视频搜索、简介；🔐 部分字幕路径',
+    'v2ex': '✅ 主题正文、部分回复',
+    'web': '✅ 网页搜索、公开正文',
+    'reddit': '✅ 公开帖子、部分评论；🔐 站内搜索/列表',
+    'twitter': '⚠️ 索引、部分单帖；🔐 站内搜索/推文串',
+    'xiaohongshu': '⚠️ 部分公开列表；🔐 笔记正文、评论',
+    'instagram': '⚠️ 部分主页/索引；🔐 用户搜索、帖子描述',
+    'facebook': '⚠️ 公开摘要；🔐 站内搜索、主页',
+    'linkedin': '⚠️ 职位索引；🔐 职位搜索、JD',
+    'boss': '⚠️ 职位索引；🔐 职位搜索、JD',
+    'xueqiu': '✅ 公开行情；🔐 社区热门内容',
 }
 
 _DISPLAY_NAMES = {
@@ -60,13 +65,6 @@ _DISPLAY_NAMES = {
     'web': 'Web', 'reddit': 'Reddit', 'twitter': 'X/Twitter', 'facebook': 'Facebook',
     'instagram': 'Instagram', 'xiaohongshu': '小红书', 'linkedin': 'LinkedIn',
     'boss': 'BOSS直聘', 'xueqiu': '雪球',
-}
-
-_ACTION_NAMES = {
-    'search': '搜索', 'read': '详情读取', 'subreddit': '板块帖子列表',
-    'profile': '个人主页', 'tweets': '用户推文', 'thread': '推文串',
-    'posts': '指定用户帖子', 'comments': '评论读取', 'jobs': '职位搜索',
-    'hot_posts': '热门帖子', 'hot_stocks': '热门股票',
 }
 
 _STATUS_LABELS = {
@@ -78,65 +76,42 @@ _STATUS_LABELS = {
 
 
 def installation_report(result):
-    """Render the complete install receipt, without discovery or network access."""
+    """Render one short receipt; keep detailed evidence in the structured summary."""
     def cell(value):
         return str(value).replace('|', r'\|').replace('\n', ' ')
 
     entries = result['capability_summary']['channels']
     installs = {row['channel']: row for row in result['default_channels']}
     installed = sum(bool(row['ok']) for row in installs.values())
+    names = '、'.join(_DISPLAY_NAMES.get(name, name) for name, row in installs.items() if row['ok'])
     lines = [
-        f"# Agent Reach {result['version']} · 安装与能力清单", '',
-        f'默认渠道依赖：{installed}/{len(installs)} 项准备成功。安装结果与联网验收分别列出。', '',
-        '✅ 提供免登录路径；⚠️ 部分内容或受访问条件影响；🔐 该路径按需登录；'
-        '⚙️ 需要额外配置；❌ 本版未提供相应动作；— 不适用。',
-        '表中勾叉表示能力范围，不表示本机已经联网测通；公开路径可能使用 Agent 自带工具、原生工具或公开接口。', '',
-        '## 默认渠道：安装结果与免登录粒度', '',
-        '| 渠道 | 本次安装 | 搜索/列表 | 正文/详情 | 评论/回复 | 字幕/转录 |',
-        '|---|---|---|---|---|---|',
+        f"Agent Reach {result['version']} 已初始化。", '',
+        f'默认依赖：{installed}/{len(installs)} 项准备成功' + (f'（{names}）。' if names else '。'), '',
+        '✅ 公开可用；⚠️ 公开范围有限；🔐 按需登录/配置。内容和网络条件以实际访问为准。', '',
+        '| 渠道 | 安装后能获取什么 |', '|---|---|',
     ]
-    for entry in entries:
-        if entry['level'] != 'default':
-            continue
+    for entry in sorted(entries, key=lambda item: item['level'] != 'default'):
         name = entry['channel']
+        label = _DISPLAY_NAMES.get(name, name)
         item = installs.get(name)
-        status = ('已安装' if item['ok'] else
-                  '安装失败：' + item.get('error', {}).get('code', 'UNKNOWN')) if item else '保留用户移除'
-        depth = _ANONYMOUS_DEPTH.get(name, ('⚠️ 以声明动作与实际返回为准',) * 4)
-        lines.append('| ' + ' | '.join(map(cell, (_DISPLAY_NAMES.get(name, name), status, *depth))) + ' |')
-    lines += [
-        '', '## 按需渠道：公开可读与登录后的增量', '',
-        '| 渠道 | 当前接入 | 免登录先尝试 | 按需登录/配置后可启用 | 当前边界 |',
-        '|---|---|---|---|---|',
-    ]
-    for entry in entries:
         if entry['level'] == 'default':
-            continue
-        name = entry['channel']
-        actions = entry['authentication']['may_enable_actions']
-        labels = [_ACTION_NAMES.get(action, action) for action in actions]
-        if name == 'instagram':
-            labels = ['用户搜索' if action == 'search' else label for action, label in zip(actions, labels)]
-        elif name == 'reddit':
-            labels = ['帖子及返回评论' if action == 'read' else label for action, label in zip(actions, labels)]
-        elif name == 'boss':
-            labels = ['职位搜索' if action == 'search' else label for action, label in zip(actions, labels)]
-        extra = ('🔐 ' + '、'.join(labels) + '（该路径要求认证时）') if actions else '⚙️ 按声明动作配置'
-        lines.append('| ' + ' | '.join(map(cell, (
-            _DISPLAY_NAMES.get(name, name), _STATUS_LABELS.get(entry['reach_status'], entry['reach_status']),
-            '⚠️ ' + entry['public_access'], extra, ' '.join(entry['limits']) or '仅覆盖实际返回内容',
-        ))) + ' |')
-    lines += ['', '**本机联网验收**：本次安装没有发起平台查询。已存在且仍有效的验收如下；其余待实测。']
+            if item and not item['ok']:
+                label += '（安装失败：' + item.get('error', {}).get('code', 'UNKNOWN') + '）'
+            elif not item:
+                label += '（保留用户移除）'
+        elif entry['reach_status'] in {'needs_setup', 'needs_login', 'cooldown', 'needs_user_action', 'broken'}:
+            label += '（' + _STATUS_LABELS[entry['reach_status']] + '）'
+        lines.append('| ' + cell(label) + ' | ' + cell(_QUICK_ACCESS.get(name, entry['public_access'])) + ' |')
     verified = [entry for entry in entries if entry['verified_actions']]
-    lines += ['- ' + _DISPLAY_NAMES.get(entry['channel'], entry['channel']) + '：' +
-              ' / '.join(entry['verified_actions']) for entry in verified] if verified else ['- 暂无有效动作验收记录。']
-    lines += [
-        '', '**Reddit 怎么用**：⚠️ 先尝试公开搜索、正文和部分评论，公开 JSON 样本可能含父子 ID；'
-        '🔐 需要时启用站内搜索、板块列表及帖子/返回评论读取；'
-        '❌ 不提供发评论；⚠️ 完整评论树与全部回复不作保证，登录后仍需实际验证。', '',
-        '直接告诉我你想查什么即可。已有公开结果够用就交付；缺少某项内容时再准备渠道、复用授权会话，实际需要时才请你登录。',
-    ]
+    if verified:
+        names = '；'.join(_DISPLAY_NAMES.get(entry['channel'], entry['channel']) + '：' +
+                         '/'.join(entry['verified_actions']) for entry in verified)
+        lines += ['', '有效验收：' + names + '。其余待实测；本次初始化未发起平台查询。']
+    else:
+        lines += ['', '联网验收：待实测；本次初始化未发起平台查询。']
+    lines += ['公开内容优先用 Agent 已有能力；评论仅含实际返回样本。需要时再配置渠道，不要求逐个平台登录。']
     return '\n'.join(lines) + '\n'
+
 
 
 def capability_summary(channels, statuses):

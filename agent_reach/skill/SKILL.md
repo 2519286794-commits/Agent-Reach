@@ -18,15 +18,13 @@ metadata:
 
 一个命令接所有平台：`agent-reach`。只读，默认输出 JSON；`setup --text` 直接显示安装能力表。
 
-## 安装完成必须展示能力表
+## 安装完成展示精简能力表
 
-安装或重新初始化后，最终回复必须展示程序生成的两张表：**默认渠道的安装结果与免登录粒度**、**按需渠道的公开能力与登录后增量**，并带上勾叉图例和本机联网验收说明。不得仅回复“5 个默认渠道依赖就绪”“待联网实测”，也不得把完整表格留到用户追问时。
+安装或重新初始化后，最终回复直接展示 `result.installation_report.markdown`：一句默认安装结果、一张“渠道 → 安装后能获取什么”的短表、一句实测状态。不要再补两张详细矩阵、重复解释图例或逐项列后台动作；详细边界仅在用户追问时读取 [能力边界](references/capabilities.md)。
 
-运行 `agent-reach setup`，读取 `result.installation_report.markdown`，将其中的表格及图例直接呈现在最终回复；用户直接操作终端可运行 `agent-reach setup --text`。程序也保存 `result.installation_report.path`，报告链接作为补充，不替代表格。依据实际结果报告安装失败、用户已移除的渠道与待配置状态。
+运行 `agent-reach setup` 获取 JSON；用户操作终端可用 `agent-reach setup --text`。报告链接只作补充。保留安装失败、用户移除和需处理的状态。Reddit 用“免登录可获取公开帖子、部分评论；站内功能按需登录”说明，不承诺完整评论树。
 
-✅ 是免登录能力路径，⚠️ 是部分/条件能力，🔐 是该路径按需认证，❌ 是本版未提供的动作；这些符号不代表本机已实测。正文、评论与字幕分开列出。Reddit 必须说明公开可读范围、按需认证可启用的站内动作、完整树与发评论等边界；以程序报告为准，不承诺登录后读全。
-
-如果当前运行时没有 `installation_report`，核对所装版本和来源；不能把省略表格的初始化结果当成本版交付完成。
+如果当前运行时没有 `installation_report`，核对所装版本和来源。勾叉描述能力路径，联网实测状态单列，公开内容无需先配置全部渠道。
 
 ## 怎么用
 
@@ -111,7 +109,7 @@ Cloak 查询和导入验收默认 `headless=True`。独立登录使用 `agent-re
 | 卸载 | 先 `agent-reach uninstall --dry-run` 给用户看，确认后 `agent-reach uninstall` |
 | 让另一个 AI 也能用 | `agent-reach skill link <那个 AI 的 skill 目录>`；`agent-reach skill` 查看现在放在哪 |
 
-首次安装按上方“安装完成必须展示能力表”交付；普通查询按需读取 [能力边界](references/capabilities.md)，不预先安装全部可选渠道。
+首次安装按上方“安装完成展示精简能力表”交付；普通查询按需读取 [能力边界](references/capabilities.md)，不预先安装全部可选渠道。
 
 ## 有新版本时
 

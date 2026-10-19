@@ -21,7 +21,7 @@ agent-reach setup
 agent-reach doctor --text
 ```
 
-`agent-reach setup --text` prints the same capability tables directly. Plain `setup` preserves the JSON contract and saves `installation-report.md` under the private Reach directory.
+`agent-reach setup --text` prints the same compact capability table directly. Plain `setup` preserves the JSON contract and saves `installation-report.md` under the private Reach directory.
 
 `agent-reach` not found after install? Run `uv tool update-shell` and open a new shell.
 
@@ -31,10 +31,10 @@ agent-reach doctor --text
 
 ## 2. Report to the user
 
-Display the generated report in the final response. The two capability tables are required:
+Present the generated compact report directly in the final response:
 
 1. **Installation outcome**: version, default dependency results and AIs in `result.skill.agents`. An `ok: true` dependency install is not a live business check.
-2. **Supported depth**: present `result.installation_report.markdown` with both tables, symbol legend and verification scope. This lists installation outcomes and anonymous search/body/comment/subtitle depth, then optional channels and authentication increments. The report path is supplementary; do not replace the tables with a link, a dependency count or "pending live tests".
+2. **Capabilities**: present `result.installation_report.markdown` unchanged: one install outcome, one short channel/capability table, and one live-verification line. Keep failures and user removals visible. Do not append detailed matrices, extra backend/action lists or duplicate explanations. The report link supplements the table; detailed boundaries are available when asked.
 3. **Optional capabilities**: add only for a missing capability or explicit setup request. `login_if_required` and `logins[].when=only_if_required` are conditional, not a to-do list. Existing public content remains available if login is skipped.
 4. **Example, Reddit**: public search, bodies and some comments can be attempted with existing web tools. Reach browser actions add search, post reading and subreddit lists; reuse an authorized session and log in only when the selected path requires it. Full comment trees, all replies and writing comments are outside the guarantee.
 5. **Later management**: the user can say 'add Xiaohongshu' or 'remove V2EX'. Default channels can be removed too.

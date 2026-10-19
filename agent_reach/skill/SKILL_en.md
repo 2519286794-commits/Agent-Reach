@@ -19,13 +19,13 @@ metadata:
 
 One command for every platform: `agent-reach`. Read-only; JSON by default, or a human-readable installation report with `setup --text`.
 
-## Required installation handoff
+## Compact installation handoff
 
-After install or reinitialization, the final response must display both generated tables: **default installations and anonymous evidence depth**, and **optional channels, public access and authentication increments**. Include the symbol legend and local verification scope. Do not reduce this to a dependency count or postpone the tables until asked.
+Present `result.installation_report.markdown` directly: one default-install outcome, one short channel-to-capability table, and one verification line. Do not append two detailed matrices, repeated legends or internal action lists. Load [Capability scope](references/capabilities.md) only when the user asks for detail.
 
-Run `agent-reach setup` and present `result.installation_report.markdown`, including its tables, directly in the final response. For direct terminal use, `agent-reach setup --text` displays the same report. Link to `result.installation_report.path` as a supplement, not a substitute. Preserve failed installs, user-removed channels and pending configuration.
+Use JSON `agent-reach setup`, or `setup --text` for direct terminal output. A report link is supplementary. Preserve failed installs, user removals and states requiring attention. Explain Reddit as public posts and some comments without login, with site-specific features enabled on demand; do not promise complete comment trees.
 
-Checkmarks describe capability paths, not a successful live test. Separate bodies, comments and subtitles. For Reddit include public access, declared browser actions enabled when authentication is needed, and the lack of full-tree guarantees or posting. If the runtime has no `installation_report`, check the installed build/source; do not claim that an abbreviated response completes this release's handoff.
+If `installation_report` is missing, check the build/source. Capability paths and local live verification remain separate, and public access does not require configuring every channel.
 
 ## Usage
 

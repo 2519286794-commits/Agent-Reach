@@ -201,15 +201,14 @@ def test_install_receipt_displays_depth_and_authentication_without_claiming_live
                              for ch in channels if ch.level == 'default'],
     })
     assert '5/5 项准备成功' in report
-    assert '| 搜索/列表 | 正文/详情 | 评论/回复 | 字幕/转录 |' in report
-    assert '✅ 仓库搜索' in report and '✅ 已有字幕' in report
-    assert '❌ Reach 无独立评论动作' in report
-    assert '| Reddit | 未接入，可按需添加 |' in report
-    assert '搜索、帖子及返回评论、板块帖子列表' in report
-    assert '❌ 不提供发评论' in report
-    assert '完整评论树与全部回复不作保证' in report
-    assert '本次安装没有发起平台查询' in report
-    assert '暂无有效动作验收记录' in report
+    assert '| 渠道 | 安装后能获取什么 |' in report
+    assert report.count('|---|---|') == 1
+    assert '公开帖子、部分评论' in report
+    assert '🔐 站内搜索/列表' in report
+    assert '已有字幕' in report
+    assert '本次初始化未发起平台查询' in report
+    assert '联网验收：待实测' in report
+    assert len(report) <= 1000
     for name in ('GitHub', 'YouTube', 'B站', 'V2EX', 'Web', 'Reddit', '小红书',
                  'X/Twitter', 'Facebook', 'Instagram', 'LinkedIn', 'BOSS直聘', '雪球'):
         assert '| ' + name + ' |' in report
@@ -225,5 +224,5 @@ def test_install_receipt_preserves_failed_installs_and_user_removed_channels():
             'channel': 'bilibili', 'ok': False, 'error': {'code': 'TIMEOUT'}}],
     })
     assert '1/2 项准备成功' in report
-    assert '| B站 | 安装失败：TIMEOUT |' in report
-    assert '| GitHub | 保留用户移除 |' in report
+    assert '| B站（安装失败：TIMEOUT） |' in report
+    assert '| GitHub（保留用户移除） |' in report
