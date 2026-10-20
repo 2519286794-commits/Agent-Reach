@@ -45,8 +45,10 @@ Official 1.8.8 failed the Xiaohongshu default-filter path with `UPSTREAM_BROKEN`
 ## Validation
 
 - Core tests: **384 passed** on local macOS.
+- The curated source checkout also passed all 384 tests, with local API/research files excluded.
 - Ruff: passed. Mypy: passed, 46 source files.
-- Wheel gate: requires Skill reference files and Xiaoyuzhou; rejects removed planner/MCP/extractor/patch modules.
+- Wheel gate passed: 57 entries, about 148 KiB; Skill references and Xiaoyuzhou present, removed modules and browser binaries absent. Clean-venv smoke test confirmed 14 channels and rejection of the four retired command entries.
+- Installed the candidate wheel locally, ran setup successfully (5/5 defaults), refreshed the installed Skill and confirmed no retired Reach MCP configuration/process. An actual Xiaohongshu search through the installed wheel returned one item in 7.48 seconds.
 - Packaging uses reviewed source files only. Local API prototypes, provider research, account data, browser profiles and downloaded binaries are excluded.
 
 ## User acceptance
