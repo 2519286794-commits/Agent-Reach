@@ -65,7 +65,7 @@ def test_automatic_reuse_copies_only_the_requested_site_and_reuses_cache(monkeyp
     monkeypatch.setattr(cdp, 'call', lambda method, params=None: calls.append((method,params)) or {})
     result=session_reuse.prepare('xiaohongshu')
     assert result['copied_cookies']==1 and not result['verified'] and not result['source_changed']
-    cookie=calls[0][1]['cookies'][0]
+    cookie=next(params['cookies'][0]for method,params in calls if method=='Storage.setCookies')
     assert cookie['name']=='sid' and cookie['sameSite']=='Lax' and cookie['expires']==9999999999
     assert session_reuse.prepare('xiaohongshu')==result
     export.assert_called_once_with('daily','xiaohongshu.com')
@@ -90,6 +90,20 @@ def test_logout_blocks_automatic_session_revival(monkeypatch):
     assert session_reuse.prepare('xiaohongshu')['blocked']
 
 
+def test_selecting_another_source_keeps_explicit_logout_and_manual_login(monkeypatch):
+    from agent_reach.runtime import session_reuse
+    monkeypatch.setattr(browser,'bound_context',lambda:'owned')
+    monkeypatch.setattr(browser,'connected_contexts',lambda:['daily','owned'])
+    state.mutate(lambda data:data.update(session_reuse={
+        'xiaohongshu':{'blocked':True},'bilibili':{'source':'manual'},'reddit':{'source':'previous','copied_cookies':10}}))
+    session_reuse.use('daily')
+    saved=state.load()
+    assert saved['local_browser_source']=='daily'
+    assert saved['session_reuse']['xiaohongshu']['blocked']
+    assert saved['session_reuse']['bilibili']['source']=='manual'
+    assert 'reddit'not in saved['session_reuse']
+
+
 def test_unavailable_source_keeps_saved_destination_and_does_not_open_login(monkeypatch):
     from agent_reach.runtime import session_reuse
     monkeypatch.setattr(browser,'ensure_running',lambda:None)
@@ -98,6 +112,48 @@ def test_unavailable_source_keeps_saved_destination_and_does_not_open_login(monk
     monkeypatch.setattr(cdp,'call',lambda *a,**k:pytest.fail('changed saved session'))
     result=session_reuse.prepare('xiaohongshu')
     assert result['source']=='saved-profile' and result['copied_cookies']==0
+
+
+def test_site_snapshot_expires_destination_only_cookies_and_preserves_other_sites(monkeypatch):
+    from agent_reach.runtime import session_reuse
+    monkeypatch.setattr(browser,'ensure_running',lambda:None)
+    monkeypatch.setattr(browser,'save_session',lambda:None)
+    incoming=[{'name':'sid','value':'chosen','domain':'.xiaohongshu.com','path':'/'}]
+    monkeypatch.setattr(session_reuse,'_source_cookies',lambda *a:(incoming,'daily'))
+    jar=[{'name':'old_account','value':'stale','domain':'.xiaohongshu.com','path':'/'},
+         {'name':'sid','value':'other-account','domain':'.xiaohongshu.com','path':'/'},
+         {'name':'other_site','value':'keep','domain':'.other.test','path':'/'}]
+    applied=[]
+    def call(method,params=None):
+        if method=='Storage.getCookies':
+            return {'cookies':jar}
+        if method=='Storage.setCookies':
+            applied.extend(params['cookies'])
+        return {}
+    monkeypatch.setattr(cdp,'call',call)
+    out=session_reuse.prepare('xiaohongshu')
+    assert out['cookie_snapshot']==1
+    assert any(c['name']=='old_account'and c['expires']==1 for c in applied)
+    assert not any(c['name']=='other_site'for c in applied)
+    assert not any(c['name']=='sid'and c.get('expires')==1 for c in applied)
+
+
+def test_site_import_failure_restores_previous_site_and_retains_saved_snapshot(monkeypatch):
+    from agent_reach.runtime import session_reuse
+    monkeypatch.setattr(browser,'ensure_running',lambda:None)
+    monkeypatch.setattr(browser,'save_session',lambda:pytest.fail('saved a failed import'))
+    monkeypatch.setattr(session_reuse,'_source_cookies',lambda *a:([{'name':'new','value':'incoming','domain':'.xiaohongshu.com'}],'daily'))
+    calls=[]
+    def call(method,params=None):
+        if method=='Storage.getCookies':
+            return {'cookies':[{'name':'old','value':'saved','domain':'.xiaohongshu.com'}]}
+        calls.append(params['cookies'])
+        return None if len(calls)==1 else {}
+    monkeypatch.setattr(cdp,'call',call)
+    with pytest.raises(ReachError,match='saved state retained'):
+        session_reuse.prepare('xiaohongshu')
+    assert any(c['name']=='old'and c['value']=='saved'for c in calls[1])
+    assert any(c['name']=='new'and c['expires']==1 for c in calls[1])
 
 
 def test_dispatch_worker_reuses_session_without_relocking_the_calling_thread(monkeypatch):
@@ -113,6 +169,7 @@ def test_dispatch_worker_reuses_session_without_relocking_the_calling_thread(mon
 
 
 def test_bili_reuses_only_site_cookies_through_upstream_writer_and_private_stdin(monkeypatch):
+    from pathlib import Path
     from unittest.mock import Mock
 
     from agent_reach.channels import bilibili
@@ -126,10 +183,19 @@ def test_bili_reuses_only_site_cookies_through_upstream_writer_and_private_stdin
     assert 'test-secret' not in repr(args.args)
     assert json.loads(args.kwargs['input_data']) == {'SESSDATA':'test-secret'}
     assert 'save_credential' in args.args[0][-1]
-    assert args.kwargs['env']['HOME'].endswith('/.agent-reach/sessions/bili-cli')
+    assert Path(args.kwargs['env']['HOME']) == state.root() / 'sessions' / 'bili-cli'
     state.mutate(lambda data: data['session_reuse'].__setitem__('bilibili', {'blocked':True}))
     bilibili._reuse_subtitle_login(10)
     assert call.call_count == 1
+
+
+def test_native_bili_subtitles_do_not_require_an_optional_browser_bridge(monkeypatch):
+    from agent_reach.channels import bilibili
+    monkeypatch.setattr(browser,'connected_contexts',lambda:(_ for _ in()).throw(ReachError('NEED_SETUP','OpenCLI is not installed')))
+    monkeypatch.setattr(bilibili,'run_cmd',lambda *a,**k:pytest.fail('started optional browser integration'))
+    monkeypatch.setattr(bilibili,'_bili_json',lambda *a:{'subtitle':{'available':True,'text':'Saved native login works'},'video':{'bvid':'BV1Jgf6YvE8e'}})
+    out=bilibili.BilibiliChannel()._cli_subtitle(target='BV1Jgf6YvE8e',timeout=2)
+    assert out[0]['text']=='Saved native login works'
 
 
 def test_node_warning_does_not_hide_upstream_error_and_404_is_not_login():

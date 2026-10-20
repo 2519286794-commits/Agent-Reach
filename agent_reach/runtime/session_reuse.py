@@ -44,13 +44,25 @@ def profiles() -> list:
 def use(profile: str) -> dict:
     if profile == browser.bound_context() or profile not in browser.connected_contexts():
         raise ReachError(NEED_SETUP, "Choose a connected local browser profile from browser profiles")
-    state.mutate(lambda data: data.update(local_browser_source=profile, session_reuse={}))
+    def select(data):
+        data["local_browser_source"] = profile
+        data["session_reuse"] = {name: record for name, record in data.get("session_reuse", {}).items()
+                                 if record.get("blocked") or record.get("source") == "manual"}
+    state.mutate(select)
     return {"source_profile": profile, "scope": "requested site only", "source_changed": False}
 
 
 def _source_cookies(channel: str, domains) -> tuple[list, str]:
     from agent_reach.backends.opencli import export_site_cookies
-    contexts = [p["id"] for p in profiles() if not p["dedicated"]]
+    try:
+        contexts = [p["id"] for p in profiles() if not p["dedicated"]]
+    except ReachError as exc:
+        if exc.code != NEED_SETUP:
+            raise
+        # Native CLI sessions remain usable when optional OpenCLI/source
+        # discovery is absent or incompatible. Account ambiguity below still
+        # requires a choice rather than silently using another account.
+        contexts = []
     preferred = state.load().get("local_browser_source")
     if preferred:
         contexts = [preferred] if preferred in contexts else []
@@ -89,14 +101,29 @@ def prepare(channel: str, *, force: bool = False, action_locked: bool = False) -
         browser.ensure_running()
         record = state.load().get("session_reuse", {}).get(channel, {})
         if not force and (record.get("blocked") or record.get("source") == "manual"
-                          or (record.get("copied_cookies", 0) > 0 and state.age_seconds(record.get("at")) < 3600)):
+                          or (record.get("cookie_snapshot") == 1 and record.get("copied_cookies", 0) > 0
+                              and state.age_seconds(record.get("at")) < 3600)):
             return record
         cookies, source = _source_cookies(channel, site_domains(ch))
         if cookies:
-            if cdp.call("Storage.setCookies", {"cookies": cookies}) is None:
-                raise ReachError(UPSTREAM_BROKEN, "Could not apply the local site session; the original browser is unchanged")
+            current = cdp.call("Storage.getCookies")
+            if current is None:
+                raise ReachError(UPSTREAM_BROKEN, "Could not inspect the saved site session; the original browser is unchanged")
+            previous = _cookies(current.get("cookies", []), site_domains(ch))
+            def key(cookie):
+                return cookie.get("name"), cookie.get("domain"), cookie.get("path", "/")
+            incoming = {key(c) for c in cookies}
+            # The source is a site snapshot, not an overlay onto another account.
+            # Expire destination-only cookies (including stale UI preferences),
+            # preserving all other sites and every cookie supplied by the source.
+            stale = [{**c, "value": "", "expires": 1} for c in previous if key(c) not in incoming]
+            if cdp.call("Storage.setCookies", {"cookies": stale + cookies}) is None:
+                old = {key(c) for c in previous}
+                rollback = [{**c, "value": "", "expires": 1} for c in cookies if key(c) not in old] + previous
+                cdp.call("Storage.setCookies", {"cookies": rollback})
+                raise ReachError(UPSTREAM_BROKEN, "Could not apply the local site session; saved state retained and the original browser is unchanged")
             browser.save_session()
         result = {"source": source, "copied_cookies": len(cookies), "at": state.now(),
-                  "verified": False, "source_changed": False}
+                  "verified": False, "source_changed": False, "cookie_snapshot": 1}
         state.mutate(lambda data: data.setdefault("session_reuse", {}).__setitem__(channel, result))
         return result

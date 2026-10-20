@@ -22,6 +22,7 @@ def test_can_handle_matches_zhipin_hosts():
 
 def test_native_detail_uses_browser_only_and_keeps_references_private(monkeypatch, tmp_path):
     import json
+    import os
     import sys
     from types import SimpleNamespace
 
@@ -51,7 +52,8 @@ def test_native_detail_uses_browser_only_and_keeps_references_private(monkeypatc
     result=boss_native.main()
     assert 'private-reference' not in json.dumps(result)
     path=tmp_path/'reach-job-refs.json'
-    assert path.stat().st_mode & 0o077 == 0
+    if os.name != 'nt':
+        assert path.stat().st_mode & 0o077 == 0
     spec.update(action='read',job_id='job')
     monkeypatch.setattr(sys,'argv',['boss_native',json.dumps(spec)])
     result=boss_native.main()
