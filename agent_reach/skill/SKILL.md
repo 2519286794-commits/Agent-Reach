@@ -32,7 +32,7 @@ agent-reach read <链接>                   # 给链接，自动认出渠道
 |---|---|
 | `NEED_SETUP` | 告诉用户 hint 里的命令（常见：`agent-reach add <渠道>`） |
 | `NEED_LOGIN` | 让用户自己登录（`agent-reach login <渠道>`），**绝不替用户登录、不读用户浏览器的 Cookie** |
-| `UPSTREAM_BROKEN` | 这个渠道暂时不可用，告诉用户，不要反复重试 |
+| `UPSTREAM_BROKEN` | 这个渠道暂时不可用。先建议用户运行一次 `agent-reach update`（上游可能已经修好）；还不行就告诉用户，不要反复重试 |
 | `TIMEOUT` / `RATE_LIMITED` | 稍后再试 |
 | `NOT_FOUND` / `BAD_INPUT` | 检查链接或参数，必要时跑 `agent-reach channels` |
 

@@ -33,7 +33,7 @@ Results:
 |---|---|
 | `NEED_SETUP` | Tell the user the command in the hint (usually `agent-reach add <channel>`) |
 | `NEED_LOGIN` | The user logs in themselves (`agent-reach login <channel>`). **Never log in for them or read their browser cookies** |
-| `UPSTREAM_BROKEN` | Channel is down right now; tell the user, don't retry in a loop |
+| `UPSTREAM_BROKEN` | Channel is down right now. Suggest the user run `agent-reach update` once (upstream may already be fixed); if it still fails, tell them, and don't retry in a loop |
 | `TIMEOUT` / `RATE_LIMITED` | Retry later |
 | `NOT_FOUND` / `BAD_INPUT` | Check the link or args; run `agent-reach channels` if needed |
 

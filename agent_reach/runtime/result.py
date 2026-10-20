@@ -34,7 +34,9 @@ FINAL_CODES = frozenset({NOT_FOUND, BAD_INPUT})
 DEFAULT_HINTS = {
     NEED_SETUP: "This backend is not installed. Ask the user to run `agent-reach doctor` for setup steps.",
     NEED_LOGIN: "Login is required or expired. Guide the user to log in themselves; never log in on their behalf.",
-    UPSTREAM_BROKEN: "The upstream tool failed. Tell the user this channel is unavailable right now; do not retry in a loop.",
+    UPSTREAM_BROKEN: ("The upstream tool failed. Suggest the user run `agent-reach update` once (the upstream may "
+                      "already be fixed); if it still fails, tell them this channel is unavailable right now. "
+                      "Do not retry in a loop."),
     TIMEOUT: "No backend answered in time. Retry later, or pass a larger --timeout.",
     RATE_LIMITED: "Rate limited by the platform. Wait a while before retrying.",
     NOT_FOUND: "The requested content does not exist. Check the link or id.",
