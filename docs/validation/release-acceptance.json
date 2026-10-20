@@ -238,11 +238,25 @@
       "text_chars": 979,
       "elapsed_ms": 1654,
       "error": null
+    },
+    {
+      "channel": "instagram",
+      "action": "profile",
+      "at": "2026-10-20T19:38:06Z",
+      "os": "macOS",
+      "method": "real-cli",
+      "source_sha256": "4b83ad3557945be1a47ab37790696fc2850737bf60398659fac15420b9919685",
+      "backend": null,
+      "passed": false,
+      "item_count": 0,
+      "text_chars": 0,
+      "elapsed_ms": 10404,
+      "error": "RATE_LIMITED"
     }
   ],
   "candidate": true,
   "version": "1.6.0",
-  "recorded_at": "2026-10-20T16:58:46Z",
+  "recorded_at": "2026-10-20T19:39:02Z",
   "release_ready": false,
   "pending": [
     {
