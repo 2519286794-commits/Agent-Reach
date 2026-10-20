@@ -37,6 +37,7 @@ Official 1.8.8 failed the Xiaohongshu default-filter path with `UPSTREAM_BROKEN`
 - Cloak's private interpreter does not import the main program's Config/PyYAML. The launcher passes only the necessary runtime settings.
 - The browser proxy bypasses localhost so the OpenCLI extension can reach its local Bridge daemon.
 - A previous Reach-owned Chrome profile crashed Cloak locally. It is preserved as a private `profile-before-cloak-*` backup; the shared profile restores Reach's saved cookies. No personal Chrome profile is moved.
+- Setup removes only the obsolete private MCP transport installed by Reach; user-owned copies remain. BOSS installs its verified upstream commit from an archive, avoiding an extra Git prerequisite; archive-only installation and provenance were checked in a clean temporary environment.
 - The watcher saves session cookies every two seconds and before normal shutdown. Login persistence no longer depends on the user closing the window.
 - Closing one site tab does not terminate the watcher. A shared action lock serializes browser channels; a session lock prevents stale saves racing logout.
 - Old Reach-owned per-site snapshots merge once, only filling missing cookies. Logout/removal cannot automatically restore those old credentials.
@@ -44,8 +45,8 @@ Official 1.8.8 failed the Xiaohongshu default-filter path with `UPSTREAM_BROKEN`
 
 ## Validation
 
-- Core tests: **384 passed** on local macOS.
-- The curated source checkout also passed all 384 tests, with local API/research files excluded.
+- Core tests: **387 passed** on local macOS.
+- The curated source checkout also passed all 387 tests, with local API/research files excluded.
 - Ruff: passed. Mypy: passed, 46 source files.
 - Wheel gate passed: 57 entries, about 148 KiB; Skill references and Xiaoyuzhou present, removed modules and browser binaries absent. Clean-venv smoke test confirmed 14 channels and rejection of the four retired command entries.
 - Installed the candidate wheel locally, ran setup successfully (5/5 defaults), refreshed the installed Skill and confirmed no retired Reach MCP configuration/process. An actual Xiaohongshu search through the installed wheel returned one item in 7.48 seconds.

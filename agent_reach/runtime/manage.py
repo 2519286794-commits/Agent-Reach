@@ -629,6 +629,8 @@ def setup() -> dict:
     if not state.exists():
         state.save(state.load())
     _cleanup_retired_mcp()
+    if state.load()["tools"].get("mcporter", {}).get("owner") == tools.OURS:
+        tools.remove_private("mcporter")  # retired LinkedIn MCP transport, only our private copy
     state.mutate(lambda saved: (saved.pop("reuse_sources", None), saved.pop("ask_pending", None)))
     skill = place_skill()
     data = state.load()
@@ -670,7 +672,11 @@ def setup() -> dict:
 
 def _cleanup_retired_mcp() -> None:
     """Remove only the unchanged Cursor entry recorded as ours by an older build."""
-    from agent_reach.utils.paths import atomic_write_private_text, read_small_text_no_follow
+    from agent_reach.utils.paths import (
+        PrivatePathError,
+        atomic_write_private_text,
+        read_small_text_no_follow,
+    )
     old = state.load().get("mcp", {}).get("cursor", {})
     path = home_dir() / ".cursor" / "mcp.json"
     if old.get("path") != str(path) or not path.is_file():
@@ -684,7 +690,7 @@ def _cleanup_retired_mcp() -> None:
             return
         servers.pop("agent-reach")
         atomic_write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2))
-    except (OSError, ValueError):
+    except (OSError, ValueError, PrivatePathError):
         return  # Preserve an unreadable or externally changed config.
     state.mutate(lambda saved: saved.pop("mcp", None))
 

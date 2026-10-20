@@ -176,7 +176,8 @@ def test_old_record_without_version_gets_one_without_reinstall(env):
 
 def test_install_spec_uses_tested_versions_or_floor_and_exclude():
     assert tools.install_spec(tools.TOOLS["bili-cli"]) == "bilibili-cli==0.6.2"
-    assert tools.install_spec(tools.TOOLS["boss-agent-cli"]).endswith("@4c991b77086a203173bf08a4cb64a23af6514fe6")
+    spec = tools.install_spec(tools.TOOLS["boss-agent-cli"])
+    assert "git+" not in spec and spec.endswith("/4c991b77086a203173bf08a4cb64a23af6514fe6.zip")
     assert tools.install_spec(tools.Tool("y", "pip", "pkg", ("y",), floor="1.0", exclude=("1.5",))) == "pkg>=1.0,!=1.5"
     npm = tools.Tool("x", "npm", "pkg", ("x",), floor="1.0.0", exclude=("1.2.0", "1.1.0"))
     assert tools.install_spec(npm) == "pkg@>=1.0.0 <1.1.0 || >1.1.0 <1.2.0 || >1.2.0"
@@ -706,3 +707,26 @@ def test_setup_preserves_unowned_or_changed_mcp_configuration(env):
     path.write_text(original)
     manage.setup()
     assert path.read_text()==original
+
+
+@pytest.mark.parametrize("owner", [tools.OURS, "user"])
+def test_setup_prunes_only_our_retired_mcp_transport(env, owner):
+    folder = tools.tool_dir("mcporter")
+    folder.mkdir(parents=True)
+    (folder / "keep-or-remove").write_text("fixture")
+    state.mutate(lambda data: data["tools"].update(mcporter={"owner": owner}))
+    manage.setup()
+    assert folder.exists() == (owner != tools.OURS)
+
+
+def test_retired_mcp_cleanup_preserves_changed_private_path(env, monkeypatch):
+    from agent_reach.utils import paths
+    path = home_dir() / ".cursor/mcp.json"
+    path.parent.mkdir()
+    path.write_text("unchanged")
+    state.mutate(lambda data: data.update(mcp={"cursor": {"path": str(path), "entry": {}}}))
+    def changed(*args, **kwargs):
+        raise paths.PrivatePathError("externally changed path")
+    monkeypatch.setattr(paths, "read_small_text_no_follow", changed)
+    manage._cleanup_retired_mcp()
+    assert path.read_text() == "unchanged"

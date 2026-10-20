@@ -11,7 +11,8 @@ def main():
     spec = json.loads(sys.argv[1])
     dist = distribution('boss-agent-cli')
     source = json.loads(dist.read_text('direct_url.json') or '{}')
-    if source.get('vcs_info', {}).get('commit_id') != COMMIT:
+    archive = f'https://github.com/can4hou6joeng4/boss-agent-cli/archive/{COMMIT}.zip'
+    if source.get('vcs_info', {}).get('commit_id') != COMMIT and source.get('url') != archive:
         return {'ok': False, 'error': {'code': 'NEED_SETUP', 'message': 'Boss dependency differs from the verified commit; run agent-reach add boss to install the pinned private tool'}}
     from boss_agent_cli.api.client import BossClient
     from boss_agent_cli.auth.manager import AuthManager
