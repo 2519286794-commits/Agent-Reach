@@ -1,7 +1,7 @@
-"""Resumable setup and execution shared by CLI and MCP.
+"""Resumable setup and execution for the CLI.
 
 The caller selects a channel and action. Reach handles its declared primary
-backend, remembers an explicitly authorized login source, and records a real
+backend, supports an explicit one-time site import, and records a real
 query result. No password, cookie, or browser database is exposed here.
 """
 
@@ -11,9 +11,9 @@ import secrets
 from typing import Any, Optional
 
 from . import manage, state, tools
-from .browser_binding import execution_lock, profile_for
+from .browser_binding import execution_lock
 from .dispatch import cooldown, find_action, run_action, validate_action
-from .result import BAD_INPUT, NEED_LOGIN, NEED_SETUP, PLATFORM_BLOCKED, RATE_LIMITED, ReachError
+from .result import BAD_INPUT, NEED_LOGIN, PLATFORM_BLOCKED, RATE_LIMITED, ReachError
 
 
 def _action(ch, name: Optional[str]):
@@ -29,14 +29,6 @@ def _needs(channel: str, action: str, kind: str, message: str, **extra) -> dict:
     return {"ok": False, "status": "needs_user_action", "channel": channel, "action": action,
             "required_action": {"type": kind, "message": message, **extra}}
 
-
-def _opencli_ready(channel: str, selected) -> bool:
-    if not any(label == "opencli" for label, _ in selected.backends) or not tools.present("opencli"):
-        return False
-    from .onboarding import profiles
-
-    source = profile_for(channel)
-    return bool(source and source in {p["id"] for p in profiles()["profiles"]})
 
 
 def _record(channel: str, action: str, out: dict) -> None:
@@ -65,7 +57,7 @@ def _record(channel: str, action: str, out: dict) -> None:
                                      "previous": old.get("actions", {}), "scope": action,
                                      "evidence": evidence,
                                      "last_result": {"action": action, "at": stamp, "backend": out.get("backend"),
-                                                     "item_count": len(out["items"]), "ok": bool(out["ok"])}}
+                                                     "item_count": len(out["items"]), "ok": bool(out["ok"]), "error": out.get("error")}}
         if codes.get(action) == RATE_LIMITED:
             data.setdefault("cooldowns", {})[channel] = {
                 "code": RATE_LIMITED, "message": (out.get("error") or {}).get("message"), "at": stamp}
@@ -76,117 +68,29 @@ def _record(channel: str, action: str, out: dict) -> None:
 
 def prepare(channel: str, *, action: Optional[str] = None, source_profile: Optional[str] = None,
             install: bool = True) -> dict:
-    """Idempotent local setup. A missing login always returns an explicit user step."""
+    """Prepare dependencies and the shared browser. No model and no implicit cookie export."""
     ch = manage._channel(channel)
     selected = _action(ch, action)
-    primary = selected.backends[0][0] if selected.backends else None
-    if not primary:
-        raise ReachError(NEED_SETUP, f"{channel} {selected.name} has no backend")
-
     with execution_lock("prepare:" + channel):
-        data = state.load()
-        if source_profile:
-            if primary != "cloakbrowser":
-                raise ReachError(BAD_INPUT, "--reuse-profile applies to a CloakBrowser action")
-            # An explicit flag grants only this site's import from this source.
-            state.mutate(lambda saved: saved.setdefault("reuse_sources", {}).__setitem__(
-                channel, {"profile": source_profile, "granted_at": state.now(), "scope": channel}))
-            data = state.load()
         limited = cooldown(channel)
         if limited:
             return {"ok": False, "status": "cooldown", "channel": channel,
                     "action": selected.name, "retry_after_seconds": limited["retry_after_seconds"],
                     "error": {"code": RATE_LIMITED, "message": limited["message"]}}
-        if not manage.is_added(ch, data) or any(not tools.present(t) for t in manage.channel_tools(ch)):
+        if not manage.is_added(ch) or any(not tools.present(t) for t in manage.channel_tools(ch)):
             if not install:
-                return _needs(channel, selected.name, "install", f"Run agent-reach ensure {channel}")
+                return _needs(channel, selected.name, "install", f"Run agent-reach add {channel}")
             manage.add(channel)
-        if primary == "opencli":
-            for tool in dict.fromkeys((*ch.prereqs, *ch.tools)):
-                if not tools.present(tool):
-                    if not install:
-                        return _needs(channel, selected.name, "install", f"Install {tool}, then resume")
-                    tools.ensure(tool)
-
-        if primary == "cloakbrowser":
-            from agent_reach.backends import cloak
-
-            if cloak.status(channel)["configured"] and not source_profile:
-                return {"ok": True, "status": "prepared", "channel": channel,
-                        "action": selected.name, "backend": primary}
-            grant = state.load().get("reuse_sources", {}).get(channel, {})
-            if not grant and _opencli_ready(channel, selected):
-                return {"ok": True, "status": "prepared", "channel": channel,
-                        "action": selected.name, "backend": "opencli"}
-            source = grant.get("profile")
-            if source:
-                failure = state.load().get("setup_failures", {}).get(channel, {})
-                age = state.age_seconds(failure.get("at", ""))
-                if (not source_profile and failure.get("profile") == source and
-                        failure.get("code") == "UPSTREAM_BROKEN" and age < 600):
-                    if _opencli_ready(channel, selected):
-                        return {"ok": True, "status": "prepared", "channel": channel,
-                                "action": selected.name, "backend": "opencli"}
-                    return {"ok": False, "status": "failed",
-                            "channel": channel, "action": selected.name,
-                            "error": {"code": failure["code"], "message": failure.get("message", "Setup failed")}}
-                from .onboarding import profiles
-
-                connected = profiles()
-                if source not in {p["id"] for p in connected["profiles"]}:
-                    return _needs(channel, selected.name, "connect_browser",
-                                  "Connect the selected Chrome profile's OpenCLI extension, then resume.",
-                                  profile=source, discovery_error=connected.get("discovery_error"))
-                try:
-                    cloak.import_login(channel, opencli_profile=source)
-                except ReachError as exc:
-                    if exc.code in {RATE_LIMITED, "UPSTREAM_BROKEN"}:
-                        code, message = exc.code, exc.message
-                        state.mutate(lambda saved: saved.setdefault("setup_failures", {}).__setitem__(
-                            channel, {"profile": source, "code": code, "message": message,
-                                      "at": state.now()}))
-                    if exc.code in {RATE_LIMITED, PLATFORM_BLOCKED}:
-                        return {"ok": False, "status": "cooldown" if exc.code == RATE_LIMITED else "needs_user_action",
-                                "channel": channel, "action": selected.name,
-                                **({"retry_after_seconds": 3600} if exc.code == RATE_LIMITED else {}),
-                                "error": {"code": exc.code, "message": exc.message},
-                                **({"required_action": {"type": "platform_verification", "message": exc.message}}
-                                   if exc.code == PLATFORM_BLOCKED else {})}
-                    if exc.code == NEED_LOGIN:
-                        return _needs(channel, selected.name, "login",
-                                      f"Existing {channel} login needs renewal: {exc.message}. "
-                                      "Log in in the authorized source browser or use Cloak's own login, then resume.")
-                    if exc.code == "UPSTREAM_BROKEN" and _opencli_ready(channel, selected):
-                        return {"ok": True, "status": "prepared", "channel": channel,
-                                "action": selected.name, "backend": "opencli"}
-                    return {"ok": False, "status": "failed", "channel": channel,
-                            "action": selected.name, "error": {"code": exc.code, "message": exc.message}}
-                state.mutate(lambda saved: saved.setdefault("setup_failures", {}).pop(channel, None))
-                return {"ok": True, "status": "prepared", "channel": channel,
-                        "action": selected.name, "backend": primary, "session_source": "authorized_profile"}
-            if channel == "reddit":
-                return _needs(channel, selected.name, "connect_browser",
-                              "Public Reddit posts can use existing web search/fetch first. "
-                              "For this browser action, connect and select an existing Chrome profile "
-                              "with agent-reach browser use ID, then resume. Missing configuration "
-                              "does not establish a Reddit login requirement.",
-                              public_search='agent-reach web search "site:reddit.com QUERY"',
-                              public_read='agent-reach web read "POST_URL"')
-            return _needs(channel, selected.name, "login",
-                          f"Log in yourself with agent-reach cloak login {channel}, then resume. "
-                          "To reuse an existing Chrome login, run ensure with --reuse-profile ID.")
-
-        if primary == "opencli":
-            from .onboarding import profiles
-
-            selected_profile = profile_for(channel)
-            connected = profiles()
-            if not selected_profile or selected_profile not in {p["id"] for p in connected["profiles"]}:
-                return _needs(channel, selected.name, "connect_browser",
-                              "Select a connected Chrome profile with agent-reach browser use ID, then resume.",
-                              profiles=connected["profiles"])
-        return {"ok": True, "status": "prepared", "channel": channel,
-                "action": selected.name, "backend": primary}
+        if ch.login_url:
+            from . import browser
+            browser.ensure_running()
+            browser.migrate_owned_session(channel)
+            if source_profile:
+                browser.import_session(channel, opencli_profile=source_profile)
+        elif source_profile:
+            raise ReachError(BAD_INPUT, "This channel does not use the shared browser")
+    return {"ok": True, "status": "prepared", "channel": channel,
+            "action": selected.name, "backend": selected.backends[0][0]}
 
 
 def ensure(channel: str, *, action: Optional[str] = None, source_profile: Optional[str] = None,
@@ -210,8 +114,8 @@ def _failure(channel: str, action: str, out: dict) -> dict:
     err = out.get("error") or {"code": "EMPTY", "message": "Query returned no items"}
     code = err["code"]
     if code in {NEED_LOGIN, PLATFORM_BLOCKED}:
-        return _needs(channel, action, "platform_verification" if code == PLATFORM_BLOCKED else "login",
-                      err["message"])
+        return {**_needs(channel, action, "platform_verification" if code == PLATFORM_BLOCKED else "login",
+                         err["message"]), "error": err}
     return {"ok": False, "status": "cooldown" if code == RATE_LIMITED else "failed",
             "channel": channel, "action": action, "error": err, "attempts": out["meta"]["attempts"],
             **({"retry_after_seconds": 3600} if code == RATE_LIMITED else {})}
@@ -260,16 +164,6 @@ def resume(operation_id: str) -> dict:
         raise ReachError(BAD_INPUT, "Unknown or completed operation_id")
     result = execute(pending["channel"], pending["action"], pending["params"],
                      timeout=pending["timeout"], operation_id=operation_id)
-    if (result.get("status") == "needs_user_action" and
-            result.get("required_action", {}).get("type") == "login"):
-        source = state.load().get("reuse_sources", {}).get(pending["channel"], {}).get("profile")
-        if source:
-            refreshed = prepare(pending["channel"], action=pending["action"], source_profile=source)
-            if refreshed["ok"]:
-                return execute(pending["channel"], pending["action"], pending["params"],
-                               timeout=pending["timeout"], operation_id=operation_id)
-            refreshed["operation_id"] = operation_id
-            return refreshed
     return result
 
 

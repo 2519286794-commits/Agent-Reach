@@ -2,7 +2,7 @@
 """OpenCLI backend: run `opencli <site> ...` in the Agent Reach browser.
 
 OpenCLI (github.com/jackwener/opencli) drives Chrome through a browser-bridge
-extension + local daemon. Agent Reach uses an explicitly selected per-channel browser profile.
+extension + local daemon. Agent Reach uses one shared, Reach-owned browser profile.
 """
 
 import json
@@ -69,6 +69,8 @@ def opencli_call(site: str, args, *, timeout: float, login_hint: str = ""):
         raise _opencli_error(out, login_hint) from None
     if isinstance(data, dict) and data.get("ok") is False:
         raise _opencli_error(out, login_hint)
+    from agent_reach.runtime import browser
+    browser.save_session()
     return data
 
 
@@ -107,3 +109,27 @@ def opencli_items(rows) -> list:
             )
         )
     return items
+
+
+def export_site_cookies(profile: str, domain: str):
+    """One explicit site-scoped Bridge export; do not inspect Chrome's database."""
+    from pathlib import Path
+
+    from agent_reach.runtime.result import NEED_SETUP, ReachError
+    from agent_reach.runtime.run import run_cmd
+    from agent_reach.runtime.tools import resolve
+    exe = resolve("opencli")
+    if not exe:
+        raise ReachError(NEED_SETUP, "OpenCLI is not installed")
+    entry = Path(exe).resolve()
+    # POSIX bins are symlinks into the package; Windows npm .cmd shims live
+    # beside node_modules. Both use the shipped Page API without editing it.
+    module = next((root / "dist/src/browser/page.js" for parent in entry.parents
+                   for root in (parent, parent / "node_modules/@jackwener/opencli")
+                   if (root / "dist/src/browser/page.js").is_file()), None)
+    if module is None:
+        raise ReachError(NEED_SETUP, "Cannot locate OpenCLI's public Page API; use --state-file")
+    script = (f"import {{Page}} from {json.dumps(module.as_uri())};"
+              "const p=new Page('reach-explicit-import',undefined,process.argv[1]);"
+              "console.log(JSON.stringify(await p.getCookies({domain:process.argv[2]}))); ")
+    return json.loads(run_cmd(["node", "--input-type=module", "-e", script, profile, domain], timeout=20))

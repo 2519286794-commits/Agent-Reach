@@ -42,12 +42,12 @@ class BossChannel(Channel):
                 Param("city", "city, e.g. 深圳", required=False),
                 Param("limit", "max results", required=False, type=int, default=10),
             ),
-            (("cloakbrowser", "_cloak_search"), ("opencli", "_opencli_search"), ("boss-agent-cli", "_cli_search")),
+            (("boss-agent-cli", "_cli_search"), ("opencli", "_opencli_search")),
             live_test={"query": "Python", "city": "深圳", "limit": 3},
             timeout=90,
         ),
         Action("read", "Read a direct BOSS job URL", (Param("target", "full job URL"),),
-               (("cloakbrowser", "_cloak_read"),), timeout=60),
+               (("boss-agent-cli", "_cli_read"),), timeout=60),
     )
 
     def can_handle(self, url: str) -> bool:
@@ -63,7 +63,7 @@ class BossChannel(Channel):
         if not exe:
             raise ReachError(NEED_SETUP, "Run agent-reach add boss first")
         python = Path(exe).with_name("python.exe" if os.name == "nt" else "python")
-        payload = {"query": query, "city": city, "limit": limit, "cdp_url": endpoint,
+        payload = {"action": "search", "query": query, "city": city, "limit": limit, "cdp_url": endpoint,
                    "data_dir": str(session_dir(self.session) / ".boss-agent")}
         runner = Path(__file__).parents[1] / "backends" / "boss_native.py"
         try:
@@ -113,19 +113,33 @@ class BossChannel(Channel):
             )
         return items
 
-    def _cloak_search(self, *, query, city, limit, timeout):
-        from agent_reach.backends.cloak import call
-        return call(self.name, "search", query=query, city=city, limit=limit, timeout=timeout)
-
-    def _cloak_read(self, *, target, timeout):
-        from agent_reach.backends.cloak import call
-        return call(self.name, "read", target=target, timeout=timeout)
 
     def _opencli_search(self, *, query, city, limit, timeout):
         from agent_reach.backends.opencli import opencli_call, opencli_items
         rows = opencli_call("boss", ["search", query, "--city", city or "全国", "--limit", str(limit)], timeout=timeout)
         return opencli_items(rows)[:limit]
 
-    def on_remove(self):
-        from agent_reach.backends.cloak import logout
-        logout(self.name)
+
+    def _cli_read(self, *, target: str, timeout: float) -> list:
+        import re
+
+        from agent_reach.runtime.onboarding import require_boss_cdp
+        if not host_matches(str(target), "zhipin.com"):
+            raise ReachError("BAD_INPUT", "Expected a direct zhipin.com job URL")
+        match = re.search(r"/job_detail/([A-Za-z0-9_-]+)\.html", str(target))
+        if not match:
+            raise ReachError("BAD_INPUT", "Expected a direct BOSS job URL")
+        exe = resolve("boss")
+        if not exe:
+            raise ReachError(NEED_SETUP, "Run agent-reach add boss")
+        python = Path(exe).with_name("python.exe" if os.name == "nt" else "python")
+        spec = {"action": "read", "job_id": match.group(1), "cdp_url": require_boss_cdp(),
+                "data_dir": str(session_dir(self.session) / ".boss-agent")}
+        runner = Path(__file__).parents[1] / "backends" / "boss_native.py"
+        result = json.loads(run_cmd([str(python), str(runner), json.dumps(spec)], timeout=timeout))
+        if not result.get("ok"):
+            err = result.get("error") or {}
+            raise ReachError(err.get("code", UPSTREAM_BROKEN), err.get("message", "BOSS detail unavailable"))
+        row = result["data"]
+        return [make_item(title=row.get("title"), url=str(target), author=row.get("company"),
+                          text=row.get("description"), raw=row)]

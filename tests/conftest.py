@@ -84,6 +84,18 @@ def isolated_home(tmp_path, monkeypatch):
     # never start the background release check from tests
     monkeypatch.setenv("AGENT_REACH_NO_UPDATE_CHECK", "1")
 
+    from agent_reach.runtime import cdp
+    monkeypatch.setattr(cdp, "_json", lambda *a, **k: None)  # unit tests never inspect the real dedicated browser
+    original_popen = subprocess.Popen
+    def local_commands_only(argv, *args, **kwargs):
+        # OpenCLI uses a machine-wide port even when HOME is temporary.
+        if isinstance(argv, (list, tuple)) and argv:
+            executable = Path(argv[0])
+            if executable.name in {"opencli", "opencli.cmd"} and "--version" not in argv and home not in executable.resolve().parents:
+                pytest.fail("Unmocked OpenCLI command would touch the user's Bridge daemon")
+        return original_popen(argv, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "Popen", local_commands_only)
+
     config_dir = home / ".agent-reach"
     monkeypatch.setattr(Config, "CONFIG_DIR", config_dir)
     monkeypatch.setattr(Config, "CONFIG_FILE", config_dir / "config.yaml")

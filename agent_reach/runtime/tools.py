@@ -60,8 +60,7 @@ TOOLS: Dict[str, Tool] = {
             "boss-agent-cli @ git+https://github.com/can4hou6joeng4/boss-agent-cli.git@4c991b77086a203173bf08a4cb64a23af6514fe6",
             ("boss",),
         ),
-        Tool("mcporter", "npm", "mcporter", ("mcporter",), tested="0.14.3", needs=("node",)),
-        Tool("opencli", "npm", "@jackwener/opencli", ("opencli",), singleton=True, floor="1.8.8", tested="1.8.8", needs=("node",)),
+        Tool("opencli", "npm", "@jackwener/opencli", ("opencli",), singleton=True, floor="1.8.7", exclude=("1.8.8",), tested="1.8.7", needs=("node",)),
         Tool("ffmpeg", "ffmpeg", "imageio-ffmpeg", ("ffmpeg",)),
         Tool("node", "node", "", ("node", "npm", "npx")),
         Tool("uv", "uv", "", ("uv", "uvx")),
@@ -337,15 +336,18 @@ def _npm_cmd() -> str:
 def _install_npm(tool: Tool, *, global_prefix: Optional[Path] = None, system_global: bool = False) -> None:
     npm = _npm_cmd()
     spec = install_spec(tool)
+    # OpenCLI ships its adapters; install hooks must not replace this verified
+    # release with mutable adapters or write unrelated agent configurations.
+    hooks = ["--ignore-scripts"] if tool.name == "opencli" else []
     if system_global:
-        _run([npm, "install", "-g", spec])
+        _run([npm, "install", "-g", *hooks, spec])
     elif global_prefix is not None:
         global_prefix.mkdir(parents=True, exist_ok=True)
-        _run([npm, "install", "-g", "--prefix", str(global_prefix), "--no-fund", "--no-audit", spec])
+        _run([npm, "install", "-g", "--prefix", str(global_prefix), "--no-fund", "--no-audit", *hooks, spec])
     else:
         prefix = tool_dir(tool.name)
         prefix.mkdir(parents=True, exist_ok=True)
-        _run([npm, "install", "--prefix", str(prefix), "--no-fund", "--no-audit", spec])
+        _run([npm, "install", "--prefix", str(prefix), "--no-fund", "--no-audit", *hooks, spec])
 
 
 def _node_platform() -> Tuple[str, str, str]:

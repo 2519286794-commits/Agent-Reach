@@ -7,7 +7,7 @@ For the AI doing the install. Run every command yourself. Each `agent-reach` com
 ## 0. Before you start
 
 - You must be able to run terminal commands. If you can't, tell the user: "Please turn on command execution for me in my settings, then ask again."
-- Already have it (`command -v agent-reach` prints a path)? Check its installation source before replacing an existing build.
+- Already have it (`command -v agent-reach` prints a path)? Run `agent-reach update` and stop here. Coming from 1.5 or earlier: follow [update.md](update.md).
 - `uv` missing (`uv --version` fails)? Tell the user: "I'm installing uv, a small tool that installs command-line programs. It needs no admin password." Then run:
   - macOS / Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
   - Windows: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
@@ -16,7 +16,7 @@ For the AI doing the install. Run every command yourself. Each `agent-reach` com
 ## 1. Install and set up
 
 ```bash
-uv tool install --reinstall .  # run from this checkout; alternatively pass its built wheel path
+uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v1.6.0.zip
 agent-reach setup
 agent-reach doctor --text
 ```
@@ -25,7 +25,7 @@ agent-reach doctor --text
 
 `agent-reach` not found after install? Run `uv tool update-shell` and open a new shell.
 
-`setup` turns on the default channels (web, YouTube, GitHub, V2EX, Bilibili), installs the Skill, and registers the Reach MCP server in an existing Cursor profile. Run `agent-reach mcp status` to inspect that registration.
+`setup` turns on the default channels (web, YouTube, GitHub, V2EX, Bilibili) and installs the Skill. It does not register an MCP server or require a model key.
 
 `doctor --text` reads local status without opening browsers or querying every platform. Installation is separate from acceptance. When the user needs a specific channel, use one bounded `check CHANNEL --search --text` or the requested formal action. Diagnose actual errors; a failure does not establish a platform-wide login requirement.
 
@@ -41,8 +41,12 @@ Present the generated compact report directly in the final response:
 
 Before selecting Reach for a platform mention, check whether existing public tools already satisfy the task. For a structured/site-specific action, use its declared Reach route directly; no redundant search is required.
 
-When the user asks for a channel, run `agent-reach ensure <channel>` or MCP `reach_ensure`. Reach installs missing dependencies, checks existing sessions and runs the formal action. For OpenCLI select a connected existing profile with `agent-reach browser use ID`. To authorize a site-scoped Cloak import, run `agent-reach ensure <channel> --reuse-profile ID`; this selection is remembered. If a query returns `operation_id`, the user completes login or verification and the agent calls `resume`. Boss's native CLI fallback needs CDP; Cloak does not. Install the runtime and Skill from the same build.
+When the user asks for a channel, run `agent-reach add <channel>`. Browser channels install Node, OpenCLI, the dedicated browser and its extension automatically. One profile under `~/.agent-reach/browser/profile` is shared by all sites. CloakBrowser is preferred; download failure falls back to installed Chrome. The owned browser closes after 10 idle minutes and reopens on the next action. The Chrome fallback on Windows may need one Web Store click.
 
-For the optional one-sentence CLI, save an OpenAI-compatible model with `agent-reach configure model-key --stdin`, `configure model-base-url URL`, and `configure model-name NAME`; then use `agent-reach ask "find and summarize ..."`. Direct channel commands and MCP tools do not require this model key.
+Reuse already-saved Reach sessions. To import a login from a connected source Chrome, obtain the user's explicit site-scoped authorization, list `agent-reach browser profiles`, then run `agent-reach browser import CHANNEL --opencli-profile ID`. This is a one-time copy, not a standing export permission. An explicitly supplied local session file is supported with `--state-file FILE`. Never inspect Chrome's cookie database, print credentials, or log in for the user. Cookie import does not prove access; verify the requested action.
+
+If login is still needed, `agent-reach login CHANNEL` opens the shared dedicated browser. The user logs in there; for native tools, follow the returned sync instruction. `agent-reach execute CHANNEL ACTION --params '{...}'` prepares and executes the actual task once. If it returns `operation_id`, use `agent-reach resume OPERATION_ID` after the user finishes login. No additional model key is required.
+
+Removing a browser channel clears only that site's login/storage in the dedicated browser and its native session. Other sites and the original source Chrome are retained. Xiaoyuzhou remains optional and needs a Groq key for transcription.
 
 Problems: [troubleshooting.md](troubleshooting.md).

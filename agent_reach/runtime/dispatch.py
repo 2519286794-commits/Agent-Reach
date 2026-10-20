@@ -25,7 +25,7 @@ from .result import (
 )
 
 DEFAULT_TIMEOUT = 30.0
-CLOAK_SEARCH_INTERVAL = 10.0
+BROWSER_SEARCH_INTERVAL = 10.0
 BACKEND_PAUSE_SECONDS = {TIMEOUT: 60, UPSTREAM_BROKEN: 120, NEED_SETUP: 60}
 RATE_LIMIT_SECONDS = 3600
 
@@ -130,12 +130,12 @@ def _remember(channel: Channel, action: str, backend: str, error: Optional[Reach
     state.mutate(change)
 
 
-def _pace_cloak(channel: str, action: str, clock: Clock) -> None:
+def _pace_browser(channel: str, action: str, clock: Clock) -> None:
     if action not in {"search", "jobs"}:
         return
     last = state.load().get("request_starts", {}).get(channel)
     age = max(0, time.time() - last) if isinstance(last, (int, float)) else state.age_seconds(last)
-    wait = CLOAK_SEARCH_INTERVAL - age
+    wait = BROWSER_SEARCH_INTERVAL - age
     if wait > 0:
         if wait >= clock.remaining():
             raise ReachError(TIMEOUT, "Search pacing exceeds the remaining timeout; retry later")
@@ -221,8 +221,8 @@ def run_action(
                              hint=f"Wait {limited['retry_after_seconds']} seconds before retrying this channel.")
         # One action per site keeps an agent's parallel requests from fighting
         # over the same persistent session; worker-level profile locks remain.
-        browser_action = any(b[0] == "cloakbrowser" for b in action.backends)
-        lock = execution_lock("request:" + channel.name) if browser_action else nullcontext()
+        browser_action = any(b[0] in {"opencli", "boss-agent-cli"} for b in action.backends)
+        lock = execution_lock("browser:shared") if browser_action else nullcontext()
         with lock:
             limited = cooldown(channel.name)
             if limited:
@@ -240,7 +240,7 @@ def run_action(
                     errors.append(ReachError(TIMEOUT, "no time left for this backend"))
                     break
                 if browser_action and not paced:
-                    _pace_cloak(channel.name, action_name, clock)
+                    _pace_browser(channel.name, action_name, clock)
                     paced = True
                 try:
                     items = _call_with_deadline(getattr(channel, method_name), clean, clock)

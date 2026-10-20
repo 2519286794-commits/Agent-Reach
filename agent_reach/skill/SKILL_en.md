@@ -42,11 +42,9 @@ A platform name or URL identifies a source; it does not automatically trigger in
 
 Public Reddit JSON may expose parent IDs; verify actual coverage. YouTube/Bilibili descriptions, subtitles and video content are separate evidence. Public X posts and reply streams are separate capabilities. Do not generalize a local failure into a platform-wide login requirement, or promise universal anonymous access. Distinguish local HTTP, proxy and built-in web-tool results.
 
-For a one-sentence request that needs Reach execution, use MCP `reach_execute` or `agent-reach ask "request"` when a model is configured. The runtime prepares the channel and returns `required_action` plus `operation_id` when the user must log in. Continue with `reach_resume` or `agent-reach resume OPERATION_ID` after they finish.
 
 ```bash
 agent-reach channels                      # actions and params per channel (run this when unsure)
-agent-reach ask "find and summarize..." # one-sentence model entry
 agent-reach ensure <channel>             # setup, authorized reuse, live check
 agent-reach <channel> <action> [args]     # e.g. agent-reach bilibili search "rust async" --limit 5
 agent-reach read <url>                    # picks the channel from the URL
@@ -59,7 +57,6 @@ Results:
 
 | error.code | What to do |
 |---|---|
-| `NEED_SETUP` | Call `reach_ensure` or `agent-reach ensure <channel>` |
 | `NEED_LOGIN` | Keep public results. If the remaining task needs this path, the user logs in; resume using `operation_id` |
 | `UPSTREAM_BROKEN` | Channel is down right now; tell the user, don't retry in a loop |
 | `TIMEOUT` | Inspect the failed stage and channel status; do not reopen or retry in a loop |
@@ -84,15 +81,12 @@ The login column lists authentication entry points, not prerequisites for public
 
 ## Reuse before login
 
-Cloak uses `headless=True` for queries and import verification. For independent login, run `agent-reach cloak login CHANNEL`; the user logs in, Reach detects authentication, saves the session and closes its window, then verifies a query. OpenCLI has its own Chrome session. Cookie import is optional. Login cancellation and timeout preserve an existing session; do not reopen windows in a loop.
 
-`setup` and `add` never open a browser. `login CHANNEL` inspects connection options and historical checks only; it does not authenticate or export cookies. Verify existing sessions before asking the user to log in again.
+`setup` installs defaults; adding a browser channel prepares the shared browser and extension. `login CHANNEL` opens the site for the user to log in. Imports are one-time and explicitly authorized; verify the requested action after import.
 
-After a browser action is selected to fill a gap, routes are action-specific: XHS search/read/comments use CloakBrowser → OpenCLI; Reddit browser search uses CloakBrowser → OpenCLI, while read/subreddit use OpenCLI. BOSS search uses CloakBrowser → OpenCLI → boss-agent-cli. BOSS read currently supports only CloakBrowser. Instagram search/profile/posts use CloakBrowser → OpenCLI. The runtime temporarily skips recently failed technical backends and rechecks after expiry or environment changes. See [Sessions](references/sessions.md) for selection, import, native login and logout.
 
 XHS read returns text descriptions, not image/video understanding. Never guess BOSS salary digits when salary_encoded=true; read the job detail instead.
 
-For XHS comments, call `reach_execute` with action `comments`, params `target` (the full note URL) and `limit` (default 20, at most 50 top-level comments). Loaded replies are included. Report the sample scope; a comment-count field alone is not comment text.
 
 Stop on PLATFORM_BLOCKED/RATE_LIMITED/NEED_LOGIN/BUSY. Serialize commands sharing a profile. Use `check CHANNEL --search` for live verification. See [Maintenance](references/maintenance.md) for dependency repair and distribution. Never modify dependencies during queries.
 
@@ -102,8 +96,8 @@ Stop on PLATFORM_BLOCKED/RATE_LIMITED/NEED_LOGIN/BUSY. Serialize commands sharin
 |---|---|
 | Status / what works | `agent-reach doctor --text` (for a live test, `agent-reach check <channel> --search --text`) |
 | Add a platform ("add Xiaohongshu") | `agent-reach add <channel>`; one command installs everything it needs. Tell the user only what they must do: follow the login instructions (`agent-reach login <channel>`), or provide a key |
-| Login expired | Read Sessions first; `agent-reach login <channel>` only inspects by default. The user performs login |
-| Remove a platform / log out | `agent-reach remove <channel>`; read Sessions before logout. `agent-reach logout <channel>` removes a managed Cloak session |
+| Login expired | Read Sessions first; `agent-reach login <channel>` opens the shared browser for the user to log in |
+| Remove a platform / log out | `agent-reach remove <channel>`; read Sessions before logout. `agent-reach logout <channel>` clears only that site in the shared browser |
 | Upgrade / update | Read [Maintenance](references/maintenance.md), check the installation source, then update from the same source |
 | Uninstall | show `agent-reach uninstall --dry-run` first, then `agent-reach uninstall` once they confirm |
 | Another AI should use it | `agent-reach skill link <that AI's skills folder>`; `agent-reach skill` shows where it is placed now |
@@ -120,4 +114,13 @@ Any result with `meta.update` means a newer version exists. Mention it once per 
 
 After the user agrees, read [Maintenance](references/maintenance.md) and confirm the installation source. Update from the same source, then report the actual changes and remaining user actions.
 
-Facebook search uses CloakBrowser then OpenCLI; profile uses OpenCLI. Cloak login is independent; site-cookie import is optional.
+
+## Shared dedicated browser
+
+All browser channels use `~/.agent-reach/browser/profile`. CloakBrowser is preferred; installation/download failure falls back to installed Chrome. OpenCLI prepares the extension and performs website extraction. BOSS uses the same dedicated browser. The idle watcher closes it after ten minutes; the next action reopens it.
+
+Use `agent-reach execute CHANNEL ACTION --params '{...}'` to prepare and perform the real action once. Reserve `ensure CHANNEL` for setup checks and diagnosis. After the user completes a requested login, use `agent-reach resume OPERATION_ID` when an operation ID was returned. There is no Reach MCP server or model planner in this version, and no model API key is required.
+
+Reuse the dedicated browser's saved login first. Explicit one-time site imports use `agent-reach browser import CHANNEL --opencli-profile ID` or `--state-file FILE`; they do not grant continuing access to personal Chrome. Verify the requested action after import. See [Sessions](references/sessions.md).
+
+`add CHANNEL` prepares dependencies, browser and extension. `remove CHANNEL` clears only that site's login/storage, preserving other sites. Xiaoyuzhou remains an optional transcription channel requiring a Groq key.

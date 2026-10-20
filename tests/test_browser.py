@@ -1,4 +1,4 @@
-"""Agent Reach dedicated browser: extension, Chrome for Testing, cookies, CDP pipe (no real Chrome)."""
+"""Shared Cloak browser, Chrome fallback, extension and cookie lifecycle."""
 
 import json
 import os
@@ -8,7 +8,7 @@ import zipfile
 
 import pytest
 
-from agent_reach.runtime import browser, cdp, tools
+from agent_reach.runtime import browser, cdp
 
 
 @pytest.fixture
@@ -66,29 +66,30 @@ def test_extension_refresh_offline_keeps_the_current_copy(home, monkeypatch):
     assert browser.refresh_extension() == {"version": "1.0.0", "updated": False}
 
 
-def test_ensure_chrome_installs_chrome_for_testing_when_system_has_none(home, monkeypatch, tmp_path):
-    archive = _zip(tmp_path / "cft.zip", {"chrome-linux64/chrome": ("#!/bin/sh\n", 0o755)})
-    index = {"channels": {"Stable": {"version": "155.0.1", "downloads": {"chrome": [
-        {"platform": "linux64", "url": "cft-url"}]}}}}
-    _fake_downloads(monkeypatch, {browser.CFT_VERSIONS_URL: index}, {"cft-url": archive})
-    monkeypatch.setattr(browser, "_system_chrome", lambda: None)
-    monkeypatch.setattr(browser, "_cft_platform", lambda: "linux64")
-    recorded = []
-    monkeypatch.setattr(tools, "record", lambda name, version: recorded.append((name, version)), raising=False)
+def test_ensure_browser_prefers_cloak_and_reuses_its_install(home, monkeypatch, tmp_path):
+    from unittest.mock import Mock
 
-    assert browser.chrome_binary() is None  # never downloads by itself
-    exe = browser.ensure_chrome()
-    assert exe == str(tools.tool_dir("chrome") / "chrome-linux64" / "chrome")
-    assert os.access(exe, os.X_OK)
-    assert browser.chrome_binary() == exe
-    assert recorded == [("chrome", "155.0.1")]
-    assert browser.ensure_chrome() == exe and len(recorded) == 1  # second call: no download
+    from agent_reach.backends import cloak
+    binary = tmp_path / "CloakChromium"
+    binary.touch()
+    install = Mock(return_value={"executable": str(binary), "python": "/private/python"})
+    monkeypatch.setattr(cloak, "setup", install)
+    monkeypatch.setattr(browser, "_system_chrome", lambda: "/system/chrome")
+    assert browser.ensure_chrome() == str(binary)
+    assert browser.ensure_chrome() == str(binary)
+    assert install.call_count == 1 and browser._load_state()["backend"] == "cloakbrowser"
 
 
-def test_ensure_chrome_prefers_system_chrome(home, monkeypatch):
-    monkeypatch.setattr(browser, "_system_chrome", lambda: "/sys/chrome")
-    monkeypatch.setattr(browser, "_fetch", lambda *a, **k: pytest.fail("must not download"))
-    assert browser.ensure_chrome() == "/sys/chrome"
+def test_download_failure_falls_back_to_system_chrome(home, monkeypatch):
+    from agent_reach.backends import cloak
+    from agent_reach.runtime.result import ReachError
+    def fail():
+        raise ReachError("TIMEOUT", "download timeout")
+    monkeypatch.setattr(cloak, "setup", fail)
+    monkeypatch.setattr(browser, "_system_chrome", lambda: "/system/chrome")
+    assert browser.ensure_chrome() == "/system/chrome"
+    assert browser._load_state()["backend"] == "chrome"
+    assert browser._load_state()["fallback_reason"]
 
 
 def test_clear_site_expires_only_that_sites_cookies(home, monkeypatch):
@@ -98,9 +99,12 @@ def test_clear_site_expires_only_that_sites_cookies(home, monkeypatch):
         {"name": "c", "value": "3", "domain": "notreddit.com", "path": "/"},
     ]
 
-    def fake_call(method, params=None):
+    def fake_call(method, params=None, **kwargs):
         if method == "Storage.getCookies":
             return {"cookies": list(jar)}
+        if method == "Storage.clearDataForOrigin":
+            assert "reddit.com" in params["origin"]
+            return {}
         if method == "Storage.setCookies":
             for c in params["cookies"]:
                 assert c["expires"] == 1
@@ -157,3 +161,38 @@ def test_pipe_connection_matches_replies_and_notices_close():
     t.join(5)
     assert conn.closed.is_set()
     assert "error" in conn.call("Browser.close", timeout=1)
+
+
+def test_cloak_launcher_shares_profile_and_keeps_bridge_off_proxy(home, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from agent_reach.runtime import browser_watcher
+    context = SimpleNamespace(pages=[Mock()])
+    launch = Mock(return_value=context)
+    monkeypatch.setitem(sys.modules, "cloakbrowser", SimpleNamespace(launch_persistent_context=launch))
+    monkeypatch.setenv("REACH_BROWSER_PROXY", "http://user:pass@127.0.0.1:7890")
+    assert browser_watcher._launch_cloak("about:blank") is context
+    kwargs = launch.call_args.kwargs
+    assert launch.call_args.args == (str(browser.profile_dir()),)
+    assert kwargs["extension_paths"] == [str(browser.extension_dir())]
+    assert kwargs["proxy"] == {"server": "http://127.0.0.1:7890", "username": "user", "password": "pass",
+                                "bypass": "localhost,127.0.0.1,[::1]"}
+
+
+def test_migration_keeps_old_profile_and_restores_one_shared_destination(home, monkeypatch):
+    binary = home / "cloak"
+    binary.touch()
+    browser.profile_dir().mkdir(parents=True)
+    (browser.profile_dir()/"keep.txt").write_text("legacy")
+    browser._save_state({"backend":"cloakbrowser", "executable":str(binary)})
+    (browser.browser_root()/"session.json").write_text('{"cookies":[]}')
+    browser._prepare_shared_profile()
+    backup = browser._load_state()["profile_backup"]
+    from pathlib import Path
+    assert (Path(backup)/"keep.txt").read_text() == "legacy"
+    assert not browser.profile_dir().exists()
+    browser.profile_dir().mkdir()
+    browser._prepare_shared_profile()
+    assert browser.profile_dir().is_dir()  # migration never repeats on each start

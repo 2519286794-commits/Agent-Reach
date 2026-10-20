@@ -1,69 +1,34 @@
-# 会话配置 / Sessions
+# 会话与专用浏览器
 
-仅在安装、登录、导入或退出时加载。Load only for setup, login, import or logout.
+所有浏览器渠道共用 `~/.agent-reach/browser/profile`。CloakBrowser 优先，安装或下载失败时使用已安装的 Chrome。Node、OpenCLI、内核和扩展由 `agent-reach add CHANNEL` 自动准备；CloakBrowser 的扩展自动加载，Windows Chrome 回退路径可能需要点击一次“添加至 Chrome”。
 
-## 所有平台：先判断公开能力 / Public capabilities first
+专用浏览器由 watcher 管理，闲置 10 分钟自动关闭；查询自动准备和重开。此配置与日常 Chrome 分开，程序不关闭用户的日常浏览器。
 
-公开搜索、正文、评论与字幕分别判断已有工具能否满足请求。足够就交付；缺少内容、工具不可用或需要声明的结构化/站内动作时，再进入渠道配置。平台名称、URL 和本节的登录入口都不构成登录要求。
+## 使用与登录
 
-浏览器未连接需要连接；所选路径实际返回登录要求时才需要本人登录。403、验证码、DNS/TLS 错误、限流、超时分别诊断；HTTP 200 还要检查内容是否为验证页、登录页或空壳。需要更多评论不能证明必须登录，登录也不保证读全。保留公开结果并只为剩余缺口请求用户操作。
+1. 公开内容先用 Agent 已有搜索和读取，结果足够就回答。
+2. 需要站内动作时，`agent-reach execute CHANNEL ACTION --params '{...}'` 执行真实请求。不要为每个请求先跑一次 ensure 的测试查询。
+3. 只有实际返回 NEED_LOGIN 才请用户登录；`agent-reach login CHANNEL` 打开专用浏览器，登录由用户本人完成。BOSS 等原生工具按返回提示执行 `login CHANNEL --sync`。
+4. 若返回 operation_id，用户完成后使用 `agent-reach resume OPERATION_ID`。保存的是任务参数，不会为等待登录另起常驻任务服务。
 
-On every platform, use sufficient public evidence first. Inspect browser sessions only for a selected browser action. Request authentication only for the remaining capability that actually needs it; preserve public results. Distinguish access paths and verify content rather than HTTP status alone.
+## 一次性继承登录
 
-## Cloak 默认运行模式 / Default mode
+专用浏览器已有登录优先复用。用户明确同意导入指定网站后：
 
-小红书、BOSS、Instagram、Facebook、Twitter、Reddit、LinkedIn 的 Cloak 查询和导入验收统一使用 `headless=True`，不弹出浏览器窗口，无需额外参数。`cloak login CHANNEL` 是显式可视登录入口，用户完成登录后，程序检测认证信号、自动保存并关闭。Cloak 登录和查询不需要 OpenCLI；已有浏览器登录态导入仅为可选迁移路径。
+```bash
+agent-reach browser profiles
+agent-reach browser import xiaohongshu --opencli-profile SOURCE_ID
+# 或者只读用户指定的本地登录文件：
+agent-reach browser import xiaohongshu --state-file /absolute/path/session.json
+agent-reach check xiaohongshu --search --text
+```
 
-Cloak queries and import verification run headless by default. No extra flag is needed. Use `cloak login CHANNEL` for independent visible login; Reach detects authentication, saves and closes automatically. Existing Chrome cookie import is optional.
+来源是用户选定的已连接 OpenCLI profile；不读取 Chrome Cookie 数据库，不导出其他网站，不输出 Cookie/Token。导入只复制该站 Cookie，无法保证所有平台都接受新环境，需要实际查询确认。没有长期自动导入授权。原浏览器和原文件保持不变。
 
-## 先检查 / Inspect first
+旧版 Reach 自有会话会从 `sessions/CHANNEL-cloak/profile/reach-session.json` 一次性合并到共用配置，只补缺失 Cookie，保留已有的新登录。来源属于 Reach 自己；个人 Chrome 仍需明确授权导入。
 
-`agent-reach login CHANNEL` 默认只返回连接选项和历史验收，不执行登录。
-Use `agent-reach check CHANNEL --search` for one bounded live search check. Saved state does not prove a current login.
+CloakBrowser 下载失败后会记住 Chrome 回退，避免每次查询重新下载。修好网络后可用 `agent-reach browser setup --retry-cloak` 重试。
 
-统一入口是 `agent-reach ensure CHANNEL` 或 MCP `reach_ensure`。它负责依赖、会话来源与正式验收；带 `--reuse-profile ID` 时才保存该站点的浏览器导入授权。需要本人登录或验证时，查询返回 `operation_id`，完成后运行 `agent-reach resume OPERATION_ID` 或 MCP `reach_resume`。`ensure CHANNEL --forget-source` 撤销导入授权。
+## 退出和删除
 
-`setup` installs default channels. XHS and BOSS are optional: `agent-reach add xiaohongshu` or `agent-reach add boss` installs Cloak SDK and its browser binary without opening a browser. Installation does not import credentials.
-
-窗口生命周期：`cloak login CHANNEL` 打开一次可视 Cloak 窗口，窗口提示自动保存。检测登录成功后，Reach 写入自身站点会话并正常关闭；提前关闭提示登录尚未确认，15 分钟内未完成则提示登录等待超时。旧会话保留，不要自动重开。Cloak 查询和导入验收是 headless，执行结束会关闭自己的上下文。`browser setup` 属于旧的专用 OpenCLI Chrome 路径，可能显示 `OpenCLI Browser` 和 `about:blank`；它闲置约 10 分钟后关闭。通过 `browser use ID` 复用用户 Chrome 时，Reach 不关闭用户窗口。
-
-## Cloak：小红书与 BOSS / XHS and BOSS
-
-独立路径：运行 `agent-reach cloak login CHANNEL`，用户完成登录，程序自动保存并关闭；再用 `--backend cloakbrowser` 验收查询。认证 Cookie 与页面检测说明会话已保存，业务访问另行验收。窗口等待上限 15 分钟。
-
-可选导入路径：
-
-1. 用户明确授权后，选择已有会话。已有授权不必重复询问。
-2. `agent-reach browser profiles` 列出连接；不要猜账号。
-3. `agent-reach cloak import CHANNEL --opencli-profile ID` 仅导入该站 Cookie，并创建独立 headless Profile。另一入口是 `--state-file FILE`，仅使用用户指定的本地文件。
-4. 导入会执行搜索验收；失败时依据错误码停止或修复，不反复切换账号。
-
-Explicit authorization is required before importing site cookies into an independent profile. Never print credentials. Import copies cookies only, not the complete browser identity, localStorage or IndexedDB. `cloak status CHANNEL` reports local setup, not live authentication.
-
-`--backend opencli` selects the existing Chrome session. BOSS search also supports `--backend boss-agent-cli` with an explicitly bound CDP browser. BOSS read currently supports only Cloak; do not promise OpenCLI detail fallback.
-
-退出 Cloak 使用 `agent-reach logout CHANNEL` 或 `agent-reach cloak logout CHANNEL`。它只删除 Reach 管理的该站独立 Profile，不注销原浏览器。
-
-## OpenCLI
-
-Use `agent-reach browser use ID --label NAME` to select the shared existing browser, or `agent-reach browser bind CHANNEL ID` for an override. If disconnected, reconnect the extension in that browser. Do not silently open another profile.
-
-OpenCLI 的普通 logout 不删除 Chrome Cookie；真正退出网站需用户在原浏览器操作。解除绑定使用 `agent-reach browser unbind CHANNEL`。
-
-## 原生工具 / Native tools
-
-LinkedIn jobs 优先 Cloak，原有 linkedin-mcp 是后备；B站复用工具已有配置。仅在需要时显式执行 `agent-reach login CHANNEL --native`；该工具可能打开浏览器或二维码。`--import-existing` 仅用于用户明确要求导入已有工具状态。普通 Chrome 登录态不能直接视为 MCP 登录态。
-
-For native BOSS CDP, inspect `agent-reach login boss` first. Bind an existing CDP endpoint explicitly; ordinary Chrome without CDP is not attachable through CDP. Only `login boss --new-browser` explicitly opens a dedicated browser. The user confirms login and page stability before sync/search.
-
-## Instagram
-
-Instagram 的 search/profile/posts 使用 CloakBrowser → OpenCLI。各渠道仍需在目标机器上实测。
-
-`agent-reach add instagram` 安装主后端，`agent-reach cloak login instagram` 提供独立登录。可选迁移方式：用户明确授权后，通过 `agent-reach cloak import instagram --opencli-profile ID` 或 `--state-file FILE` 导入站点 Cookie，再运行 `agent-reach check instagram --search`。
-
-search 搜索用户；profile 读取主页信息；posts 返回指定用户的帖子描述。图片和视频内容不在当前读取范围内。
-
-Instagram search/profile/posts use CloakBrowser first, OpenCLI second. Import and logout follow the Cloak steps above. Search returns users; posts return captions.
-
-Facebook search 已接入 CloakBrowser → OpenCLI；profile 仍使用 OpenCLI。可用 `cloak login facebook` 独立登录，或显式 `cloak import facebook --opencli-profile ID` 迁移站点 Cookie。
+`agent-reach logout CHANNEL` 清除专用浏览器中该站登录和渠道自有状态。`remove CHANNEL` 还清理该渠道授权与待完成任务，保留其他网站登录。退出不修改来源 Chrome。限流或验证码时停止，不换账号或浏览器反复尝试。

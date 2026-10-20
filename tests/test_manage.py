@@ -89,6 +89,9 @@ def _fake_version(exe):
 
 @pytest.fixture
 def env(monkeypatch):
+    # A private npm fixture exercises dependency installation without shipping MCP.
+    monkeypatch.setitem(tools.TOOLS, "mcporter", tools.Tool("mcporter", "npm", "mcporter", ("mcporter",), needs=("node",)))
+    monkeypatch.setitem(tools._BY_COMMAND, "mcporter", tools.TOOLS["mcporter"])
     monkeypatch.setenv("PATH", os.environ.get("PATH", ""))  # cli.main extends PATH; restore it
     chans = [Web(), Vid(), Bili(), Bili2(), Needy(), Site(), Site2(), Linky()]
     monkeypatch.setattr(manage, "_channels", lambda: chans)
@@ -240,13 +243,10 @@ def test_npm_tool_gets_private_node_first(env):
 
 
 def test_browser_channel_add_never_opens_login_and_explicit_dedicated_remove_cleans_up(env):
-    from agent_reach.runtime.browser_binding import bind_profile
-    bind_profile("site", "dedicated")
-    bind_profile("site2", "dedicated")
     out = manage.add("site")
     assert "ensure_chrome" in env["calls"]
-    assert env["calls"] == ["ensure_chrome"]
-    assert isinstance(out["next"], str) and "Reuse existing login only when needed" in out["next"]
+    assert env["calls"] == ["ensure_chrome", "setup"]
+    assert "If access requires login" in out["next"] and "agent-reach login site" in out["next"]
     assert out["capability_summary"]["channels"][0]["reach_status"] == "unverified"
     manage.add("site2")
     browser.profile_dir().mkdir(parents=True)
@@ -254,7 +254,8 @@ def test_browser_channel_add_never_opens_login_and_explicit_dedicated_remove_cle
     assert ("clear_site", ("site.example",)) in env["calls"] and first["cleared_cookies"] == 3
     assert first["removed_tools"] == [] and "delete_profile" not in env["calls"]
     last = manage.remove("site2")
-    assert "delete_profile" in env["calls"] and last["browser_deleted"] is True
+    assert ("clear_site", ("site.example",)) in env["calls"]
+    assert "delete_profile" not in env["calls"] and last["browser_deleted"] is False
     assert set(last["removed_tools"]) == {"opencli", "node"}
     assert state.load()["tools"] == {}
     assert not tools.tool_dir("node").exists()
@@ -670,3 +671,38 @@ def test_doctor_separates_needs_login_from_broken(env, monkeypatch):
     manage.add("bili")
     manage.run_checks(["bili"])
     assert _status("bili") == "needs_login"
+
+
+def test_remove_browser_channel_forgets_grants_pending_and_only_its_login(env):
+    manage.add("site")
+    manage.add("site2")
+    def seed(data):
+        data["reuse_sources"] = {"site":{"profile":"old-source"}, "site2":{"profile":"keep"}}
+        data["pending"] = {"a":{"channel":"site"}, "b":{"channel":"site2"}}
+    state.mutate(seed)
+    env["calls"].clear()
+    out = manage.remove("site")
+    assert out["cleared_cookies"] == 3
+    assert env["calls"] == [("clear_site", ("site.example",))]
+    assert state.load()["reuse_sources"] == {"site2":{"profile":"keep"}}
+    assert state.load()["pending"] == {"b":{"channel":"site2"}}
+
+
+def test_setup_removes_only_recorded_unchanged_legacy_mcp_entry(env):
+    path=home_dir()/".cursor"/"mcp.json"
+    path.parent.mkdir()
+    entry={"command":"/test/agent-reach","args":["mcp"]}
+    path.write_text(json.dumps({"mcpServers":{"agent-reach":entry,"keep":{"command":"other"}}}))
+    state.mutate(lambda data:data.update(mcp={"cursor":{"path":str(path),"entry":entry}}))
+    manage.setup()
+    assert json.loads(path.read_text())["mcpServers"]=={"keep":{"command":"other"}}
+    assert "mcp" not in state.load()
+
+
+def test_setup_preserves_unowned_or_changed_mcp_configuration(env):
+    path=home_dir()/".cursor"/"mcp.json"
+    path.parent.mkdir()
+    original=json.dumps({"mcpServers":{"agent-reach":{"command":"foreign"}}})
+    path.write_text(original)
+    manage.setup()
+    assert path.read_text()==original

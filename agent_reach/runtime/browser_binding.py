@@ -1,98 +1,34 @@
-"""Explicit per-channel browser selection; configuration contains IDs, never cookies."""
+"""Shared owned-browser environment and cross-process action locks."""
 
 import hashlib
-import os
 import sys
 from contextlib import contextmanager
 
-from agent_reach.config import Config
-
-from .result import BAD_INPUT, NEED_SETUP, ReachError
-
-KEY = "browser_profiles"
+from .result import NEED_SETUP, ReachError
 
 
 def profile_for(channel: str):
-    value = os.environ.get("AGENT_REACH_OPENCLI_PROFILE")
-    if value is None:
-        profiles = Config(read_only=True).get(KEY, {})
-        if not isinstance(profiles, dict):
-            raise ReachError(BAD_INPUT, "browser_profiles must be an object")
-        value = profiles.get(channel, Config(read_only=True).get("browser_default_profile"))
-    if value is not None and (not isinstance(value, str) or not value.strip()):
-        raise ReachError(BAD_INPUT, "browser profile must be a non-empty context ID")
-    return value.strip() if value is not None else None
+    """All browser channels use the same Reach-owned destination profile."""
+    return "dedicated"
 
 
-def bind_profile(channel: str, profile: str):
-    if not profile.strip():
-        raise ReachError(BAD_INPUT, "empty browser profile")
-    config = Config()
-    profiles = dict(config.get(KEY, {}))
-    profiles[channel] = profile.strip()
-    config.set(KEY, profiles)
-    from . import state
-
-    def reset(data):
-        data["checks"].pop(channel, None)
-        for action in data.get("backend_health", {}).get(channel, {}).values():
-            action.pop("opencli", None)
-    state.mutate(reset)
-    return {
-        "channel": channel,
-        "profile": profile.strip(),
-        "verified": False,
-        "next": f"agent-reach check {channel} --search",
-    }
 
 
-def unbind_profile(channel: str):
-    config = Config()
-    profiles = dict(config.get(KEY, {}))
-    removed = profiles.pop(channel, None) is not None
-    config.set(KEY, profiles)
-    from . import state
-
-    def reset(data):
-        data["checks"].pop(channel, None)
-        for action in data.get("backend_health", {}).get(channel, {}).values():
-            action.pop("opencli", None)
-    state.mutate(reset)
-    return {"channel": channel, "unbound": removed, "browser_cookies_changed": False}
 
 
 def setup_problems(channel: str):
-    return (
-        []
-        if profile_for(channel)
-        else [
-            f"Bind an existing Chrome profile: agent-reach browser bind {channel} CONTEXT_ID (list with agent-reach browser profiles; select once with agent-reach browser use CONTEXT_ID)"
-        ]
-    )
+    return []  # add/first use prepare and reopen the owned browser automatically
 
 
 def environment(channel: str):
-    profile = profile_for(channel)
+    from . import browser
+    browser.ensure_running()
+    profile = browser.bound_context()
     if not profile:
-        raise ReachError(NEED_SETUP, setup_problems(channel)[0])
-    if profile == "dedicated":
-        # Explicit legacy opt-in, never a fallback for a disconnected user profile.
-        from . import browser
-
-        context = browser.bound_context()
-        if not context or not browser.is_running():
-            raise ReachError(
-                NEED_SETUP,
-                "Dedicated browser is not ready; run agent-reach browser setup explicitly",
-            )
-        profile = context
-        browser.touch()
-    return {
-        "OPENCLI_PROFILE": profile,
-        "OPENCLI_WINDOW": "background",
-        "OPENCLI_CDP_ENDPOINT": "",
-        "OPENCLI_CDP_TARGET": "",
-    }
+        raise ReachError(NEED_SETUP, "OpenCLI has not connected to the dedicated browser")
+    browser.touch()
+    return {"OPENCLI_PROFILE": profile, "OPENCLI_WINDOW": "background",
+            "OPENCLI_CDP_ENDPOINT": "", "OPENCLI_CDP_TARGET": ""}
 
 
 # ponytail: one nonblocking OS file lock per profile; callers retry BUSY later.

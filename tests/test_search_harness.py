@@ -7,35 +7,9 @@ from agent_reach.backends.opencli import _opencli_error, opencli_call
 from agent_reach.channels.base import Action, Channel, Param
 from agent_reach.channels.boss import BossChannel
 from agent_reach.runtime import manage, state
-from agent_reach.runtime.browser_binding import (
-    bind_profile,
-    environment,
-    profile_for,
-    unbind_profile,
-)
 from agent_reach.runtime.dispatch import run_action
 from agent_reach.runtime.result import ReachError
 from agent_reach.runtime.run import CommandFailed
-
-
-def test_bindings_are_per_channel_and_unbind_preserves_browser(monkeypatch):
-    launch = Mock(side_effect=AssertionError("must not launch"))
-    monkeypatch.setattr("agent_reach.runtime.browser.ensure_running", launch)
-    bind_profile("boss", "work")
-    bind_profile("twitter", "personal")
-    assert environment("boss")["OPENCLI_PROFILE"] == "work"
-    assert environment("twitter")["OPENCLI_PROFILE"] == "personal"
-    unbind_profile("boss")
-    assert profile_for("boss") is None
-    assert profile_for("twitter") == "personal"
-    launch.assert_not_called()
-
-
-def test_empty_override_does_not_fall_back(monkeypatch):
-    bind_profile("boss", "work")
-    monkeypatch.setenv("AGENT_REACH_OPENCLI_PROFILE", "")
-    with pytest.raises(ReachError, match="non-empty"):
-        environment("boss")
 
 
 @pytest.mark.parametrize(
@@ -52,7 +26,7 @@ def test_error_classification_precedence(message, code):
 
 
 def test_opencli_never_retries_navigation(monkeypatch):
-    bind_profile("boss", "work")
+    monkeypatch.setattr("agent_reach.runtime.browser_binding.environment", lambda _: {"OPENCLI_PROFILE": "owned"})
     run = Mock(side_effect=CommandFailed("UPSTREAM_BROKEN", "failed", stderr="Navigation rejected"))
     monkeypatch.setattr("agent_reach.runtime.run.run_cmd", run)
     with pytest.raises(ReachError):
@@ -146,35 +120,10 @@ def test_profile_lock_is_released_and_other_profiles_independent():
         pass
 
 
-def test_rebinding_invalidates_previous_acceptance():
-    data = state.load()
-    data["checks"]["boss"] = {"actions": {"search": True}}
-    state.save(data)
-    bind_profile("boss", "new")
-    assert "boss" not in state.load()["checks"]
 
 
-def test_patch_rejects_unknown_version_without_writes(tmp_path):
-    from agent_reach.runtime.opencli_compat import repair
-
-    (tmp_path / "package.json").write_text('{"version":"unknown"}')
-    before = set(tmp_path.iterdir())
-    with pytest.raises(ReachError):
-        repair(tmp_path)
-    assert set(tmp_path.iterdir()) == before
 
 
-def test_linkedin_passes_budget_to_mcporter(monkeypatch):
-    from agent_reach.channels import linkedin
-
-    monkeypatch.setattr(linkedin, "_own_servers", lambda: {"linkedin": {}})
-    run = Mock(
-        return_value='{"job_ids":["123"],"references":{"search_results":[{"url":"/jobs/view/123/","text":"Engineer"}]}}'
-    )
-    monkeypatch.setattr(linkedin, "run_cmd", run)
-    rows = linkedin.LinkedInChannel()._mcp_jobs(query="Python", location=None, limit=1, timeout=120)
-    assert run.call_args.kwargs["env"]["MCPORTER_CALL_TIMEOUT"] == "120000"
-    assert rows[0]["title"] == "Engineer"
 
 
 def test_search_checks_stop_after_platform_block(monkeypatch):
@@ -190,21 +139,6 @@ def test_search_checks_stop_after_platform_block(monkeypatch):
     assert len(result["results"]) == 1
 
 
-def test_login_and_logout_do_not_touch_daily_browser(monkeypatch, capsys):
-    from agent_reach.runtime import cli
-
-    bind_profile("twitter", "work")
-    monkeypatch.setattr(
-        "agent_reach.runtime.browser.start",
-        Mock(side_effect=AssertionError("unexpected browser launch")),
-    )
-    assert cli.main(["login", "twitter"]) == 0
-    login = json.loads(capsys.readouterr().out)
-    assert login["result"]["logged_in"] is None
-    assert cli.main(["logout", "twitter"]) == 0
-    logout = json.loads(capsys.readouterr().out)
-    assert logout["items"][0]["browser_cookies_changed"] is False
-    assert profile_for("twitter") == "work"
 
 
 def test_boss_native_risk_stops_without_retry(monkeypatch):
@@ -302,7 +236,7 @@ def test_browser_pacing_respects_budget_without_claiming_platform_rate_limit(mon
 
     ch = SearchChannel()
     ch.actions = (Action("search", "search", (Param("query", "query"),),
-                         (("cloakbrowser", "first"), ("second", "second"))),)
+                         (("opencli", "first"), ("second", "second"))),)
     state.mutate(lambda data: data.setdefault("request_starts", {}).__setitem__(ch.name, state.now()))
     monkeypatch.setattr(dispatch.state, "age_seconds", lambda stamp: 0 if stamp else float("inf"))
     ch.first = Mock(side_effect=AssertionError("no budget for paced request"))

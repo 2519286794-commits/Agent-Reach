@@ -26,18 +26,15 @@ def test_can_handle_rejects_non_reddit():
         assert channel.can_handle(url) is False, url
 
 
-def test_unconfigured_browser_is_not_a_login_requirement(monkeypatch):
-    from agent_reach.backends import cloak
-    from agent_reach.runtime import flow
+def test_unconfigured_browser_is_prepared_without_assuming_login(monkeypatch):
+    from agent_reach.runtime import browser, flow
     monkeypatch.setattr(flow.manage, "is_added", lambda *a: True)
     monkeypatch.setattr(flow.tools, "present", lambda *a: True)
-    monkeypatch.setattr(flow, "_opencli_ready", lambda *a: False)
-    monkeypatch.setattr(cloak, "status", lambda *a: {"configured": False})
+    launch = Mock()
+    monkeypatch.setattr(browser, "ensure_running", launch)
     result = flow.prepare("reddit", action="search")
-    assert result["status"] == "needs_user_action"
-    assert result["required_action"]["type"] == "connect_browser"
-    assert "public_search" in result["required_action"]
-    assert "public_read" in result["required_action"]
+    assert result["status"] == "prepared" and launch.call_count == 1
+    assert "required_action" not in result
 
 
 def test_actual_login_error_remains_resumable(monkeypatch):
@@ -89,19 +86,3 @@ def test_read_url_defaults_to_public_web_and_preserves_explicit_browser(monkeypa
 
 def _opencli(installed=True, broken=False, ready=True, hint=""):
     return Mock(installed=installed, broken=broken, ready=ready, hint=hint)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

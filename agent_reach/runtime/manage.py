@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from agent_reach import __version__
@@ -55,9 +55,6 @@ def _uses_browser(ch) -> bool:
     return bool(ch.login_url)
 
 
-def uses_cloak(ch) -> bool:
-    """Derive the primary browser backend from the channel's action declarations."""
-    return any(a.backends and a.backends[0][0] == "cloakbrowser" for a in ch.actions)
 
 
 def fingerprint(channel: str) -> str:
@@ -71,16 +68,9 @@ def fingerprint(channel: str) -> str:
     ch = _channel(channel)
     relevant = set(ch.prereqs) | set(ch.tools) | set(channel_tools(ch))
     relevant.update(name for action in ch.actions for name, _ in action.backends)
-    # The marker changes only on an explicit login/import/logout, unlike the
-    # browser Cookie database which changes during ordinary reads.
-    marker = state.root() / "sessions" / (channel + "-cloak") / "configured.json"
-    try:
-        stamp = marker.stat() if uses_cloak(ch) else None
-        session_revision = (stamp.st_mtime_ns, stamp.st_size) if stamp else None
-    except OSError:
-        session_revision = None
+    session_revision = data.get("session_revisions", {}).get(channel)
     value = [__version__, channel, profile_for(channel),
-             os.environ.get("REACH_CLOAK_PROXY") or cfg.get("proxy"), session_revision,
+             cfg.get("proxy"), session_revision,
              {k: data["tools"].get(k, {}).get("version") for k in sorted(relevant)}]
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:16]
 
@@ -105,9 +95,7 @@ def fresh_check(channel: str, check: Optional[dict]) -> bool:
 
 def channel_tools(ch) -> List[str]:
     """Everything `add` installs for the channel, prerequisites first."""
-    if uses_cloak(ch):
-        return ["cloakbrowser"]
-    names = list(ch.prereqs) + (["chrome"] if _uses_browser(ch) else []) + list(ch.tools)
+    names = (["node", "opencli", "chrome"] if _uses_browser(ch) else []) + list(ch.prereqs) + list(ch.tools)
     return list(dict.fromkeys(names))
 
 
@@ -215,44 +203,6 @@ def regressed(check: Optional[dict]) -> bool:
 def channel_status(ch, data: dict) -> dict:
     if not is_added(ch, data):
         return {"status": "not_added", "problems": [], "hint": f"agent-reach add {ch.name}"}
-    if uses_cloak(ch):
-        from agent_reach.backends.cloak import status
-        backend = status(ch.name)
-        from .browser_binding import profile_for
-        fallbacks = [{"backend": "opencli", "installed": tools.present("opencli"),
-                      "configured": bool(profile_for(ch.name)), "logged_in": None}]
-        if ch.name == "boss":
-            fallbacks.append({"backend": "boss-agent-cli", "installed": tools.present("boss-agent-cli"),
-                              "configured": None, "logged_in": None})
-        available = (backend["installed"] and backend["configured"] or
-                     any(b["installed"] and b["configured"] for b in fallbacks))
-        result: dict[str, Any] = {"status": "unverified" if available else "needs_setup",
-                "problems": [] if available else ["No configured channel backend"],
-                "backends": [backend, *fallbacks],
-                "hint": f"agent-reach cloak status {ch.name}; agent-reach check {ch.name} --search"}
-        check = data["checks"].get(ch.name)
-        actions = fresh_actions(ch.name, check)
-        query = next((a.name for a in ch.actions if a.name in ("search", "jobs")), None)
-        if result["status"] == "unverified" and query in actions:
-            failed = [a for a, ok in actions.items() if not ok]
-            result.update(checked_at=check["at"], verified_actions=[a for a, ok in actions.items() if ok])
-            codes = [check.get("codes", {}).get(a) for a in failed]
-            result["status"] = ("needs_login" if codes and all(c == "NEED_LOGIN" for c in codes)
-                                else "cooldown" if codes and all(c == "RATE_LIMITED" for c in codes)
-                                else "needs_user_action" if codes and all(c == "PLATFORM_BLOCKED" for c in codes)
-                                else "broken" if failed else "search_ready" if check.get("scope") == "search" else "ready")
-        failures = (data.get("setup_failures", {}).get(ch.name, {}),
-                    data.get("cooldowns", {}).get(ch.name, {}))
-        for failure in sorted(failures, key=lambda item: item.get("at", "")):
-            age = state.age_seconds(failure.get("at"))
-            ttl = 3600 if failure.get("code") == "RATE_LIMITED" else 600
-            if (failure.get("code") in {"RATE_LIMITED", "UPSTREAM_BROKEN"} and age < ttl
-                    and (not check or check.get("at", "") <= failure["at"])):
-                result = {**result,
-                          "status": "cooldown" if failure["code"] == "RATE_LIMITED" else "broken",
-                          "problems": [failure.get("message") or "Channel setup failed"],
-                          "retry_after_seconds": max(0, int(ttl - age))}
-        return result
     problems = [f"{t} not installed: run `agent-reach add {ch.name}`" for t in channel_tools(ch) if not tools.present(t)]
     problems += ch.setup_problems()
     if problems:
@@ -298,10 +248,11 @@ def doctor() -> dict:
 # ── add / remove ──
 
 def _install_channel(ch, *, allow_upgrade: bool = False) -> List[dict]:
-    if uses_cloak(ch):
-        from agent_reach.backends.cloak import setup
-        return [setup()]
     installed = [tools.ensure(t, allow_upgrade=allow_upgrade) for t in channel_tools(ch)]
+    if _uses_browser(ch):
+        from . import browser
+        browser.setup()
+        browser.migrate_owned_session(ch.name)
     ch.on_add()
     return installed
 
@@ -312,15 +263,11 @@ def _sentence(text: str) -> str:
 
 
 def _next_step(ch) -> Optional[str]:
-    """Installation never opens a browser or assumes an existing session expired."""
-    if uses_cloak(ch):
-        return ("Use existing public tools when they cover the task. "
-                f"For a remaining channel action, run agent-reach ensure {ch.name} "
-                "to reuse an authorized existing session; log in only if the selected path requires it.")
+    """Tools are prepared; actual access decides whether login is needed."""
     if ch.login_url or ch.login_argv:
         return ("Use existing public tools when they cover the task. "
-                f"Reuse existing login only when needed: agent-reach login {ch.name}. "
-                "This inspects connection options without opening a browser.")
+                f"If access requires login, run agent-reach login {ch.name} "
+                "to open the shared dedicated browser or native login flow.")
     return " ".join(_sentence(p) for p in ch.setup_problems()) or None
 
 
@@ -340,8 +287,11 @@ def add(name: str, *, allow_upgrade: bool = False) -> dict:
 
 
 def _needed_tools(data: dict) -> set:
-    return tools.closure(t for c in _channels() if is_added(c, data)
-                         for t in (channel_tools(c) + (list(c.tools) + list(c.prereqs) if uses_cloak(c) else [])))
+    added = [c for c in _channels() if is_added(c, data)]
+    needed = tools.closure(t for c in added for t in channel_tools(c))
+    if any(_uses_browser(c) for c in added):
+        needed.add("cloakbrowser")
+    return needed
 
 
 def _prune(data: dict) -> List[str]:
@@ -363,6 +313,9 @@ def remove(name: str) -> dict:
         data["removed_defaults"].append(name)
     state.save(data)
     ch.on_remove()
+    legacy_profile = state.root() / "sessions" / (name + "-cloak")
+    if legacy_profile.exists():
+        _remove(legacy_profile)
     if ch.session:
         clear_session(ch.session)
     if ch.logout_keys:
@@ -373,20 +326,20 @@ def remove(name: str) -> dict:
             if cfg.get(key):
                 cfg.delete(key)
     cookies, browser_deleted, warnings = 0, False, []
-    from .browser_binding import profile_for, unbind_profile
-    existing = ch.name == "boss" or ("opencli" in ch.tools and profile_for(ch.name) != "dedicated")
-    if "opencli" in ch.tools:
-        unbind_profile(ch.name)
-    if _uses_browser(ch) and not existing:
-        others = [c for c in _channels() if c.name != name and _uses_browser(c) and is_added(c, data)]
+    if _uses_browser(ch):
         try:
-            if others:
-                if browser.profile_dir().is_dir():
-                    cookies = browser.clear_site(site_domains(ch))
-            else:
-                browser_deleted = browser.delete_profile()
+            cookies = browser.clear_site(site_domains(ch))
         except ReachError as err:
             warnings.append(err.message)
+    def forget(saved):
+        for key in ("reuse_sources", "setup_failures", "backend_health", "cooldowns"):
+            saved.get(key, {}).pop(name, None)
+        for key in ("pending", "ask_pending"):
+            for ident, task in list(saved.get(key, {}).items()):
+                if task.get("channel") == name:
+                    saved[key].pop(ident, None)
+        saved.setdefault("session_revisions", {})[name] = state.now()
+    state.mutate(forget)
     return {"channel": name, "removed": was_added, "removed_tools": _prune(data),
             "cleared_cookies": cookies, "browser_deleted": browser_deleted, "warnings": warnings}
 
@@ -647,7 +600,7 @@ def migrate() -> dict:
 
     cfg = Config(read_only=True)
     hints = []
-    for cmd, channel in (("bili", "bilibili"), ("opencli", "xiaohongshu"), ("boss", "boss"), ("mcporter", "linkedin")):
+    for cmd, channel in (("bili", "bilibili"), ("opencli", "xiaohongshu"), ("boss", "boss")):
         if shutil.which(cmd):
             hints.append(channel)
     if cfg.get("xueqiu_cookie"):
@@ -675,6 +628,8 @@ def setup() -> dict:
     migration = migrate() if not state.exists() and (state.root() / "config.yaml").exists() else None
     if not state.exists():
         state.save(state.load())
+    _cleanup_retired_mcp()
+    state.mutate(lambda saved: (saved.pop("reuse_sources", None), saved.pop("ask_pending", None)))
     skill = place_skill()
     data = state.load()
     defaults = [c for c in _channels() if c.level == "default" and is_added(c, data)]
@@ -686,14 +641,6 @@ def setup() -> dict:
             added.append({"channel": ch.name, "ok": False, "tools": [],
                           "error": {"code": err.code, "message": err.message, "hint": err.hint}})
     optional = [_optional_entry(c) for c in _channels() if not is_added(c, data)]
-    mcp = None
-    if (home_dir() / ".cursor").is_dir():
-        from . import mcp_registration
-
-        try:
-            mcp = mcp_registration.install()
-        except ReachError as err:
-            mcp = {"agent": "cursor", "installed": False, "reason": err.message}
     from .onboarding import capability_summary, installation_report
 
     registered = _channels()
@@ -707,7 +654,6 @@ def setup() -> dict:
                     "when": "only_if_required"} for c in defaults if _has_login(c)],
         "capability_summary": capability_summary(registered, current),
         "migration": migration,
-        "mcp": mcp,
     }
     from agent_reach.utils.paths import PrivatePathError, atomic_write_private_text
 
@@ -720,6 +666,27 @@ def setup() -> dict:
         report["write_error"] = "安装报告未能保存；完整表格仍在 installation_report.markdown。"
     result["installation_report"] = report
     return result
+
+
+def _cleanup_retired_mcp() -> None:
+    """Remove only the unchanged Cursor entry recorded as ours by an older build."""
+    from agent_reach.utils.paths import atomic_write_private_text, read_small_text_no_follow
+    old = state.load().get("mcp", {}).get("cursor", {})
+    path = home_dir() / ".cursor" / "mcp.json"
+    if old.get("path") != str(path) or not path.is_file():
+        return
+    try:
+        data = json.loads(read_small_text_no_follow(path, max_bytes=1024 * 1024) or "{}")
+        if not isinstance(data, dict):
+            return
+        servers = data.get("mcpServers", {})
+        if not isinstance(servers, dict) or servers.get("agent-reach") != old.get("entry"):
+            return
+        servers.pop("agent-reach")
+        atomic_write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2))
+    except (OSError, ValueError):
+        return  # Preserve an unreadable or externally changed config.
+    state.mutate(lambda saved: saved.pop("mcp", None))
 
 
 # ── update ──
@@ -865,15 +832,14 @@ def update(check_only: bool = False) -> dict:
 
 # ── uninstall ──
 
-_OWNED = ("config.yaml", "state.json", "mcporter.json", "sessions", "browser",
+_OWNED = ("config.yaml", "state.json", "mcporter.json", "sessions", "browser", "cloak-binaries",
           "update-check.json", "update-check.started")
 
 
 def uninstall(dry_run: bool = False) -> dict:
-    from . import browser, mcp_registration
+    from . import browser
 
     root = state.root()
-    mcp = mcp_registration.uninstall(dry_run=dry_run)
     targets = _skill_uninstall_targets()  # before state.json goes: it records the links
     targets += [root / n for n in _OWNED]
     targets += [tools.tool_dir(n) for n in tools.TOOLS] + [tools.npm_global_dir(), root / "tools" / "xiaoyuzhou"]
@@ -892,13 +858,13 @@ def uninstall(dry_run: bool = False) -> dict:
     removing = {str(t) for t in targets} | {str(root / "tools")}
     kept = sorted(str(p) for p in root.iterdir() if str(p) not in removing) if root.exists() else []
     return {"dry_run": dry_run, "removed": [str(t) for t in targets], "global_tools_removed": globals_,
-            "kept_unrecognized": kept, "remove_program": UNINSTALL_PROGRAM, "mcp": mcp}
+            "kept_unrecognized": kept, "remove_program": UNINSTALL_PROGRAM}
 
 
 # ── configure ──
 
 CONFIG_KEYS = {"groq-key": "groq_api_key", "openai-key": "openai_api_key", "proxy": "proxy", "github-token": "github_token",
-               "model-key": "model_api_key", "model-base-url": "model_base_url", "model-name": "model_name"}
+}
 
 
 def configure(key: str, value: str) -> dict:

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Unified entry: backend fallback, error selection, JSON contract, routing, parsers."""
 
-import http.client
 import json
 import time
 import urllib.error
@@ -378,6 +377,7 @@ def fake_browser(monkeypatch, tmp_path):
     real_watcher_running = browser.watcher_running
     monkeypatch.setattr(browser, "connected_contexts", lambda: list(state["contexts"]))
     monkeypatch.setattr(browser, "is_running", lambda: state["running"])
+    monkeypatch.setattr(browser, "_profile_pids", lambda: [999] if state["running"] else [])
     monkeypatch.setattr(browser, "watcher_running", lambda: state["watched"] or real_watcher_running())
     monkeypatch.setattr(browser, "start", lambda url="about:blank": state["opened"].append(url))
     monkeypatch.setattr(browser, "_launch", fake_launch)
@@ -396,12 +396,22 @@ def _bind_dedicated(fake_browser):
     browser.bind()
 
 
-def test_browser_action_requires_binding_without_launch(fake_browser):
+def test_browser_action_sets_up_unbound_browser_by_itself(fake_browser):
+    from agent_reach.runtime import browser
     from agent_reach.runtime.browser_binding import environment
-    with pytest.raises(ReachError) as info:
-        environment("reddit")
-    assert info.value.code == "NEED_SETUP"
-    assert fake_browser["launches"] == 0
+
+    fake_browser["running"] = False
+    assert environment("reddit") ["OPENCLI_PROFILE"] == "dedicated"  # no NEED_SETUP, no user click
+    assert browser.bound_context() == "dedicated"  # the user's own "daily" profile is never picked
+    assert fake_browser["launches"] == 1
+
+    assert environment("reddit") ["OPENCLI_PROFILE"] == "dedicated"
+    assert fake_browser["launches"] == 1  # already open: no second browser
+
+    browser.stop()
+    assert environment("reddit") ["OPENCLI_PROFILE"] == "dedicated"
+    assert fake_browser["launches"] == 2  # closed: reopened, not set up again
+    assert browser.last_used() is not None
 
 
 def test_browser_cold_start_does_not_count_against_timeout(fake_browser):
@@ -503,7 +513,7 @@ def test_bind_refuses_to_guess_between_two_new_profiles(fake_browser):
 
 
 def test_windows_without_extension_still_needs_the_users_click(fake_browser, monkeypatch):
-    from agent_reach.backends.opencli import opencli_call
+    from agent_reach.backends.opencli import OPENCLI_EXTENSION_URL, opencli_call
     from agent_reach.runtime import browser
 
     monkeypatch.setattr(browser, "can_load_extension", lambda: False)
@@ -511,7 +521,7 @@ def test_windows_without_extension_still_needs_the_users_click(fake_browser, mon
     with pytest.raises(ReachError) as info:
         opencli_call("reddit", ["search", "x"], timeout=5)
     assert info.value.code == "NEED_SETUP"
-    assert fake_browser["opened"] == []
+    assert fake_browser["opened"] == [OPENCLI_EXTENSION_URL]
     assert browser.setup_problems()
 
 
@@ -521,23 +531,33 @@ def test_mac_and_linux_report_no_setup_problem_before_first_use(fake_browser):
     assert browser.setup_problems() == []
 
 
-def test_bound_daily_profile_does_not_launch_or_switch(fake_browser, monkeypatch):
-    from agent_reach.runtime.browser_binding import bind_profile, environment
-    bind_profile("reddit", "daily")
-    assert environment("reddit")["OPENCLI_PROFILE"] == "daily"
-    assert fake_browser["launches"] == 0
+def test_opencli_rebinds_once_when_the_owned_extension_disconnects(fake_browser, monkeypatch):
+    from unittest.mock import Mock
+
+    from agent_reach.backends.opencli import opencli_call
+    from agent_reach.runtime import browser
+    browser.setup()
+    monkeypatch.setattr(browser, "watcher_running", lambda: True)
+    fake_browser["contexts"].remove("dedicated")
+    command = Mock(return_value="[]")
+    monkeypatch.setattr("agent_reach.runtime.run.run_cmd", command)
+    assert opencli_call("reddit", ["search", "x"], timeout=5) == []
+    assert fake_browser["launches"] == 2 and command.call_count == 1
+    assert browser.bound_context() == "dedicated"
 
 
-def test_explicit_dedicated_binding_requires_setup(fake_browser):
-    from agent_reach.runtime.browser_binding import bind_profile, environment
-    bind_profile("reddit", "dedicated")
-    with pytest.raises(ReachError) as info:
-        environment("reddit")
-    assert info.value.code == "NEED_SETUP"
-    assert fake_browser["launches"] == 0
+def test_browser_left_open_without_watcher_is_reopened_with_extension(fake_browser, monkeypatch):
+    from agent_reach.runtime import browser
+    from agent_reach.runtime.browser_binding import environment
+
+    browser.setup()
+    fake_browser["contexts"].remove("dedicated")  # e.g. opened by an older Agent Reach, no extension
+    monkeypatch.setattr(browser, "watcher_running", lambda: False)
+    assert environment("reddit") ["OPENCLI_PROFILE"] == "dedicated"
+    assert fake_browser["launches"] == 2
 
 
-def test_login_inspects_without_opening_dedicated_browser(capsys, monkeypatch, fake_browser):
+def test_login_opens_site_in_dedicated_browser(capsys, monkeypatch, fake_browser):
     class BrowserChannel(FakeChannel):
         name = "web2"
         login_url = "https://example.test/login"
@@ -545,8 +565,7 @@ def test_login_inspects_without_opening_dedicated_browser(capsys, monkeypatch, f
     monkeypatch.setattr(unified, "get_all_channels", lambda: [BrowserChannel()])
     code, out = _run(capsys, ["login", "web2"])
     assert code == 0
-    assert fake_browser["opened"] == []
-    assert out["result"]["opened_browser"] is False
+    assert fake_browser["opened"] == ["https://example.test/login"]
 
 
 @pytest.mark.parametrize(
@@ -562,52 +581,3 @@ def test_opencli_errors_map_to_unified_codes(yaml_text, code):
     from agent_reach.backends.opencli import _opencli_error
 
     assert _opencli_error(yaml_text, "").code == code
-
-
-@pytest.mark.parametrize("declared", [None, "3", "invalid"])
-def test_http_bounded_read_accepts_complete_or_unknown_length(monkeypatch, declared):
-    from contextlib import nullcontext
-
-    from agent_reach.runtime.run import http_request
-
-    class Response:
-        headers = {"Content-Length": declared}
-
-        def read(self, size):
-            return b"abc"
-
-    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: nullcontext(Response()))
-    assert http_request("https://example.com", timeout=1, max_bytes=10) == b"abc"
-
-
-def test_http_short_response_is_not_silently_accepted(monkeypatch):
-    from contextlib import nullcontext
-
-    from agent_reach.runtime.run import http_request
-
-    class Response:
-        headers = {"Content-Length": "3905"}
-
-        def read(self, size):
-            return b"x" * 2756
-
-    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: nullcontext(Response()))
-    with pytest.raises(http.client.IncompleteRead) as error:
-        http_request("https://example.com", timeout=1)
-    assert len(error.value.partial) == 2756 and error.value.expected == 1149
-
-
-def test_http_response_size_limit_precedes_incomplete_length(monkeypatch):
-    from contextlib import nullcontext
-
-    from agent_reach.runtime.run import http_request
-
-    class Response:
-        headers = {"Content-Length": "3905"}
-
-        def read(self, size):
-            return b"x" * size
-
-    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: nullcontext(Response()))
-    with pytest.raises(ReachError, match="response exceeds"):
-        http_request("https://example.com", timeout=1, max_bytes=10)

@@ -45,37 +45,27 @@ _MANAGEMENT = (
 HELP = """agent-reach — internet access for AI agents (all output is JSON)
 
 For agents:
-  agent-reach ask "一句话需求"             select, prepare, search, and summarize
   agent-reach channels                    list channels, actions, params
   agent-reach ensure CHANNEL              install/reuse/verify a channel; resumable
   agent-reach execute CHANNEL ACTION --params JSON  prepare and run one action
   agent-reach resume OPERATION_ID         continue after the user logs in
-  agent-reach mcp                         stdio MCP server using the same runtime
-  agent-reach mcp install cursor          register it in an existing Cursor profile
   agent-reach <channel> <action> [args]   e.g. agent-reach bilibili search python
   agent-reach read <url>                  read a link with the matching channel
 
 For the user:
   agent-reach setup [--text]              install defaults and skill; --text displays the capability tables
-  agent-reach add <channel>               install a channel; no browser opens during installation
+  agent-reach add <channel>               install channel dependencies and prepare its browser
   agent-reach remove <channel>            remove a channel (defaults too) and what only it used
   agent-reach login|logout <channel>      log in (the user does it) / forget the login
-  agent-reach browser bind CHANNEL ID    bind an existing OpenCLI profile (IDs: opencli profile list)
-  agent-reach browser unbind CHANNEL     forget binding without touching Chrome cookies
-  agent-reach browser profiles           discover existing OpenCLI sessions
-  agent-reach browser use ID              select a reusable default session
-  agent-reach cloak setup                 install optional CloakBrowser runtime
-  agent-reach cloak login CHANNEL         log in yourself; Reach saves and closes on detection
-  agent-reach cloak import CHANNEL --opencli-profile ID  explicitly copy site cookies
-  agent-reach cloak status CHANNEL        inspect local CloakBrowser setup
-  agent-reach ensure CHANNEL --reuse-profile ID  authorize site-scoped session import
-  agent-reach ensure CHANNEL --forget-source     revoke that import grant
-  agent-reach browser setup|status       explicit legacy dedicated browser
+  agent-reach browser profiles           list connected login sources
+  agent-reach browser import CHANNEL --opencli-profile ID  one-time site login import
+  agent-reach browser import CHANNEL --state-file FILE      import an explicit local session file
+  agent-reach browser setup|status|stop   shared dedicated browser
   agent-reach skill [link <skills-dir>]   where the agent skill is; link it for another AI
   agent-reach doctor [--text]             status of every channel and installed tool versions (no network)
   agent-reach check [channel] [--text]    live-test channels; --search tests search/jobs only
   agent-reach update [--check]            upgrade Agent Reach, every added channel's tools and the skill
-  agent-reach configure <key> [value]     groq-key | openai-key | proxy | github-token | model-key | model-base-url | model-name
+  agent-reach configure <key> [value]     groq-key | openai-key | proxy | github-token
   agent-reach uninstall [--dry-run]       remove everything Agent Reach installed
 """
 
@@ -401,13 +391,11 @@ def _login_channel(cmd: str, args: Sequence[str]):
     if cmd == "login":
         parser.add_argument("--import-existing", action="store_true")
         parser.add_argument("--sync", action="store_true")
-        parser.add_argument("--new-browser", action="store_true", help="Explicitly open the persistent dedicated browser")
-        parser.add_argument("--native", action="store_true", help="Explicitly run the native login flow; it may open a browser")
     ns = parser.parse_args(list(args))
     ch = _channel(ns.channel)
     if ch is None:
         raise _ArgError(f"unknown channel: {ns.channel}")
-    if cmd == "logout" and not (ch.session or ch.logout_keys or "opencli" in ch.tools):
+    if cmd == "logout" and not (ch.session or ch.logout_keys or ch.login_url):
         hint = " Log out in the Agent Reach browser window instead." if ch.login_url else ""
         raise _ArgError(f"{ch.name} has no login state managed by Agent Reach.{hint}")
     if cmd == "login" and not (ch.session or ch.login_url):
@@ -420,27 +408,23 @@ def _cmd_login(args: Sequence[str]) -> int:
         ch, ns = _login_channel("login", args)
     except _ArgError as exc:
         return _bad_input(None, "login", str(exc))
-    if sum(bool(x) for x in (ns.sync, ns.new_browser, ns.native, ns.import_existing)) > 1:
-        return _bad_input(ch.name, "login", "Choose only one login mode")
-    from .onboarding import open_boss_browser, require_boss_cdp, session_plan
-    if not (ns.sync or ns.new_browser or ns.native or ns.import_existing):
-        return _mgmt("login", session_plan, ch)
-    if ns.new_browser:
-        if ch.name == "boss":
-            return _mgmt("login", open_boss_browser)
-        return _bad_input(ch.name, "login", "Use browser setup explicitly for OpenCLI, or login CHANNEL --native for a tool-owned login")
-    if "opencli" in ch.tools:
-        return _bad_input(ch.name, "login", "Log in inside the selected Chrome profile; Reach does not copy its cookies")
-    if ch.name == "boss":
-        try:
-            endpoint = require_boss_cdp()
-        except ReachError as err:
-            return _emit(envelope(channel=ch.name, action="login", error=err))
     if ns.import_existing and ch.session:
         copied = import_legacy_state(ch.session, ch.legacy_state)
         if copied:
             return _emit(envelope(channel=ch.name, action="login", backend=ch.session,
                                   items=[{"imported": copied}]))
+    if ch.login_url and not ns.sync:
+        try:
+            from . import manage
+            manage.add(ch.name)
+            browser.start(ch.login_url)
+        except ReachError as err:
+            return _emit(envelope(channel=ch.name, action="login", error=err))
+        from . import manage
+
+        nxt = manage.browser_login_next(ch)
+        return _emit(envelope(channel=ch.name, action="login", backend="agent-reach-browser",
+                              items=[{"opened": ch.login_url, "next": nxt}]))
     try:
         synced = ch.sync_login()
     except ReachError as err:
@@ -458,8 +442,6 @@ def _cmd_login(args: Sequence[str]) -> int:
     from .sessions import session_dir
 
     argv = [a.replace("{session}", str(session_dir(ch.session))) for a in ch.login_argv[1:]]
-    if ch.name == "boss":
-        argv[argv.index("--cdp-url") + 1] = endpoint
     env = dict(os.environ)
     if ch.session_home:
         env.update(session_env(ch.session))
@@ -476,20 +458,19 @@ def _cmd_logout(args: Sequence[str]) -> int:
         ch, _ = _login_channel("logout", args)
     except _ArgError as exc:
         return _bad_input(None, "logout", str(exc))
-    from .manage import uses_cloak
-    if uses_cloak(ch):
-        from agent_reach.backends.cloak import logout
-        try:
-            result = logout(ch.name)
-        except ReachError as err:
-            return _emit(envelope(channel=ch.name, action="logout", error=err))
-        return _emit(envelope(channel=ch.name, action="logout", backend="cloakbrowser",
-                              items=[{**result, "browser_cookies_changed": False}]))
-    if "opencli" in ch.tools:
-        return _emit(envelope(channel=ch.name, action="logout", backend="opencli", items=[{
-            "removed": False, "next": "Log out in Chrome yourself, or use agent-reach browser unbind " + ch.name,
-            "browser_cookies_changed": False}]))
     removed = clear_session(ch.session) if ch.session else False
+    if ch.login_url:
+        from . import manage, state
+        browser.clear_site(manage.site_domains(ch))
+        # Retired per-site snapshots must not revive a login after logout.
+        manage._remove(state.root() / "sessions" / (ch.name + "-cloak"))
+        def forget(saved):
+            saved["checks"].pop(ch.name, None)
+            saved.get("reuse_sources", {}).pop(ch.name, None)
+            saved.setdefault("session_migrations", {})[ch.name] = {"at": state.now(), "logged_out": True}
+            saved.setdefault("session_revisions", {})[ch.name] = state.now()
+        state.mutate(forget)
+        removed = True
     if ch.logout_keys:
         from agent_reach.config import Config
 
@@ -503,43 +484,30 @@ def _cmd_logout(args: Sequence[str]) -> int:
 
 def _cmd_browser(args: Sequence[str]) -> int:
     parser = _Parser(prog="browser", add_help=False)
-    parser.add_argument("op", choices=("setup", "status", "profiles", "use", "bind", "unbind", "repair-opencli"))
+    parser.add_argument("op", choices=("setup", "status", "stop", "profiles", "import"))
     parser.add_argument("channel", nargs="?")
-    parser.add_argument("profile", nargs="?")
-    parser.add_argument("--label")
+    parser.add_argument("--state-file")
+    parser.add_argument("--opencli-profile")
+    parser.add_argument("--retry-cloak", action="store_true")
     try:
         ns = parser.parse_args(list(args))
+        if ns.retry_cloak and ns.op != "setup":
+            raise _ArgError("--retry-cloak applies only to browser setup")
+        if ns.op == "setup":
+            return _mgmt("browser setup", browser.setup, retry_cloak=ns.retry_cloak)
+        if ns.op == "import":
+            if not ns.channel:
+                raise _ArgError("browser import requires a channel")
+            return _mgmt("browser import", browser.import_session, ns.channel,
+                         state_file=ns.state_file, opencli_profile=ns.opencli_profile)
+        if ns.channel or ns.state_file or ns.opencli_profile:
+            raise _ArgError("session import arguments apply only to browser import")
+        if ns.op == "profiles":
+            from .onboarding import profiles
+            return _mgmt("browser profiles", profiles)
+        return _mgmt("browser " + ns.op, getattr(browser, ns.op))
     except _ArgError as exc:
-        return _bad_input(None, "browser", f"{exc}; usage: agent-reach browser setup|status")
-    if ns.op == "profiles":
-        from .onboarding import profiles
-        return _mgmt("browser profiles", profiles)
-    if ns.op == "use":
-        from .onboarding import use_profile
-        if not ns.channel:
-            return _bad_input(None, "browser", "Usage: browser use CONTEXT_ID [--label NAME]")
-        return _mgmt("browser use", use_profile, ns.channel, ns.label)
-    if ns.op == "bind" and ns.channel == "boss":
-        from .onboarding import bind_cdp
-        return _mgmt("browser bind", bind_cdp, ns.profile)
-    if ns.op == "repair-opencli":
-        from .opencli_compat import repair
-        return _mgmt("browser repair-opencli", repair)
-    if ns.op in ("bind", "unbind"):
-        from .browser_binding import bind_profile, unbind_profile
-        ch = _channel(ns.channel)
-        if ch is None or "opencli" not in ch.tools:
-            return _bad_input(None, "browser", "Specify an OpenCLI channel")
-        if ns.op == "bind" and not ns.profile:
-            return _bad_input(None, "browser", "Usage: browser bind CHANNEL CONTEXT_ID|dedicated")
-        item = bind_profile(ch.name, ns.profile) if ns.op == "bind" else unbind_profile(ch.name)
-        return _emit(envelope(channel=ch.name, action="browser " + ns.op, backend="opencli", items=[item]))
-    action = f"browser {ns.op}"
-    try:
-        item = browser.setup() if ns.op == "setup" else browser.status()
-    except ReachError as err:
-        return _emit(envelope(channel=None, action=action, error=err))
-    return _emit(envelope(channel=None, action=action, backend="agent-reach-browser", items=[item]))
+        return _bad_input(None, "browser", str(exc))
 
 
 def _cmd_flow(head: str, args: Sequence[str]) -> int:
@@ -562,7 +530,7 @@ def _cmd_flow(head: str, args: Sequence[str]) -> int:
     try:
         ns = parser.parse_args(list(args))
         if head == "resume":
-            from .ask import resume
+            from .flow import resume
             result = resume(ns.operation_id)
         elif head == "ensure":
             result = (flow.forget_source(ns.channel) if ns.forget_source else
@@ -598,29 +566,8 @@ def main(argv: Sequence[str]) -> int:
     head, rest = argv[0], argv[1:]
     if head == "channels":
         return _cmd_channels(rest)
-    if head == "ask":
-        if not rest:
-            return _bad_input(None, "ask", "usage: agent-reach ask <instruction>")
-        from .ask import ask
-        try:
-            result = ask(" ".join(rest))
-        except ReachError as err:
-            return _emit(envelope(channel=None, action="ask", error=err))
-        return _emit({"schema_version": SCHEMA_VERSION, "action": "ask", **result})
     if head in ("ensure", "execute", "resume"):
         return _cmd_flow(head, rest)
-    if head == "mcp":
-        if not rest:
-            from agent_reach.mcp_server import serve
-            return serve()
-        from . import mcp_registration
-        if rest == ["install", "cursor"]:
-            return _mgmt("mcp install", mcp_registration.install)
-        if rest == ["status"]:
-            return _mgmt("mcp status", mcp_registration.status)
-        if rest == ["uninstall", "cursor"]:
-            return _mgmt("mcp uninstall", mcp_registration.uninstall)
-        return _bad_input(None, "mcp", "usage: agent-reach mcp [install cursor|status|uninstall cursor]")
     if head == "check":
         return _cmd_check(rest)
     if head == "read":
@@ -629,8 +576,6 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_login(rest)
     if head == "logout":
         return _cmd_logout(rest)
-    if head == "cloak":
-        return _cmd_cloak(rest)
     if head == "browser":
         return _cmd_browser(rest)
     if head == "doctor":
@@ -643,30 +588,3 @@ def main(argv: Sequence[str]) -> int:
     if channel is None:
         return _bad_input(None, head, f"unknown command or channel: {head}; run `agent-reach help`")
     return _cmd_action(channel, rest)
-
-
-def _cmd_cloak(args):
-    from agent_reach.backends import cloak
-    parser = _Parser(prog="cloak", add_help=False)
-    parser.add_argument("op", choices=("setup", "login", "import", "status", "logout"))
-    parser.add_argument("channel", nargs="?", choices=tuple(cloak.DOMAINS))
-    parser.add_argument("--state-file")
-    parser.add_argument("--opencli-profile")
-    try:
-        ns = parser.parse_args(list(args))
-        if ns.op != "setup" and not ns.channel:
-            raise _ArgError("channel is required")
-        if ns.op != "import" and (ns.state_file or ns.opencli_profile):
-            raise _ArgError("import options require cloak import")
-    except _ArgError as exc:
-        return _bad_input(None, "cloak", str(exc))
-    if ns.op == "setup":
-        return _mgmt("cloak.setup", cloak.setup)
-    if ns.op == "login":
-        return _mgmt("cloak.login", cloak.login, ns.channel)
-    if ns.op == "import":
-        return _mgmt("cloak.import", cloak.import_login, ns.channel,
-                     state_file=ns.state_file, opencli_profile=ns.opencli_profile)
-    if ns.op == "logout":
-        return _mgmt("cloak.logout", cloak.logout, ns.channel)
-    return _mgmt("cloak.status", cloak.status, ns.channel)

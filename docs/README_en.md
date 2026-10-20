@@ -1,4 +1,3 @@
-> Session reuse and the resumable MCP flow require the matching runtime and Skill. See [one-sentence-harness.md](one-sentence-harness.md).
 
 <h1 align="center">👁️ Agent Reach</h1>
 
@@ -88,9 +87,9 @@ Every command prints the same JSON shape, so the agent doesn't have to learn eac
 
 - **Which agents?** Any agent that can run shell commands. `agent-reach setup` places one copy of the usage instructions (a skill) that Codex, OpenCode and others read directly, and links it into the skill folders of Claude Code, OpenClaw, Cursor and others when they are installed.
 - **Does it cost money?** The program and its backends are open source and free. The only keys you may need are for speech-to-text: Groq (has a free tier) or OpenAI Whisper.
-- **Sessions**: use the explicitly selected browser/tool session. No automatic cookie migration or new browser; the user authenticates only when needed.
+- **Sessions**: browser channels share the Reach-owned profile. Previously saved Reach sessions are reused; importing a site login from your daily Chrome requires explicit authorization.
 - **Which OS?** macOS first, Linux works, Windows best effort.
-- **Dependencies**: add installs tools. Connect the OpenCLI extension in your existing Chrome; login is needed only when the existing session fails verification.
+- **Dependencies**: add prepares Node, OpenCLI, the dedicated browser and extension. Log in only when the requested action requires it.
 - **How do I hear about new versions?** Agent Reach checks at most once a day in the background. When there is a new version, your agent tells you in plain words what changed and asks whether to update; it updates only if you say yes.
 
 ---
@@ -110,6 +109,7 @@ Every command prints the same JSON shape, so the agent doesn't have to learn eac
 | reddit | optional | search posts, read text/comments, browse a subreddit | public posts/comments use existing web tools first; browser actions request login only if needed |
 | linkedin | optional | job search | login |
 | boss | optional | job and JD search | browser + login |
+| xiaoyuzhou | Optional | Podcast transcription | Groq key |
 | xueqiu | optional | real-time quotes, stock search, hot posts, hot stocks | quotes need nothing; hot posts/stocks need a browser login |
 | twitter | experimental | search tweets, profiles, user tweets, threads | browser + login |
 | facebook | experimental | search, profiles | browser + login |
@@ -118,7 +118,6 @@ Every command prints the same JSON shape, so the agent doesn't have to learn eac
 - **default**: works right after install; you can remove one (`agent-reach remove <channel>`) and updates won't add it back.
 - **optional**: turn on with `agent-reach add <channel>`; Agent Reach installs everything it needs into its own folder.
 - **experimental**: works, but the platform fights automation harder and it can break at any time.
-- **browser**: reuse a selected existing session. Use `browser profiles` and `browser use ID` for OpenCLI. Boss requires an existing CDP page; only explicit `login boss --new-browser` opens its persistent profile.
 
 ---
 
@@ -138,7 +137,7 @@ The agent does the rest by following [install.md](install.md). Along the way you
 
 The only thing you do yourself is log in; the agent never logs in for you and never asks for your password:
 
-- Xiaohongshu, Reddit, Twitter: select an existing Chrome session and verify it before asking for login.
+- Xiaohongshu, Reddit, Twitter: reuse the shared dedicated browser; import a selected site login only with explicit authorization.
 - Bilibili: subtitles need a QR-scan login; search and video info work without it.
 
 > ⚠️ The PyPI package named `agent-reach` is NOT this project. Don't install it from PyPI; use the GitHub URL in install.md.
@@ -208,9 +207,9 @@ On failure `ok` is `false` and `error` holds a `code` (`NEED_SETUP` / `NEED_LOGI
 
 ## Security
 
-- **Everything lives under `~/.agent-reach/`**: `config.yaml` (keys and proxy), `state.json`, `tools/` (private tool installs), `sessions/` (logins of CLI tools), `browser/` (the dedicated browser profile), `mcporter.json`. The one exception is the skill: one copy in `~/.agents/skills/agent-reach/`, with only links to it in other AIs' skill folders.
-- **Agent Reach never logs in for you and never reads your own browser's cookies.** For login channels you log in yourself, in the Agent Reach browser or in the tool's own login flow (e.g. Bilibili QR scan).
-- **CDP** listens on loopback only. Close the standard Boss CDP window manually when finished.
+- **Everything lives under `~/.agent-reach/`**: `config.yaml` (keys and proxy), `state.json`, `tools/` (private tool installs), `sessions/` (logins of CLI tools), `browser/` (the dedicated browser profile). The one exception is the skill: one copy in `~/.agents/skills/agent-reach/`, with only links to it in other AIs' skill folders.
+- **You complete login yourself.** Saved Reach sessions are reused. With your explicit permission, Reach can copy one site's cookies from a connected Chrome profile; it never reads Chrome's cookie database.
+- **CDP** listens on loopback only. BOSS shares the owned browser, which closes after ten idle minutes.
 - **Use a secondary account for login channels.** Platforms may restrict accounts used for automated access.
 - **Don't paste API keys into chat**: run `agent-reach configure groq-key` in your own terminal; input is hidden.
 
@@ -227,7 +226,7 @@ Close the Agent Reach browser first. The output ends with the command that remov
 
 ## Credits
 
-[OpenCLI](https://github.com/jackwener/opencli) · [bili-cli](https://github.com/public-clis/bilibili-cli) · [boss-agent-cli](https://github.com/can4hou6joeng4/boss-agent-cli) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [Jina Reader](https://github.com/jina-ai/reader) · [Exa](https://exa.ai) · [mcporter](https://github.com/nicobailon/mcporter) · [mcp-server-linkedin](https://github.com/stickerdaniel/linkedin-mcp-server)
+[OpenCLI](https://github.com/jackwener/opencli) · [bili-cli](https://github.com/public-clis/bilibili-cli) · [boss-agent-cli](https://github.com/can4hou6joeng4/boss-agent-cli) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [Jina Reader](https://github.com/jina-ai/reader) · [Exa](https://exa.ai)
 
 ## Contact
 
@@ -257,6 +256,7 @@ For collaboration or questions, add me on WeChat — I'll invite you to the comm
 <a href="https://www.star-history.com/?type=date&repos=Panniantong%2FAgent-Reach"><picture><source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Panniantong/Agent-Reach&type=date&theme=dark&legend=top-left&sealed_token=K3_u-LJQTVURYu-38Tqa_VWJOSqMf_HbAw-QKSdGwEq6seqznugdIpXdSeztEdOutT40IBXwVxTmg8wS_OSygb5UWf1x8e-Fai6aygrjq6QH8vU09EcqQCN7atp-76HmxX-j9fnZ9NiSrLDNzK98TnXBFJ_Wb_y80I0nWr3O8DdGnLXFhAJgoNK3Jz8D" /><source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Panniantong/Agent-Reach&type=date&legend=top-left&sealed_token=P2746KOq7grpS8Q-nrqEzci1-Z0-dOw-M3KEqju-l3TyF24NMyRDR7TnxdReJWlXyomoT4mjjqC28-2-c2G6CnzmS1hgYdEDiGPmLkmEqKP5tgjORXshdrUFxoSxTqmIKEMFFmGZUX1v3ec-q_XMyftTVWzluiQH7CvKoZ1uDKU3PJN05mO22u7qlLeG" /><img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Panniantong/Agent-Reach&type=date&legend=top-left&sealed_token=P2746KOq7grpS8Q-nrqEzci1-Z0-dOw-M3KEqju-l3TyF24NMyRDR7TnxdReJWlXyomoT4mjjqC28-2-c2G6CnzmS1hgYdEDiGPmLkmEqKP5tgjORXshdrUFxoSxTqmIKEMFFmGZUX1v3ec-q_XMyftTVWzluiQH7CvKoZ1uDKU3PJN05mO22u7qlLeG" /></picture></a>
 
 
-### Local enhancement: CloakBrowser first
 
-Xiaohongshu and BOSS search prefer CloakBrowser, then OpenCLI. Native Boss remains the third search backend. Both support read; BOSS read currently uses only CloakBrowser. Import existing site cookies explicitly before use; queries never migrate credentials automatically. See [CloakBrowser integration](cloakbrowser.md).
+### Shared dedicated browser
+
+Browser channels share one Reach profile. CloakBrowser is preferred, with installed Chrome as the download-failure fallback. It closes after ten idle minutes and reopens on demand. OpenCLI or native upstream CLIs extract the data. See [browser setup](cloakbrowser.md) for login reuse, automatic extension loading and site-scoped cleanup. Xiaoyuzhou transcription remains optional and requires a Groq key.

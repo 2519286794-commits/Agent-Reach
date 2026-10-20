@@ -1,29 +1,9 @@
 """The Agent Reach dedicated browser.
 
-A separate Chrome whose profile lives in ~/.agent-reach/browser/profile/, so
-every browser login Agent Reach relies on stays under ~/.agent-reach/. The
-user's own Chrome profiles and ~/.opencli settings are never touched.
-
-Chrome: the system Google Chrome if there is one, else Chrome for Testing
-(stable) under ~/.agent-reach/tools/chrome/ (`ensure_chrome`).
-
-OpenCLI extension: the `opencli-extension-*.zip` of the latest OpenCLI GitHub
-release, unpacked at ~/.agent-reach/browser/extension/ (a stable path, so the
-extension id stays the same). Branded Chrome ignores `--load-extension`, so on
-macOS/Linux the idle watcher (runtime.browser_watcher) launches Chrome with
-`--remote-debugging-pipe --enable-unsafe-extension-debugging` and loads the
-extension over that pipe with CDP `Extensions.loadUnpacked` on every launch
-(it does not persist). Chrome exits when the pipe closes, so the watcher owns
-the browser for its whole life. `setup()` then records which OpenCLI profile
-is the dedicated browser (~/.agent-reach/browser/state.json); no user click.
-Windows has no fd passing: the user adds the extension from the Web Store once.
-
-Browser channels open it on demand (`ensure_running`). Every Agent Reach use
-touches ~/.agent-reach/browser/last_used; the watcher closes the browser after
-IDLE_LIMIT seconds without use.
-
-Debugging is bound to 127.0.0.1:9222 only. Any local process that can reach
-that port can control this browser; that is why it closes when idle.
+One Reach-owned profile under ~/.agent-reach/browser/profile is shared by all
+browser channels. CloakBrowser is preferred; installation/download failure falls
+back to installed Chrome. The existing watcher owns the browser, loads OpenCLI,
+and closes it after 600 seconds without use. Website adapters stay upstream.
 """
 
 from __future__ import annotations
@@ -70,7 +50,6 @@ _STORE_WAIT = 180.0
 
 OPENCLI_RELEASE_API = "https://api.github.com/repos/jackwener/OpenCLI/releases/latest"
 _EXTENSION_ASSET_RE = re.compile(r"^opencli-extension-.*\.zip$")
-CFT_VERSIONS_URL = "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
 _USER_AGENT = "agent-reach"
 
 
@@ -273,90 +252,46 @@ def _system_chrome() -> Optional[str]:
     return next((c for c in candidates if c and os.path.exists(c)), None)
 
 
-def _cft_dir() -> Path:
-    from . import tools
-
-    return tools.tool_dir("chrome")
 
 
-def _cft_platform() -> Optional[str]:
-    system, machine = platform.system(), platform.machine().lower()
-    arm = machine in ("arm64", "aarch64")
-    if system == "Darwin":
-        return "mac-arm64" if arm else "mac-x64"
-    if system == "Windows":
-        return "win64" if sys.maxsize > 2**32 else "win32"
-    if system == "Linux":
-        return "linux-arm64" if arm else "linux64"
-    return None
 
 
-def _cft_binary(plat: Optional[str] = None) -> Path:
-    plat = plat or _cft_platform() or ""
-    base = _cft_dir() / f"chrome-{plat}"
-    if plat.startswith("mac"):
-        return base / "Google Chrome for Testing.app" / "Contents" / "MacOS" / "Google Chrome for Testing"
-    if plat.startswith("win"):
-        return base / "chrome.exe"
-    return base / "chrome"
 
 
 def chrome_binary() -> Optional[str]:
-    """System Google Chrome, else our Chrome for Testing if installed, else None (never downloads)."""
-    system = _system_chrome()
-    if system:
-        return system
-    cft = _cft_binary()
-    return str(cft) if _cft_platform() and cft.exists() else None
+    """Offline lookup; never starts a browser or downloads anything."""
+    selected = _load_state().get("executable")
+    if selected and Path(selected).is_file():
+        return selected
+    return _system_chrome()
 
 
-def ensure_chrome() -> str:
-    """Path to a Chrome binary, installing Chrome for Testing (stable) when the system has no Chrome."""
-    from .result import NEED_SETUP, UPSTREAM_BROKEN, ReachError
+def ensure_chrome(*, retry_cloak: bool = False) -> str:
+    """Prepare CloakBrowser, falling back only to an installed system Chrome."""
+    from .result import NEED_SETUP, ReachError
 
-    found = chrome_binary()
-    if found:
-        return found
-    plat = _cft_platform()
-    if not plat:
-        raise ReachError(NEED_SETUP, f"no Chrome build for {platform.system()} {platform.machine()}",
-                         hint="Ask the user to install Google Chrome.")
+    selected = chrome_binary()
+    if selected and _load_state().get("backend") and not retry_cloak:
+        return selected
+    from agent_reach.backends import cloak
     try:
-        stable = json.loads(_fetch(CFT_VERSIONS_URL))["channels"]["Stable"]
-        version = stable["version"]
-        url = next(d["url"] for d in stable["downloads"]["chrome"] if d["platform"] == plat)
-    except Exception as exc:  # noqa: BLE001
-        raise ReachError(UPSTREAM_BROKEN, f"could not look up Chrome for Testing: {exc}") from None
-    dest = _cft_dir()
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    work = Path(tempfile.mkdtemp(prefix=".chrome-", dir=dest.parent))
-    try:
-        archive = work / "chrome.zip"
-        _download(url, archive, timeout=120)
-        unpacked = work / "unpacked"
-        unpacked.mkdir()
-        _unzip(archive, unpacked)
-        archive.unlink()
-        shutil.rmtree(dest, ignore_errors=True)
-        os.replace(unpacked, dest)
-    except Exception as exc:  # noqa: BLE001
-        raise ReachError(UPSTREAM_BROKEN, f"could not install Chrome for Testing: {exc}") from None
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
-    exe = _cft_binary(plat)
-    if not exe.exists():
-        raise ReachError(UPSTREAM_BROKEN, "Chrome for Testing download did not contain a browser")
-    from . import tools
-
-    record = getattr(tools, "record", None)
-    if record:
-        record("chrome", version)
-    return str(exe)
+        installed = cloak.setup()
+    except (ReachError, OSError):
+        fallback = _system_chrome()
+        if not fallback:
+            raise ReachError(NEED_SETUP, "CloakBrowser could not be installed and no system Chrome was found",
+                             hint="Check the download/proxy connection, or install Chrome, then run agent-reach browser setup.") from None
+        update_state(backend="chrome", executable=fallback, launcher_python=None,
+                     fallback_reason="CloakBrowser installation/download failed")
+        return fallback
+    update_state(backend="cloakbrowser", executable=installed["executable"],
+                 launcher_python=installed["python"], fallback_reason=None)
+    return installed["executable"]
 
 
 def can_load_extension() -> bool:
-    """macOS/Linux: the watcher loads the extension over the launch pipe. Windows: Web Store only."""
-    return os.name != "nt"
+    """Cloak loads extensions everywhere; system Chrome uses pipe loading on POSIX."""
+    return _load_state().get("backend") == "cloakbrowser" or os.name != "nt"
 
 
 def chrome_argv(exe: str, url: str, *, pipe: bool) -> List[str]:
@@ -459,12 +394,17 @@ def _detach_kwargs() -> dict:
 def _launch(url: str) -> None:
     """Start the dedicated browser. Caller holds start_lock().
 
-    macOS/Linux: the watcher launches Chrome (it must own the pipe). Windows:
-    Chrome is started here and the watcher only watches.
+    The watcher launches Cloak through its public SDK on every OS. System
+    Chrome fallback uses pipe loading on POSIX and Web Store loading on Windows.
     """
+    from agent_reach.config import Config
+
     from .result import UPSTREAM_BROKEN, ReachError
 
+    if is_running():
+        raise ReachError(UPSTREAM_BROKEN, "The dedicated debugging port is already in use; no browser was changed")
     exe = ensure_chrome()
+    _prepare_shared_profile()
     make_private_dir(profile_dir())
     update_state(started_at=time.time())
     if not can_load_extension():
@@ -480,8 +420,13 @@ def _launch(url: str) -> None:
     # A watcher still exiting from the last browser holds its lock for a moment; the new one waits for it.
     with open(watcher_log_path(), "wb") as log:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "agent_reach.runtime.browser_watcher", "--launch", url, "--chrome", exe],
-            stdin=subprocess.DEVNULL, stdout=log, stderr=log, **_detach_kwargs(),
+            [_load_state().get("launcher_python") or sys.executable, "-m", "agent_reach.runtime.browser_watcher",
+             "--launch", url, "--chrome", exe, *(["--cloak"] if _load_state().get("backend") == "cloakbrowser" else [])],
+            stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+            env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[2]),
+                 "CLOAKBROWSER_AUTO_UPDATE": "false",
+                 "REACH_BROWSER_PROXY": str(Config(read_only=True).get("proxy") or ""),
+                 "CLOAKBROWSER_CACHE_DIR": str(browser_root().parent / "cloak-binaries")}, **_detach_kwargs(),
         )
     if not wait_for(lambda: is_running() or proc.poll() is not None, START_WAIT, interval=0.2) or not is_running():
         tail = ""
@@ -502,6 +447,28 @@ def _spawn_watcher() -> None:
     wait_for(watcher_running, 5.0, interval=0.1)
 
 
+def _prepare_shared_profile() -> None:
+    """Keep the old Chrome profile recoverable when changing browser engines."""
+    selected = _load_state()
+    if (selected.get("backend") != "cloakbrowser" or selected.get("profile_backend") == "cloakbrowser"
+            or not profile_dir().is_dir()):
+        return
+    if not (browser_root() / "session.json").is_file() and _system_chrome():
+        # An older Reach may have saved only Chrome's encrypted Cookie database.
+        # Briefly open that Reach-owned profile to export it, never a personal profile.
+        try:
+            update_state(backend="chrome", executable=_system_chrome(), launcher_python=None)
+            _launch("about:blank")
+            save_session()
+            stop()
+        finally:
+            update_state(backend=selected.get("backend"), executable=selected.get("executable"),
+                         launcher_python=selected.get("launcher_python"))
+    backup = browser_root() / ("profile-before-cloak-" + str(time.time_ns()))
+    profile_dir().rename(backup)
+    update_state(profile_backend="cloakbrowser", profile_backup=str(backup))
+
+
 def _remaining_start_wait() -> float:
     """How long a browser that is open but not ready yet still gets."""
     started = _load_state().get("started_at") or 0.0
@@ -512,50 +479,51 @@ def start(url: str = "about:blank") -> None:
     """Show `url` in the dedicated browser, launching it if needed (login)."""
     touch()
     if is_running():
+        _require_owned()
         open_url(url)
         return
     with start_lock():
         if is_running():
+            _require_owned()
             open_url(url)
             return
         _launch(url)
 
 
 def ensure_running(context: Optional[str] = None) -> None:
-    """Make the dedicated browser ready for an action, launching it if needed.
-
-    With `context`, also wait until that OpenCLI profile is connected. A browser
-    left open without its watcher (so without the extension) is relaunched.
-    The wait does not count against the action's --timeout.
-    Raises ReachError when it is not ready within START_WAIT.
-    """
+    """Prepare/reopen the shared browser; repair one lost Bridge connection."""
     from .clock import off_the_clock
     from .result import NEED_SETUP, UPSTREAM_BROKEN, ReachError
-
+    if is_running():
+        _require_owned()
+    if context is None:
+        context = bound_context()
+        if not context:
+            setup()
+            return
     touch()
-
-    def ready() -> bool:
-        return is_running() and (context is None or context in connected_contexts())
-
+    def ready():
+        return is_running() and context in connected_contexts()
     if ready():
         return
-    with off_the_clock(), start_lock():
-        if context and can_load_extension() and is_running() and not watcher_running():
-            stop()  # an orphan from an older Agent Reach: reopen it with the extension
-        if not is_running():
-            _launch("about:blank")
-        if not wait_for(ready, _remaining_start_wait()):
+    with off_the_clock():
+        with start_lock():
+            if can_load_extension() and is_running() and not watcher_running():
+                stop()  # only a verified Reach-owned orphan may be replaced
             if not is_running():
-                raise ReachError(UPSTREAM_BROKEN, "the Agent Reach browser closed while starting")
-            if can_load_extension():
-                raise ReachError(
-                    UPSTREAM_BROKEN, "the Agent Reach browser is running but OpenCLI is not connected to it",
-                    hint="Run `agent-reach browser setup` once; if it fails the same way, OpenCLI itself is broken.",
-                )
-            raise ReachError(
-                NEED_SETUP, "the Agent Reach browser is running but OpenCLI is not connected to it",
-                hint="Ask the user to check the OpenCLI extension is enabled in the Agent Reach browser window.",
-            )
+                _launch("about:blank")
+            if wait_for(ready, _remaining_start_wait()):
+                touch()
+                return
+            if not is_running():
+                raise ReachError(UPSTREAM_BROKEN, "The dedicated browser closed during startup")
+            automatic = can_load_extension()
+        if automatic:
+            # setup owns its own lock; never recurse while holding start_lock.
+            setup()
+        else:
+            raise ReachError(NEED_SETUP, "Enable the OpenCLI extension in the dedicated Chrome fallback",
+                             hint="Run agent-reach browser setup; no website login has been requested.")
     touch()
 
 
@@ -563,8 +531,10 @@ def stop(timeout: float = 10.0) -> bool:
     """Close the dedicated browser: CDP Browser.close, then terminate. True if it is closed."""
     if not is_running():
         return True
+    _require_owned()
     from . import cdp
 
+    save_session()
     info = cdp.call("SystemInfo.getProcessInfo") or {}
     pid = next((p.get("id") for p in info.get("processInfo", []) if p.get("type") == "browser"), None)
     cdp.call("Browser.close")
@@ -578,6 +548,7 @@ def stop(timeout: float = 10.0) -> bool:
 
 def open_url(url: str) -> None:
     """Open a new tab in the running dedicated browser."""
+    _require_owned()
     req = urllib.request.Request(f"{CDP_URL}/json/new?{urllib.parse.quote(url, safe='')}", method="PUT")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # loopback: never proxy
     with opener.open(req, timeout=5):
@@ -601,23 +572,93 @@ def _profile_pids() -> List[int]:
     return pids
 
 
+def _require_owned() -> None:
+    """Do not navigate or close an unrelated browser occupying our fixed port."""
+    if not watcher_running() and not _profile_pids():
+        from .result import NEED_SETUP, ReachError
+        raise ReachError(NEED_SETUP, "Port 9222 belongs to an unmanaged browser; close that debugging session yourself first")
+
+
+def save_session() -> None:
+    """Serialize snapshot reads/writes with logout so an old snapshot cannot revive it."""
+    with _locked(browser_root() / "session.lock", wait=5.0):
+        _save_session_unlocked()
+
+
+def _save_session_unlocked() -> None:
+    from . import cdp
+    result = cdp.call("Storage.getCookies")
+    if result is not None:
+        atomic_write_private_text(browser_root() / "session.json", json.dumps(result))
+
+
+def restore_session() -> None:
+    from . import cdp
+    try:
+        text = read_small_text_no_follow(browser_root() / "session.json", max_bytes=2 * 1024 * 1024)
+        rows = json.loads(text or "{}").get("cookies", [])
+    except (OSError, ValueError, PrivatePathError):
+        return
+    existing = cdp.call("Storage.getCookies")
+    if existing is None:
+        return
+    keys = {(c["name"], c["domain"], c.get("path", "/")) for c in existing.get("cookies", [])}
+    allowed = {"name", "value", "domain", "path", "secure", "httpOnly", "sameSite", "expires"}
+    missing = [{k: v for k, v in row.items() if k in allowed} for row in rows
+               if isinstance(row, dict) and row.get("name") and row.get("domain")
+               and (row["name"], row["domain"], row.get("path", "/")) not in keys
+               and isinstance(row.get("expires", -1), (int, float))
+               and (row.get("expires", -1) <= 0 or row["expires"] > time.time())]
+    if missing:
+        cdp.call("Storage.setCookies", {"cookies": missing})
+
+
 def clear_site(domains: List[str]) -> int:
+    from .browser_binding import execution_lock
+    with execution_lock("browser:shared"):
+        return _clear_site(domains)
+
+
+def _clear_site(domains: List[str]) -> int:
     """Delete the dedicated browser's cookies for `domains` (and subdomains); returns how many.
 
     Opens the browser if it is closed; does nothing when it was never used.
     """
     if not domains or not (is_running() or profile_dir().is_dir()):
         return 0
-    from . import cdp
 
     ensure_running()
+    with _locked(browser_root() / "session.lock", wait=5.0):
+        return _clear_running_site(domains)
+
+
+def _clear_running_site(domains: List[str]) -> int:
+    from . import cdp
+    from .result import UPSTREAM_BROKEN, ReachError
+    # Stop the removed site's open pages from refreshing its login in memory.
+    pages = [t for t in (cdp._json("/json/list") or []) if t.get("type") == "page"]
+    closing = [t for t in pages if any(cdp.domain_matches(urllib.parse.urlsplit(t.get("url", "")).hostname or "", d) for d in domains)]
+    if closing and len(closing) == len(pages):
+        if cdp.call("Target.createTarget", {"url": "about:blank"}) is None:
+            raise ReachError(UPSTREAM_BROKEN, "Could not retain the shared browser while logging out")
+    for target in closing:
+        if cdp.call("Target.closeTarget", {"targetId": target["id"]}) is None:
+            raise ReachError(UPSTREAM_BROKEN, "Could not close the removed site's page")
     doomed = [c for c in (cdp.call("Storage.getCookies") or {}).get("cookies", [])
               if any(cdp.domain_matches(c.get("domain", ""), d) for d in domains)]
-    if not doomed:
-        return 0
     keys = ("name", "domain", "path", "secure", "httpOnly", "sameSite", "partitionKey", "sourceScheme", "sourcePort")
     expired = [{**{k: c[k] for k in keys if k in c}, "value": "", "expires": 1} for c in doomed]
-    cdp.call("Storage.setCookies", {"cookies": expired})
+    if expired and cdp.call("Storage.setCookies", {"cookies": expired}) is None:
+        from .result import UPSTREAM_BROKEN, ReachError
+        raise ReachError(UPSTREAM_BROKEN, "Could not clear this site's cookies in the dedicated browser")
+    origins = {d.lstrip(".") for d in domains} | {c["domain"].lstrip(".") for c in doomed}
+    for host in origins:
+        for origin in ("https://" + host, "http://" + host):
+            if cdp.call("Storage.clearDataForOrigin", {"origin": origin,
+                        "storageTypes": "local_storage,indexeddb,cache_storage,service_workers"}, page=True) is None:
+                from .result import UPSTREAM_BROKEN, ReachError
+                raise ReachError(UPSTREAM_BROKEN, "Could not clear this site's browser storage")
+    _save_session_unlocked()
     left = {(c.get("name"), c.get("domain"), c.get("path")) for c in (cdp.call("Storage.getCookies") or {}).get("cookies", [])}
     return sum((c.get("name"), c.get("domain"), c.get("path")) not in left for c in doomed)
 
@@ -691,7 +732,7 @@ def _ambiguous(candidates: List[str]):
     )
 
 
-def setup() -> dict:
+def setup(*, retry_cloak: bool = False) -> dict:
     """Make the dedicated browser ready with the OpenCLI extension loaded and bound; returns status().
 
     macOS/Linux: fully automatic. Windows: opens the Web Store page and waits for the user's click.
@@ -700,14 +741,18 @@ def setup() -> dict:
     from .clock import off_the_clock
 
     with off_the_clock():
-        ensure_chrome()
+        if retry_cloak:
+            ensure_chrome(retry_cloak=True)
+        else:
+            ensure_chrome()
         if not can_load_extension():
             return _setup_from_store()
         refresh_extension()
         touch()
         with start_lock():
             ctx = bound_context()
-            if ctx and is_running() and watcher_running() and ctx in connected_contexts():
+            if (ctx and is_running() and watcher_running() and ctx in connected_contexts()
+                    and _load_state().get("running_backend") == _load_state().get("backend")):
                 return status()
             stop()  # (re)launch so this browser connects fresh and we can tell it apart
             if ctx:  # let OpenCLI notice the old connection is gone before taking the snapshot
@@ -717,6 +762,10 @@ def setup() -> dict:
             found: List[str] = []
 
             def new_context() -> bool:
+                if not is_running() and not watcher_running():
+                    from .result import UPSTREAM_BROKEN, ReachError
+                    raise ReachError(UPSTREAM_BROKEN, "The dedicated browser exited before its extension connected",
+                                     hint=f"Browser launch failed; inspect {watcher_log_path()}. No login was requested.")
                 found[:] = [c for c in connected_contexts() if c not in baseline]
                 return len(found) == 1
 
@@ -766,6 +815,8 @@ def status() -> dict:
     return {
         "profile_dir": str(profile_dir()),
         "chrome": chrome_binary(),
+        "backend": _load_state().get("backend"),
+        "fallback_reason": _load_state().get("fallback_reason"),
         "extension_version": extension_version(),
         "running": running,
         "opencli_context": ctx,
@@ -782,3 +833,82 @@ def setup_problems() -> List[str]:
     if not can_load_extension() and not bound_context():
         return ["Agent Reach browser not set up: run `agent-reach browser setup`"]
     return []
+
+
+def import_session(channel: str, *, state_file=None, opencli_profile=None, only_missing: bool = False) -> dict:
+    """Explicit one-time, site-scoped import. Source data stays untouched."""
+    from . import cdp, manage, state
+    from .browser_binding import execution_lock
+    from .result import BAD_INPUT, UPSTREAM_BROKEN, ReachError
+    if bool(state_file) == bool(opencli_profile):
+        raise ReachError(BAD_INPUT, "Choose exactly one of --state-file or --opencli-profile")
+    ch = manage._channel(channel)
+    domains = manage.site_domains(ch)
+    if not domains:
+        raise ReachError(BAD_INPUT, "This channel has no browser login")
+    if state_file:
+        try:
+            data = json.loads(read_small_text_no_follow(Path(state_file), max_bytes=2 * 1024 * 1024) or "null")
+        except (ValueError, OSError, PrivatePathError):
+            raise ReachError(BAD_INPUT, "Cannot read the supplied session file") from None
+    else:
+        from agent_reach.backends.opencli import export_site_cookies
+        data = []
+        for domain in domains:
+            data.extend(export_site_cookies(opencli_profile, domain))
+    rows = data.get("cookies", []) if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise ReachError(BAD_INPUT, "Expected a cookie array or storage-state JSON")
+    cookies = []
+    for row in rows:
+        if not isinstance(row, dict) or not any(cdp.domain_matches(str(row.get("domain", "")), d) for d in domains):
+            continue
+        if not isinstance(row.get("name"), str) or not isinstance(row.get("value"), str):
+            continue
+        expiry = row.get("expires", row.get("expirationDate", -1))
+        if not isinstance(expiry, (int, float)) or (expiry > 0 and expiry <= time.time()):
+            continue
+        cookie = {k: row[k] for k in ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite") if k in row}
+        if expiry > 0:
+            cookie["expires"] = expiry
+        if cookie.get("sameSite") not in {"Strict", "Lax", "None"}:
+            cookie.pop("sameSite", None)
+        cookies.append(cookie)
+    if not cookies:
+        raise ReachError(BAD_INPUT, "No unexpired cookies for the selected site; the source login may need renewal")
+    ensure_running()
+    with execution_lock("browser:shared"):
+        if only_missing:
+            present = cdp.call("Storage.getCookies")
+            if present is None:
+                raise ReachError(UPSTREAM_BROKEN, "Could not inspect the saved dedicated session")
+            keys = {(c["name"], c["domain"], c.get("path", "/")) for c in present.get("cookies", [])}
+            cookies = [c for c in cookies if (c["name"], c["domain"], c.get("path", "/")) not in keys]
+        if cookies and cdp.call("Storage.setCookies", {"cookies": cookies}) is None:
+            raise ReachError(UPSTREAM_BROKEN, "The dedicated browser did not accept the imported session")
+    def invalidate(saved):
+        saved["checks"].pop(channel, None)
+        saved.get("reuse_sources", {}).pop(channel, None)
+        saved.setdefault("session_revisions", {})[channel] = state.now()
+    state.mutate(invalidate)
+    save_session()
+    touch()
+    return {"channel": channel, "imported_cookies": len(cookies), "original_browser_changed": False,
+            "logged_in": None, "authorization": "one_time_site_import", "next": f"agent-reach check {channel} --search --text"}
+
+
+def migrate_owned_session(channel: str) -> None:
+    """Merge old Reach-owned site snapshots once, without replacing a newer login."""
+    from . import state
+    from .result import BAD_INPUT, ReachError
+    source = state.root() / "sessions" / (channel + "-cloak") / "profile" / "reach-session.json"
+    if not source.is_file() or state.load().get("session_migrations", {}).get(channel):
+        return
+    try:
+        result = import_session(channel, state_file=source, only_missing=True)
+        status = {"at": state.now(), "imported_cookies": result["imported_cookies"]}
+    except ReachError as exc:
+        if exc.code != BAD_INPUT:
+            raise
+        status = {"at": state.now(), "imported_cookies": 0, "reason": "old snapshot unavailable or expired"}
+    state.mutate(lambda saved: saved.setdefault("session_migrations", {}).__setitem__(channel, status))

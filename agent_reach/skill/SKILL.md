@@ -3,7 +3,7 @@ name: agent-reach
 description: >
   Use when the user names a supported platform, shares its URL, or asks to configure or diagnose its channel:
   小红书/xiaohongshu, B站/bilibili, Twitter/X, Reddit, Facebook, Instagram,
-  YouTube (subtitles, transcripts), V2EX, 雪球/股票行情, GitHub,
+  YouTube (subtitles, transcripts), 小宇宙/Xiaoyuzhou podcasts, V2EX, 雪球/股票行情, GitHub,
   LinkedIn/Boss直聘 jobs,
   or when your built-in web search / fetch is missing or fails.
   Supplement existing agent capabilities: prefer available public web tools for public content on any platform.
@@ -41,11 +41,9 @@ metadata:
 
 Reddit 公开帖可搜索 `site:reddit.com 关键词` 再打开原帖，公开 JSON 有时包含评论父子 ID；以本次实际返回为准。YouTube/B站简介与字幕、视频内容分别验收；X 的单帖公开内容与评论流分别验收。某台机器的失败不能推广为平台必须登录，也不固化“某平台总能匿名读全”。网络路径不同的结果分别记录。
 
-需要 Reach 执行的一句话请求，优先调用 MCP 的 `reach_execute`；CLI 环境可用 `agent-reach ask "用户原话"`，由已配置的模型选动作并总结。渠道未准备好时，执行入口会返回 `required_action` 与 `operation_id`；用户完成登录后调用 `reach_resume` 或 `agent-reach resume OPERATION_ID`。不要自行拼安装、导入、重试的命令链。
 
 ```bash
 agent-reach channels                      # 每个渠道有哪些动作、要什么参数（不确定就先跑这个）
-agent-reach ask "去小红书找数据平台笔记并总结" # 已配置模型时的一句话入口
 agent-reach ensure <渠道>                 # 安装、复用授权会话并实测
 agent-reach <渠道> <动作> [参数]          # 例：agent-reach xiaohongshu search "咖啡" --limit 5
 agent-reach read <链接>                   # 给链接，自动认出渠道
@@ -58,8 +56,6 @@ agent-reach read <链接>                   # 给链接，自动认出渠道
 
 | error.code | 怎么办 |
 |---|---|
-| `NEED_SETUP` | 调用 `reach_ensure` 或 `agent-reach ensure <渠道>`，按结构化结果继续 |
-| `NEED_LOGIN` | 保留公开结果；剩余任务仍需要此路径时，由用户本人登录，再用 `operation_id` 调用 `reach_resume` |
 | `UPSTREAM_BROKEN` | 这个渠道暂时不可用，告诉用户，不要反复重试 |
 | `TIMEOUT` | 看失败阶段与渠道状态，不反复开窗或立即重试 |
 | `RATE_LIMITED` | 按 `retry_after_seconds` 等待，程序暂停该渠道 |
@@ -83,17 +79,13 @@ agent-reach read <链接>                   # 给链接，自动认出渠道
 
 ## 会话复用：先检查，再决定是否需要登录
 
-Cloak 查询和导入验收默认 `headless=True`。独立登录使用 `agent-reach cloak login CHANNEL`：由用户在可视窗口登录，检测成功后自动保存并关闭，再验收查询。此路径不需要 OpenCLI；OpenCLI 使用自己的 Chrome 会话，Cookie 导入仅为可选迁移方式。
 
-登录时只应弹出一个 Cloak 窗口；窗口提示自动保存，普通 Cloak 查询在后台运行并自动关闭窗口。`cloak login` 最多等待 15 分钟；取消或超时会返回对应原因，不能自行反复重开。旧的 `browser setup` 会另开标有 OpenCLI Browser 的专用 Chrome，只有用户明确选择该路径时才执行；它闲置约 10 分钟后关闭。复用用户已有 Chrome 时，不要关闭原窗口。
 
-安装和 `add` 不打开浏览器。`ensure <渠道>` 优先复用已有会话并执行正式验收；显式 `--reuse-profile ID` 授权从该 Chrome 配置导入指定站点的 Cookie，该授权在本机保存，可用 `--forget-source` 撤销。`login <渠道>` 默认只查看现有连接。连接正常或保存过状态不等于当前已登录。
+`setup` 安装默认渠道；`add` 为浏览器渠道自动准备共用浏览器和插件。`login <渠道>` 打开该网站，由用户登录。已有会话先复用；导入只授权一次，不保存长期读取个人浏览器的权限。业务访问需要实际验证。
 
-公开能力不足并选定浏览器动作后，后端按动作选择：小红书 search/read/comments、Twitter search、Facebook search、Instagram search/profile/posts 使用 CloakBrowser → OpenCLI；Reddit 浏览器 search 使用 CloakBrowser → OpenCLI，read/subreddit 使用 OpenCLI；BOSS search 使用 CloakBrowser → OpenCLI → boss-agent-cli，BOSS read 仅支持 CloakBrowser；LinkedIn jobs 使用 CloakBrowser → linkedin-mcp。程序记住近期技术故障并暂时跳过该后端；选择与恢复由运行时完成。其他动作以 `agent-reach channels` 中的后端声明为准。具体会话选择见 [会话配置](references/sessions.md)。
 
 小红书 read 仅返回文字描述，不声称理解图片/视频。BOSS 搜索若 salary_encoded=true，不能猜数字；read 职位链接获取详情中的可读薪资。
 
-用户要求小红书评论时使用 `comments` 动作：`agent-reach xiaohongshu comments "完整笔记链接" --limit 20`；MCP 使用 `reach_execute(channel="xiaohongshu", action="comments", params={"target":"完整笔记链接","limit":20})`。保留搜索返回的访问参数。limit 限顶级评论，已加载回复会一并返回；注明页面样本范围。只有评论数量的字段不能当成评论正文。
 
 遇到 PLATFORM_BLOCKED、RATE_LIMITED、NEED_LOGIN、BUSY 就停止本次降级，不换账号或后端反复请求。同一 profile 的 Reach 命令互斥；多渠道共用同一 profile 时串行。
 
@@ -103,10 +95,10 @@ Cloak 查询和导入验收默认 `headless=True`。独立登录使用 `agent-re
 
 | 用户说 | 你运行 |
 |---|---|
+| 加上某个平台 | `agent-reach add <渠道>`，自动准备依赖；需要登录时再请用户本人完成 |
 | 看看状态 / 哪些能用 | `agent-reach doctor --text`（要实测再跑 `agent-reach check <渠道> --search --text`） |
-| 加上某个平台（如"加上小红书"） | `reach_ensure` 或 `agent-reach ensure <渠道>`；需要本人操作时按 `required_action` 提示，再 `resume` |
-| 登录过期了 | 先读会话配置；`agent-reach login <渠道>` 默认仅检查，实际登录由用户本人完成 |
-| 去掉某个平台 / 退出登录 | `agent-reach remove <渠道>`；Cloak 主后端用 `agent-reach logout <渠道>` 删除 Reach 管理的会话 |
+| 登录过期了 | 先读会话配置；`agent-reach login <渠道>` 打开共用专用浏览器，由用户本人登录 |
+| 去掉某个平台 / 退出登录 | `agent-reach remove <渠道>`；`agent-reach logout <渠道>` 清除专用浏览器中该网站的登录 |
 | 升级 / 更新 | 先读 [维护说明](references/maintenance.md)，确认当前安装来源和版本，再执行更新。 |
 | 卸载 | 先 `agent-reach uninstall --dry-run` 给用户看，确认后 `agent-reach uninstall` |
 | 让另一个 AI 也能用 | `agent-reach skill link <那个 AI 的 skill 目录>`；`agent-reach skill` 查看现在放在哪 |
@@ -123,4 +115,13 @@ Cloak 查询和导入验收默认 `headless=True`。独立登录使用 `agent-re
 
 用户同意更新后，先读 [维护说明](references/maintenance.md)，确认安装来源；从相同来源更新，避免将本地构建覆盖为其他版本。更新后说明实际改动和仍需用户完成的操作。
 
-Facebook search 已接入 CloakBrowser → OpenCLI；profile 仍使用 OpenCLI。可用 `cloak login facebook` 独立登录，或显式 `cloak import facebook --opencli-profile ID` 迁移站点 Cookie。
+
+## 共用专用浏览器
+
+所有浏览器渠道使用 `~/.agent-reach/browser/profile`，CloakBrowser 优先，下载失败回退本机 Chrome。OpenCLI 插件自动准备，网页提取由上游 OpenCLI 或原生 CLI 执行。BOSS 使用同一专用浏览器；不启动额外个人 Chrome。闲置 10 分钟自动关闭，下次调用自动重开。
+
+需要 Reach 时可直接运行 `agent-reach execute CHANNEL ACTION --params '{...}'`，程序准备依赖并执行真实动作，无需先额外搜索一次。`ensure CHANNEL` 留给安装验收和排障；需要本人登录会返回明确提示。`execute` 返回 `operation_id` 时，在用户完成后运行 `agent-reach resume OPERATION_ID`。本版没有 ask 或 Reach MCP 服务，无需模型 API Key。
+
+默认复用专用浏览器已保存的会话。用户授权导入某站登录后，使用 `agent-reach browser import CHANNEL --opencli-profile ID` 或 `--state-file FILE`；只做一次该站导入，不保存长期读取个人 Chrome 的授权。导入成功后仍需实测，不把 Cookie 存在视为已登录。详细步骤见 [sessions.md](references/sessions.md)。
+
+`agent-reach add CHANNEL` 会准备渠道所需依赖、专用浏览器和插件；`remove CHANNEL` 清除该网站的登录和存储，保留其他网站。小宇宙保留为可选转录渠道，需要 Groq Key。

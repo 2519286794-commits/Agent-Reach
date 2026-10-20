@@ -87,3 +87,14 @@ def test_rerunning_pip_setup_preserves_partial_environment(monkeypatch, tmp_path
     assert calls[0][0][:4] == [str(py), "-m", "pip", "install"]
     assert calls[0][1]["stage"] == "cloakbrowser:pip_packages"
     assert "cloakbrowser==0.6.3" in calls[0][0]
+
+
+def test_opencli_uses_pristine_compatible_release_without_install_hooks(monkeypatch, tmp_path):
+    from agent_reach.runtime import tools
+    calls=[]
+    monkeypatch.setattr(tools,"_npm_cmd",lambda:"npm")
+    monkeypatch.setattr(tools,"_run",lambda argv,**kwargs:calls.append(argv) or "")
+    tools._install_npm(tools.TOOLS["opencli"],global_prefix=tmp_path/"npm")
+    assert "--ignore-scripts" in calls[0]
+    assert calls[0][-1]=="@jackwener/opencli@1.8.7"
+    assert not tools.allowed(tools.TOOLS["opencli"],"1.8.8")

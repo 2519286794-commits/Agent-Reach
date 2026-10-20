@@ -34,14 +34,14 @@ class XiaoHongShuChannel(Channel):
                 Param("query", "what to search for"),
                 Param("limit", "max results", required=False, type=int, default=5),
             ),
-            (("cloakbrowser", "_cloak_search"), ("opencli", "_opencli_search")),
+            (("opencli", "_opencli_search"),),
             live_test={"query": "咖啡", "limit": 2},
         ),
         Action(
             "read",
             "Read a note (full link including xsec_token, as returned by search)",
             (Param("target", "full note link with xsec_token"),),
-            (("cloakbrowser", "_cloak_read"), ("opencli", "_opencli_read")),
+            (("opencli", "_opencli_read"),),
         ),
         Action(
             "comments",
@@ -49,7 +49,7 @@ class XiaoHongShuChannel(Channel):
             (Param("target", "full note link with xsec_token"),
              Param("limit", "max top-level comments (1..50); loaded replies are included",
                    required=False, type=int, default=20)),
-            (("cloakbrowser", "_cloak_comments"), ("opencli", "_opencli_comments")),
+            (("opencli", "_opencli_comments"),),
             timeout=60,
         ),
     )
@@ -90,18 +90,6 @@ class XiaoHongShuChannel(Channel):
             raise ReachError(NOT_FOUND, "note not found")
         return items[:1]
 
-    def _cloak_search(self, *, query, limit, timeout):
-        from agent_reach.backends.cloak import call
-        return call(self.name, "search", query=query, limit=limit, timeout=timeout)
-
-    def _cloak_read(self, *, target, timeout):
-        from agent_reach.backends.cloak import call
-        return call(self.name, "read", target=target, timeout=timeout)
-
-    def _cloak_comments(self, *, target, limit, timeout):
-        self._validate_comments(target, limit)
-        from agent_reach.backends.cloak import call
-        return call(self.name, "comments", target=target, limit=limit, timeout=timeout)
 
     def validate_params(self, action, params):
         if action == "comments":
@@ -109,9 +97,15 @@ class XiaoHongShuChannel(Channel):
 
     @staticmethod
     def _validate_comments(target, limit):
-        from agent_reach.backends.cloak_worker import target_url
+        from agent_reach.utils.url import host_matches
         try:
-            target_url("xiaohongshu", str(target).strip())
+            import re
+            from urllib.parse import urlsplit
+            parsed = urlsplit(str(target).strip())
+            if (not host_matches(str(target).strip(), "xiaohongshu.com") or parsed.scheme != "https"
+                    or parsed.username or parsed.password or parsed.port not in (None, 443)
+                    or not re.fullmatch(r"/(?:explore|search_result)/[A-Za-z0-9_-]+", parsed.path)):
+                raise ValueError("Expected a direct note URL")
         except (ValueError, TypeError):
             raise ReachError(BAD_INPUT, "target must be a direct Xiaohongshu note URL") from None
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
@@ -131,7 +125,3 @@ class XiaoHongShuChannel(Channel):
             raw.update(content_scope="loaded_comments", exhaustive=False)
             item["raw"] = raw
         return items
-
-    def on_remove(self):
-        from agent_reach.backends.cloak import logout
-        logout(self.name)

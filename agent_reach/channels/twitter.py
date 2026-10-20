@@ -8,8 +8,7 @@ from agent_reach.utils.url import host_matches
 from .base import Action, Channel, Param
 
 _TWITTER_LOGIN_HINT = (
-    "Ask the user to log in to x.com in their own Chrome (the one with the "
-    "OpenCLI extension). Never log in or read browser cookies for them."
+    "Ask the user to log in to x.com in the Agent Reach dedicated browser. Never log in on their behalf."
 )
 
 
@@ -44,7 +43,7 @@ class TwitterChannel(Channel):
                 Param("query", "what to search for"),
                 Param("limit", "max results", required=False, type=int, default=5),
             ),
-            (("cloakbrowser", "_cloak_search"), ("opencli", "_opencli_search")),
+            (("opencli", "_opencli_search"),),
             live_test={"query": "openai", "limit": 2},
         ),
         Action(
@@ -79,10 +78,6 @@ class TwitterChannel(Channel):
     def _opencli_search(self, *, query: str, limit: int, timeout: float) -> list:
         return _x(["search", query, "--limit", str(limit)], timeout)[:limit]
 
-    def _cloak_search(self, *, query: str, limit: int, timeout: float) -> list:
-        from agent_reach.backends.cloak import call
-
-        return call(self.name, "search", query=query, limit=limit, timeout=timeout)
 
     def _opencli_profile(self, *, username: str, timeout: float) -> list:
         return _x(["profile", username.lstrip("@")], timeout)[:1]
@@ -93,8 +88,3 @@ class TwitterChannel(Channel):
     def _opencli_thread(self, *, target: str, timeout: float) -> list:
         tweet_id = str(target).rstrip("/").split("/")[-1].split("?")[0]
         return _x(["thread", tweet_id], timeout)
-
-    def on_remove(self) -> None:
-        from agent_reach.backends.cloak import logout
-
-        logout(self.name)

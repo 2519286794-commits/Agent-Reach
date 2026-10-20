@@ -90,7 +90,11 @@ jobs:
               "agent_reach/skill/references/capabilities.md",
           ):
               assert path in names, f"{path} missing from wheel"
-          assert not any("xiaoyuzhou" in n for n in names), "retired Xiaoyuzhou files remain in wheel"
+          assert "agent_reach/channels/xiaoyuzhou.py" in names
+          assert "agent_reach/scripts/transcribe_xiaoyuzhou.sh" in names
+          for retired in ("agent_reach/mcp_server.py", "agent_reach/runtime/ask.py",
+                          "agent_reach/backends/cloak_worker.py", "agent_reach/runtime/opencli_compat.py"):
+              assert retired not in names, f"retired module remains in wheel: {retired}"
           print(f"wheel OK: {len(names)} entries, no duplicates, data files present")
           PY
 

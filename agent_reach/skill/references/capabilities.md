@@ -9,7 +9,7 @@ Use only when evidence depth needs clarification. Declared actions and local acc
 - **Reach 补充**：当前发布版声明的动作，见 `agent-reach channels`。需要配置时先复用授权会话，所选路径实际要求登录时才本人登录。
 - **本机已验证**：只列本机最近成功验收的具体动作；安装、保存会话和网络可达均不等于业务验收。
 
-## 本版 13 渠道
+## 本版渠道（包含小宇宙）
 
 | 渠道 | 公开路径可尝试 | Reach 补充与边界 |
 |---|---|---|

@@ -13,8 +13,7 @@ from agent_reach.runtime.result import BAD_INPUT, UPSTREAM_BROKEN, ReachError
 from .base import Action, Channel, Param
 
 _REDDIT_LOGIN_HINT = (
-    "Ask the user to log in to reddit.com in their own Chrome (the one with the "
-    "OpenCLI extension). Never log in or read browser cookies for them."
+    "Ask the user to log in to reddit.com in the Agent Reach dedicated browser. Never log in on their behalf."
 )
 
 
@@ -47,7 +46,7 @@ class RedditChannel(Channel):
                 Param("query", "what to search for"),
                 Param("limit", "max results", required=False, type=int, default=5),
             ),
-            (("cloakbrowser", "_cloak_search"), ("opencli", "_opencli_search")),
+            (("opencli", "_opencli_search"),),
             live_test={"query": "python", "limit": 2},
         ),
         Action(
@@ -78,10 +77,6 @@ class RedditChannel(Channel):
     def _opencli_search(self, *, query: str, limit: int, timeout: float) -> list:
         return _reddit(["search", query, "--limit", str(limit)], timeout)[:limit]
 
-    def _cloak_search(self, *, query: str, limit: int, timeout: float) -> list:
-        from agent_reach.backends.cloak import call
-
-        return call(self.name, "search", query=query, limit=limit, timeout=timeout)
 
     def _opencli_read(self, *, target: str, timeout: float) -> list:
         t = str(target).strip()
@@ -97,8 +92,3 @@ class RedditChannel(Channel):
 
     def _opencli_subreddit(self, *, name: str, limit: int, timeout: float) -> list:
         return _reddit(["subreddit", name.removeprefix("r/"), "--limit", str(limit)], timeout)[:limit]
-
-    def on_remove(self) -> None:
-        from agent_reach.backends.cloak import logout
-
-        logout(self.name)
