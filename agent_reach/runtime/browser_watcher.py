@@ -20,7 +20,7 @@ import time
 from typing import Optional
 from urllib.parse import unquote, urlsplit
 
-from . import browser
+from . import bridge, browser
 
 
 def _launch_with_pipe(chrome: str, url: str):
@@ -101,12 +101,13 @@ def watch(idle: Optional[float] = None, poll: float = 2.0, *, launch: Optional[s
     """Run until the browser is gone. Returns why it stopped."""
     idle = browser.IDLE_LIMIT if idle is None else idle
     fd = browser._open_lock(browser.watcher_lock_path())
-    proc = conn = ctx = None
+    proc = conn = ctx = bridge_proc = None
     try:
         # A probe (watcher_running) holds the lock for an instant; a live watcher holds it for good.
         # A watcher of a browser that just closed may still be on its way out: give it a moment.
         if not browser.wait_for(lambda: browser.try_lock(fd), 10.0 if launch else 2.0, interval=0.1):
             return "another watcher is running"
+        bridge_proc = bridge.start()
         if launch is not None:
             if browser.is_running():
                 return "a browser is already using the debugging port"
@@ -118,6 +119,7 @@ def watch(idle: Optional[float] = None, poll: float = 2.0, *, launch: Optional[s
             browser.update_state(running_backend="cloakbrowser" if cloak else "chrome",
                                  profile_backend="cloakbrowser" if cloak else "chrome")
             browser.restore_session()
+        browser.update_state(bridge_pid=bridge_proc.pid if bridge_proc else None, bridge_note=None)
         began = time.time()
 
         def gone() -> bool:
@@ -128,6 +130,9 @@ def watch(idle: Optional[float] = None, poll: float = 2.0, *, launch: Optional[s
         while True:
             if gone():
                 return "browser closed"
+            if bridge_proc is not None and bridge_proc.poll() is not None:
+                return "owned Bridge exited; browser closed with it"
+            browser.observe_activity()
             browser.save_session()
             used = max(began, browser.last_used() or 0.0)
             left = used + idle - time.time()
@@ -162,6 +167,10 @@ def watch(idle: Optional[float] = None, poll: float = 2.0, *, launch: Optional[s
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(5)
+        note = bridge.close(bridge_proc, browser.bound_context())
+        browser.update_state(bridge_note=note, bridge_pid=None)
+        if note:
+            print(note, file=sys.stderr, flush=True)
         os.close(fd)
 
 

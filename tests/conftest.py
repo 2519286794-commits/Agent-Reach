@@ -84,7 +84,10 @@ def isolated_home(tmp_path, monkeypatch):
     # never start the background release check from tests
     monkeypatch.setenv("AGENT_REACH_NO_UPDATE_CHECK", "1")
 
-    from agent_reach.runtime import cdp
+    from agent_reach.runtime import bridge, cdp
+    monkeypatch.setattr(bridge, "status", lambda: {"ok": True, "daemonVersion": "1.8.7", "profiles": []})
+    monkeypatch.setattr(bridge, "launch_spec", lambda: (["node", "daemon.js"], "1.8.7"))
+    monkeypatch.setattr(bridge, "start", lambda: None)
     monkeypatch.setattr(cdp, "_json", lambda *a, **k: None)  # unit tests never inspect the real dedicated browser
     original_popen = subprocess.Popen
     def local_commands_only(argv, *args, **kwargs):

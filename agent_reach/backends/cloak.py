@@ -12,6 +12,7 @@ def setup() -> dict:
     from agent_reach.runtime import state, tools
     from agent_reach.runtime.run import run_cmd
 
+    state.remember_path(state.root() / "cloak-binaries", "dedicated browser binaries")
     tools.ensure("cloakbrowser")
     exe = tools.resolve("cloakbrowser")
     if not exe:

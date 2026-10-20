@@ -50,7 +50,7 @@ agent-reach setup
 - old CLI logins (bilibili, boss) can be copied over instead of logging in again:
 
 ```bash
-agent-reach login <channel> --import-existing
+agent-reach login <channel> # Browser channels: user logs in in the dedicated Reach window
 ```
 
 Browser-login channels (xiaohongshu, reddit, twitter, ...) no longer use your own browser's cookies. Add them again with `agent-reach add <channel>` (it sets up the Agent Reach browser by itself), then log in there with `agent-reach login <channel>`.

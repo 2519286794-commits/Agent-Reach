@@ -254,6 +254,11 @@ def install_env() -> dict:
     """
     extend_path()
     env = dict(os.environ)
+    cache = state.root() / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    state.remember_path(cache, "download caches")
+    env.update(PIP_CACHE_DIR=str(cache / "pip"), UV_CACHE_DIR=str(cache / "uv"),
+               npm_config_cache=str(cache / "npm"), XDG_CACHE_HOME=str(cache))
     https = env.get("HTTPS_PROXY") or env.get("https_proxy")
     http = env.get("HTTP_PROXY") or env.get("http_proxy")
     all_proxy = env.get("ALL_PROXY") or env.get("all_proxy")
@@ -368,7 +373,7 @@ def _install_node(tool: Tool) -> None:
     import zipfile
 
     os_name, arch, ext = _node_platform()
-    with tempfile.TemporaryDirectory(prefix="agent-reach-node-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="node-", dir=_work_dir()) as tmp:
         index = Path(tmp) / "index.json"
         _download("https://nodejs.org/dist/index.json", index)
         key = {"darwin": f"osx-{arch}-tar", "linux": f"linux-{arch}", "win": f"win-{arch}-zip"}[os_name]
@@ -410,7 +415,7 @@ def _install_uv(tool: Tool) -> None:
     if _WIN:
         _run(["powershell", "-ExecutionPolicy", "ByPass", "-c", "irm https://astral.sh/uv/install.ps1 | iex"], env=env)
     else:
-        with tempfile.TemporaryDirectory(prefix="agent-reach-uv-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="uv-", dir=_work_dir()) as tmp:
             script = Path(tmp) / "install.sh"
             _download("https://astral.sh/uv/install.sh", script)
             _run(["sh", str(script)], env=env)
@@ -423,8 +428,19 @@ def _install_uv(tool: Tool) -> None:
         raise ReachError(UPSTREAM_BROKEN, "the uv installer finished but uvx is missing")
 
 
+def _work_dir() -> Path:
+    folder = state.root() / "tmp"
+    folder.mkdir(parents=True, exist_ok=True)
+    state.remember_path(folder, "installer temporary files")
+    return folder
+
+
 def _install(tool: Tool, *, global_: bool = False) -> None:
     """Install (or upgrade) one tool. Singletons: global_=True (our npm -g prefix)."""
+    folder = npm_global_dir() if global_ else tool_dir(tool.name)
+    if folder.exists() and not state.owned_path(folder) and state.load()["tools"].get(tool.name, {}).get("owner") != OURS:
+        raise ReachError(NEED_SETUP, f"Unrecorded files occupy the {tool.name} install directory; left untouched")
+    state.remember_path(folder, "installed dependency")
     if tool.kind in ("pip", "ffmpeg"):
         _install_pip(tool)
     elif tool.kind == "npm":
@@ -484,7 +500,7 @@ def ensure(name: str, *, allow_upgrade: bool = False, upgrade: bool = False) -> 
             if entry.get("version") != current:
                 return record(name, current, **{k: v for k, v in entry.items() if k != "version"})
             return {"tool": name, **entry}
-        if ours:
+        if ours and (upgrade or allow_upgrade):
             if entry.get("prefix"):
                 _install(tool, global_=True)
             else:
@@ -507,9 +523,12 @@ def ensure(name: str, *, allow_upgrade: bool = False, upgrade: bool = False) -> 
     if private_ok and tool.name == "boss-agent-cli":
         venv = tool_dir(tool.name) / "venv"
         sources = list(venv.glob("**/boss_agent_cli-*.dist-info/direct_url.json"))
-        expected = tool.package.rsplit("@", 1)[-1]
+        expected = tool.package.split(" @ ", 1)[-1].strip()
         try:
-            pinned_mismatch = not sources or json.loads(sources[0].read_text()).get("vcs_info", {}).get("commit_id") != expected
+            source = json.loads(sources[0].read_text()) if sources else {}
+            commit = expected.rsplit("/", 1)[-1].removesuffix(".zip")
+            pinned_mismatch = not (source.get("url") == expected or
+                source.get("vcs_info", {}).get("commit_id") == commit)
         except (OSError, ValueError):
             pinned_mismatch = True
     if not private_ok or not ours or upgrade or pinned_mismatch:
@@ -552,10 +571,12 @@ def remove_private(name: str) -> bool:
         data["tools"].pop(name, None)
         state.save(data)
         return entry.get("owner") == OURS
-    if entry is not None and entry.get("owner") not in (None, OURS):
+    if not entry or entry.get("owner") != OURS:
         return False
     removed = data["tools"].pop(name, None) is not None
-    if _SAFE_NAME.match(name) and tool_dir(name).exists():
+    if _SAFE_NAME.fullmatch(name) and tool_dir(name).exists():
+        from agent_reach.utils.paths import ensure_no_symlink_path
+        ensure_no_symlink_path(tool_dir(name), "private tool")
         shutil.rmtree(tool_dir(name))
         removed = True
     state.save(data)

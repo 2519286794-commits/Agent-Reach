@@ -6,7 +6,7 @@ Use only when evidence depth needs clarification. Declared actions and local acc
 ## 三层说明
 
 - **公开可尝试**：Agent 已有网页工具、原生工具或公开接口可能已满足任务；不要求安装浏览器、登录。按实际取得的证据回答。
-- **Reach 补充**：当前发布版声明的动作，见 `agent-reach channels`。需要配置时先复用授权会话，所选路径实际要求登录时才本人登录。
+- **Reach 补充**：当前发布版声明的动作，见 `agent-reach channels`。需要配置时先复用专用浏览器已保存的会话，所选路径实际要求登录时才本人登录。
 - **本机已验证**：只列本机最近成功验收的具体动作；安装、保存会话和网络可达均不等于业务验收。
 
 ## 本版渠道（包含小宇宙）

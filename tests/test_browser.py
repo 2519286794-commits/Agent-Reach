@@ -50,7 +50,8 @@ def test_extension_installs_at_a_stable_path_and_refreshes_only_on_new_release(h
     assert browser.refresh_extension() == {"version": "1.0.1", "updated": False}
 
     release["assets"] = [{"name": "opencli-extension-v1.0.2.zip", "browser_download_url": "u2"}]
-    assert browser.refresh_extension() == {"version": "1.0.2", "updated": True}
+    assert browser.refresh_extension() == {"version": "1.0.1", "updated": False}
+    assert browser.refresh_extension(upgrade=True) == {"version": "1.0.2", "updated": True}
     assert browser.extension_version() == "1.0.2"
     assert browser._load_state()["extension_version"] == "1.0.2"
 
@@ -115,6 +116,7 @@ def test_clear_site_expires_only_that_sites_cookies(home, monkeypatch):
     browser.profile_dir().mkdir(parents=True)
     monkeypatch.setattr(browser, "ensure_running", lambda context=None: None)
     monkeypatch.setattr(cdp, "call", fake_call)
+    monkeypatch.setattr(cdp, "_json", lambda *a: [])
     assert browser.clear_site(["reddit.com"]) == 2
     assert [c["name"] for c in jar] == ["c"]
 
@@ -128,6 +130,9 @@ def test_delete_profile_removes_the_browser_folder(home, monkeypatch):
     monkeypatch.setattr(browser, "stop", lambda timeout=10.0: True)
     browser.profile_dir().mkdir(parents=True)
     browser.touch()
+    from agent_reach.runtime import state
+    for path in (browser.profile_dir(), browser._last_used_path()):
+        state.remember_path(path, "test browser")
     assert browser.delete_profile() is True
     assert not browser.browser_root().exists()
     assert browser.delete_profile() is False

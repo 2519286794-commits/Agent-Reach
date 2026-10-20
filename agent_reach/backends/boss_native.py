@@ -18,17 +18,11 @@ def main():
     from boss_agent_cli.auth.manager import AuthManager
     auth = AuthManager(Path(spec['data_dir']))
     with BossClient(auth, cdp_url=spec['cdp_url'], browser_source='existing-browser') as boss:
-        raw = (boss.job_detail(spec['job_id']) if spec.get('action') == 'read' else
-               boss.search_jobs(spec['query'], city=spec.get('city') or '全国', page=1))
+        raw = boss.search_jobs(spec['query'], city=spec.get('city') or '全国', page=1)
     if raw.get('code') != 0:
         code = raw.get('code')
         mapped = {36: 'PLATFORM_BLOCKED', 37: 'PLATFORM_BLOCKED', 9: 'RATE_LIMITED', 1: 'NEED_LOGIN'}.get(code, 'UPSTREAM_BROKEN')
         return {'ok': False, 'error': {'code': mapped, 'message': str(raw.get('message', 'Boss search failed'))[:300]}}
-    if spec.get('action') == 'read':
-        from boss_agent_cli.api.models import JobDetail
-        detail = JobDetail.from_api(raw.get('zpData') or {})
-        return {'ok': True, 'data': {name: getattr(detail, name) for name in
-                                   ('job_id', 'title', 'company', 'salary', 'city', 'experience', 'education', 'description')}}
     rows = raw.get('zpData', {}).get('jobList', [])
     # Do not export securityId/lid or raw browser credentials in unified results.
     return {'ok': True, 'data': [{'title': r.get('jobName'), 'company': r.get('brandName'),

@@ -15,11 +15,25 @@ For the AI doing the install. Run every command yourself. Each `agent-reach` com
 
 ## 1. Install and set up
 
+**This branch is an unpublished 1.6.0 candidate.** The latest verified official release is v1.5.0 and does not include the candidate's browser/setup changes.
+
+For the official stable version:
+
 ```bash
-uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v1.6.0.zip
+uv tool install https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v1.5.0.zip
+```
+
+Continue with the [v1.5.0 installation instructions](https://github.com/Panniantong/Agent-Reach/blob/v1.5.0/docs/install.md). Stop here for a stable install; do not run this candidate's commands against 1.5.0.
+
+For this candidate's local test package, use the supplied wheel:
+
+```bash
+uv tool install --force /path/to/agent_reach-1.6.0-py3-none-any.whl
 agent-reach setup
 agent-reach doctor --text
 ```
+
+Do not run the stable install command over a candidate. Once v1.6.0 has actually been released, the official URL can advance to that tag. Already-installed ordinary users run `agent-reach update` explicitly; local candidate users keep the candidate source until it is released.
 
 `agent-reach setup --text` prints the same compact capability table directly. Plain `setup` preserves the JSON contract and saves `installation-report.md` under the private Reach directory.
 
@@ -43,10 +57,10 @@ Before selecting Reach for a platform mention, check whether existing public too
 
 When the user asks for a channel, run `agent-reach add <channel>`. Browser channels install Node, OpenCLI, the dedicated browser and its extension automatically. One profile under `~/.agent-reach/browser/profile` is shared by all sites. CloakBrowser is preferred; download failure falls back to installed Chrome. The owned browser closes after 10 idle minutes and reopens on the next action. The Chrome fallback on Windows may need one Web Store click.
 
-Reuse already-saved Reach sessions. To import a login from a connected source Chrome, obtain the user's explicit site-scoped authorization, list `agent-reach browser profiles`, then run `agent-reach browser import CHANNEL --opencli-profile ID`. This is a one-time copy, not a standing export permission. An explicitly supplied local session file is supported with `--state-file FILE`. Never inspect Chrome's cookie database, print credentials, or log in for the user. Cookie import does not prove access; verify the requested action.
+Reuse only already-saved Reach dedicated sessions. Never read or import personal-browser cookies or login files. The user logs in in the Reach window. Login is periodically saved without requiring the user to close the window. Human page interactions and Reach calls reset the idle timer. The Bridge is supervised with the browser; existing user-owned Bridge processes are preserved, and version conflicts are reported without restarting them.
 
 If login is still needed, `agent-reach login CHANNEL` opens the shared dedicated browser. The user logs in there; for native tools, follow the returned sync instruction. `agent-reach execute CHANNEL ACTION --params '{...}'` prepares and executes the actual task once. If it returns `operation_id`, use `agent-reach resume OPERATION_ID` after the user finishes login. No additional model key is required.
 
-Removing a browser channel clears only that site's login/storage in the dedicated browser and its native session. Other sites and the original source Chrome are retained. Xiaoyuzhou remains optional and needs a Groq key for transcription.
+Removing a browser channel clears only that site's login/storage in the dedicated browser and its native session. Other sites are retained. If required cleanup fails, the channel remains registered and the error is returned. Xiaoyuzhou remains optional and needs a Groq key for transcription.
 
 Problems: [troubleshooting.md](troubleshooting.md).

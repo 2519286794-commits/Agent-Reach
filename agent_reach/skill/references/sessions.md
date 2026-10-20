@@ -11,24 +11,16 @@
 3. 只有实际返回 NEED_LOGIN 才请用户登录；`agent-reach login CHANNEL` 打开专用浏览器，登录由用户本人完成。BOSS 等原生工具按返回提示执行 `login CHANNEL --sync`。
 4. 若返回 operation_id，用户完成后使用 `agent-reach resume OPERATION_ID`。保存的是任务参数，不会为等待登录另起常驻任务服务。
 
-## 一次性继承登录
+## 保存与复用
 
-专用浏览器已有登录优先复用。用户明确同意导入指定网站后：
+只复用 Reach 专用浏览器中已保存的登录。程序不读取个人 Chrome 的 Cookie、登录文件或账号，也不提供导入入口。首次需要登录时，由用户在专用窗口完成。
 
-```bash
-agent-reach browser profiles
-agent-reach browser import xiaohongshu --opencli-profile SOURCE_ID
-# 或者只读用户指定的本地登录文件：
-agent-reach browser import xiaohongshu --state-file /absolute/path/session.json
-agent-reach check xiaohongshu --search --text
-```
+登录期间会定期保存会话，无需关窗才能保存。鼠标点击、键盘和滚动等真实页面操作以及 Reach 调用会重置十分钟计时；没有操作时自动关闭，下次查询自动重开。网站要求扫码、验证码或确认时交给用户，失败不反复开窗。
 
-来源是用户选定的已连接 OpenCLI profile；不读取 Chrome Cookie 数据库，不导出其他网站，不输出 Cookie/Token。导入只复制该站 Cookie，无法保证所有平台都接受新环境，需要实际查询确认。没有长期自动导入授权。原浏览器和原文件保持不变。
-
-旧版 Reach 自有会话会从 `sessions/CHANNEL-cloak/profile/reach-session.json` 一次性合并到共用配置，只补缺失 Cookie，保留已有的新登录。来源属于 Reach 自己；个人 Chrome 仍需明确授权导入。
+OpenCLI Bridge 随专用浏览器由计时程序启动、回收。已有的兼容 Bridge 可复用，Reach 不关闭用户启动的进程；若另一个浏览器正在使用 Reach 启动的桥，保留并在状态中说明。版本冲突时提示用户处理，不自动重启别人的服务。
 
 CloakBrowser 下载失败后会记住 Chrome 回退，避免每次查询重新下载。修好网络后可用 `agent-reach browser setup --retry-cloak` 重试。
 
 ## 退出和删除
 
-`agent-reach logout CHANNEL` 清除专用浏览器中该站登录和渠道自有状态。`remove CHANNEL` 还清理该渠道授权与待完成任务，保留其他网站登录。退出不修改来源 Chrome。限流或验证码时停止，不换账号或浏览器反复尝试。
+`agent-reach logout CHANNEL` 清除专用浏览器中该站登录和渠道自有状态。`remove CHANNEL` 还清理该渠道授权与待完成任务，保留其他网站登录。清理失败保留渠道记录，用户可重试清理。限流或验证码时停止，不换账号或浏览器反复尝试。

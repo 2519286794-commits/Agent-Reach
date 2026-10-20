@@ -35,6 +35,9 @@ jobs:
           pip install -c constraints.txt -e ".[dev]"
           pytest -q
 
+      - name: Require real channel acceptance for this source
+        run: python scripts/check_release_acceptance.py
+
       - name: Build and smoke-install the wheel
         run: |
           python -m pip install build

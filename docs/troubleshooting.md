@@ -42,7 +42,7 @@ Some channel tools install at tested versions; others use a supported range. `ag
 
 ## Reusing existing sessions
 
-`login CHANNEL` inspects existing connections, without opening a browser. For OpenCLI use `browser profiles` and explicitly select `browser use ID`. Install/reconnect the extension in that same Chrome profile. A disconnected selection is never replaced automatically.
+`login CHANNEL` opens the Reach dedicated window. The user logs in there. Personal Chrome sessions are never imported. `browser setup` prepares the dedicated extension and connection; an incompatible existing Bridge is left untouched and reported.
 
 Boss requires an existing CDP BOSS page. Select it with `browser bind boss http://127.0.0.1:PORT`. Only explicit `login boss --new-browser` may open its persistent dedicated profile. After the user confirms login and stability, run `login boss --sync`. Do not clear risk locks or switch profiles to retry a platform block.
 

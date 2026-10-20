@@ -1,7 +1,7 @@
 """Resumable setup and execution for the CLI.
 
 The caller selects a channel and action. Reach handles its declared primary
-backend, supports an explicit one-time site import, and records a real
+backend, reuses only its dedicated session, and records a real
 query result. No password, cookie, or browser database is exposed here.
 """
 
@@ -66,7 +66,7 @@ def _record(channel: str, action: str, out: dict) -> None:
     state.mutate(change)
 
 
-def prepare(channel: str, *, action: Optional[str] = None, source_profile: Optional[str] = None,
+def prepare(channel: str, *, action: Optional[str] = None,
             install: bool = True) -> dict:
     """Prepare dependencies and the shared browser. No model and no implicit cookie export."""
     ch = manage._channel(channel)
@@ -84,18 +84,13 @@ def prepare(channel: str, *, action: Optional[str] = None, source_profile: Optio
         if ch.login_url:
             from . import browser
             browser.ensure_running()
-            browser.migrate_owned_session(channel)
-            if source_profile:
-                browser.import_session(channel, opencli_profile=source_profile)
-        elif source_profile:
-            raise ReachError(BAD_INPUT, "This channel does not use the shared browser")
     return {"ok": True, "status": "prepared", "channel": channel,
             "action": selected.name, "backend": selected.backends[0][0]}
 
 
-def ensure(channel: str, *, action: Optional[str] = None, source_profile: Optional[str] = None,
+def ensure(channel: str, *, action: Optional[str] = None,
            verify: bool = True, install: bool = True) -> dict:
-    prepared = prepare(channel, action=action, source_profile=source_profile, install=install)
+    prepared = prepare(channel, action=action, install=install)
     if not prepared["ok"] or not verify:
         return prepared
     selected = _action(manage._channel(channel), prepared["action"])
@@ -122,12 +117,12 @@ def _failure(channel: str, action: str, out: dict) -> dict:
 
 
 def execute(channel: str, action: str, params: dict[str, Any], *, timeout: float = 60,
-            source_profile: Optional[str] = None, operation_id: Optional[str] = None) -> dict:
+            operation_id: Optional[str] = None) -> dict:
     if not isinstance(params, dict):
         raise ReachError(BAD_INPUT, "params must be an object")
     ch = manage._channel(channel)
     _, params = validate_action(ch, action, params, timeout=timeout)
-    prepared = prepare(channel, action=action, source_profile=source_profile)
+    prepared = prepare(channel, action=action)
     if not prepared["ok"]:
         result = prepared
     else:
@@ -165,11 +160,3 @@ def resume(operation_id: str) -> dict:
     result = execute(pending["channel"], pending["action"], pending["params"],
                      timeout=pending["timeout"], operation_id=operation_id)
     return result
-
-
-def forget_source(channel: str) -> dict:
-    manage._channel(channel)
-    with execution_lock("prepare:" + channel):
-        removed = state.mutate(lambda data: data.setdefault("reuse_sources", {}).pop(channel, None) is not None)
-    return {"ok": True, "status": "source_forget", "channel": channel, "source_grant_removed": removed,
-            "existing_browser_and_cloak_sessions_changed": False}

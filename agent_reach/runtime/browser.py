@@ -97,7 +97,9 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict) -> None:
+    from . import state as ledger
     make_private_dir(browser_root())
+    ledger.remember_path(_state_path(), "browser lifecycle state")
     atomic_write_private_text(_state_path(), json.dumps(state, indent=2))
 
 
@@ -132,11 +134,47 @@ def last_used() -> Optional[float]:
         return None
 
 
+# Generic activity signal only: no site selectors, content or credentials.
+_ACTIVITY = """(() => {
+  if (!window.__reachActivityInstalled) {
+    window.__reachActivityInstalled = true;
+    window.__reachLastInput = 0;
+    for (const name of ['pointerdown', 'keydown', 'wheel', 'touchstart'])
+      addEventListener(name, event => {
+        if (event.isTrusted) window.__reachLastInput = Date.now();
+      }, {capture: true, passive: true});
+  }
+  return window.__reachLastInput;
+})()"""
+
+
+def observe_activity() -> None:
+    """Poll trusted human input and remember origins for later site-only logout."""
+    from . import cdp
+    origins = set(_load_state().get("visited_origins", []))
+    before = set(origins)
+    for target in cdp._json("/json/list") or []:
+        if target.get("type") != "page":
+            continue
+        parsed = urllib.parse.urlsplit(target.get("url", ""))
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            origins.add(f"{parsed.scheme}://{parsed.netloc}")
+        result = cdp.call("Runtime.evaluate", {"expression": _ACTIVITY, "returnByValue": True},
+                          target_id=target.get("id")) or {}
+        value = result.get("result", {}).get("value")
+        if isinstance(value, (int, float)) and (last_used() or 0) < value / 1000 <= time.time() + 1:
+            touch()
+    if origins != before:
+        update_state(visited_origins=sorted(origins))
+
+
 # ── cross-process locks ──
 
 
 def _open_lock(path: Path) -> int:
+    from . import state as ledger
     make_private_dir(path.parent)
+    ledger.remember_path(path, "browser lock")
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     return os.open(path, flags, 0o600)
 
@@ -321,7 +359,7 @@ def extension_version() -> Optional[str]:
         return None
 
 
-def refresh_extension() -> dict:
+def refresh_extension(*, upgrade: bool = False) -> dict:
     """Install or update the OpenCLI extension from the latest OpenCLI release.
 
     Keeps the current copy when GitHub is unreachable; raises only if there is none.
@@ -330,6 +368,8 @@ def refresh_extension() -> dict:
     from .result import UPSTREAM_BROKEN, ReachError
 
     current = extension_version()
+    if current and not upgrade:
+        return {"version": current, "updated": False}
     try:
         release = json.loads(_fetch(OPENCLI_RELEASE_API))
         asset = next(a for a in release.get("assets", []) if _EXTENSION_ASSET_RE.match(a.get("name", "")))
@@ -340,7 +380,9 @@ def refresh_extension() -> dict:
     state = _load_state()
     if current and state.get("extension_asset") == asset["name"]:
         return {"version": current, "updated": False}
+    from . import state as ledger
     make_private_dir(browser_root())
+    ledger.remember_path(extension_dir(), "OpenCLI extension")
     work = Path(tempfile.mkdtemp(prefix=".extension-", dir=browser_root()))
     try:
         archive = work / "extension.zip"
@@ -406,6 +448,10 @@ def _launch(url: str) -> None:
     exe = ensure_chrome()
     _prepare_shared_profile()
     make_private_dir(profile_dir())
+    from . import state as ledger
+    ledger.remember_path(profile_dir(), "dedicated browser profile")
+    for name in ("watcher.log", "session.json", "last_used", "watcher.lock", "start.lock", "session.lock"):
+        ledger.remember_path(browser_root() / name, "browser lifecycle")
     update_state(started_at=time.time())
     if not can_load_extension():
         subprocess.Popen(chrome_argv(exe, url, pipe=False), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -466,6 +512,8 @@ def _prepare_shared_profile() -> None:
                          launcher_python=selected.get("launcher_python"))
     backup = browser_root() / ("profile-before-cloak-" + str(time.time_ns()))
     profile_dir().rename(backup)
+    from . import state as ledger
+    ledger.remember_path(backup, "previous dedicated profile backup")
     update_state(profile_backend="cloakbrowser", profile_backup=str(backup))
 
 
@@ -636,50 +684,73 @@ def _clear_running_site(domains: List[str]) -> int:
     from . import cdp
     from .result import UPSTREAM_BROKEN, ReachError
     # Stop the removed site's open pages from refreshing its login in memory.
-    pages = [t for t in (cdp._json("/json/list") or []) if t.get("type") == "page"]
+    targets = cdp._json("/json/list")
+    cookies = cdp.call("Storage.getCookies")
+    if not isinstance(targets, list) or cookies is None:
+        raise ReachError(UPSTREAM_BROKEN, "Could not inspect site data; login cleanup is incomplete")
+    pages = [t for t in targets if t.get("type") == "page"]
     closing = [t for t in pages if any(cdp.domain_matches(urllib.parse.urlsplit(t.get("url", "")).hostname or "", d) for d in domains)]
+    page_origins = {urllib.parse.urlsplit(t["url"]).scheme + "://" + urllib.parse.urlsplit(t["url"]).netloc
+                    for t in closing if urllib.parse.urlsplit(t["url"]).scheme in {"http", "https"}}
+    visited = set(_load_state().get("visited_origins", []))
+    page_origins |= {o for o in visited if any(cdp.domain_matches(urllib.parse.urlsplit(o).hostname or "", d) for d in domains)}
     if closing and len(closing) == len(pages):
         if cdp.call("Target.createTarget", {"url": "about:blank"}) is None:
             raise ReachError(UPSTREAM_BROKEN, "Could not retain the shared browser while logging out")
     for target in closing:
         if cdp.call("Target.closeTarget", {"targetId": target["id"]}) is None:
             raise ReachError(UPSTREAM_BROKEN, "Could not close the removed site's page")
-    doomed = [c for c in (cdp.call("Storage.getCookies") or {}).get("cookies", [])
+    doomed = [c for c in cookies.get("cookies", [])
               if any(cdp.domain_matches(c.get("domain", ""), d) for d in domains)]
     keys = ("name", "domain", "path", "secure", "httpOnly", "sameSite", "partitionKey", "sourceScheme", "sourcePort")
     expired = [{**{k: c[k] for k in keys if k in c}, "value": "", "expires": 1} for c in doomed]
     if expired and cdp.call("Storage.setCookies", {"cookies": expired}) is None:
         from .result import UPSTREAM_BROKEN, ReachError
         raise ReachError(UPSTREAM_BROKEN, "Could not clear this site's cookies in the dedicated browser")
-    origins = {d.lstrip(".") for d in domains} | {c["domain"].lstrip(".") for c in doomed}
-    for host in origins:
-        for origin in ("https://" + host, "http://" + host):
-            if cdp.call("Storage.clearDataForOrigin", {"origin": origin,
-                        "storageTypes": "local_storage,indexeddb,cache_storage,service_workers"}, page=True) is None:
-                from .result import UPSTREAM_BROKEN, ReachError
-                raise ReachError(UPSTREAM_BROKEN, "Could not clear this site's browser storage")
+    hosts = {d.lstrip(".") for d in domains} | {c["domain"].lstrip(".") for c in doomed}
+    # Include the site's conventional www origin even when no www cookie exists.
+    hosts |= {"www." + d.lstrip(".") for d in domains}
+    origins = page_origins | {scheme + h for h in hosts for scheme in ("https://", "http://")}
+    for origin in origins:
+        if cdp.call("Storage.clearDataForOrigin", {"origin": origin,
+                    "storageTypes": "all"}, page=True) is None:
+            raise ReachError(UPSTREAM_BROKEN, "Could not clear this site's browser storage; channel retained")
     _save_session_unlocked()
-    left = {(c.get("name"), c.get("domain"), c.get("path")) for c in (cdp.call("Storage.getCookies") or {}).get("cookies", [])}
+    after = cdp.call("Storage.getCookies")
+    if after is None or any(any(cdp.domain_matches(c.get("domain", ""), d) for d in domains) for c in after.get("cookies", [])):
+        raise ReachError(UPSTREAM_BROKEN, "Site login cleanup could not be verified; channel retained")
+    update_state(visited_origins=sorted(visited - origins))
+    left = {(c.get("name"), c.get("domain"), c.get("path")) for c in after.get("cookies", [])}
     return sum((c.get("name"), c.get("domain"), c.get("path")) not in left for c in doomed)
 
 
 def delete_profile() -> bool:
-    """Close the dedicated browser and remove ~/.agent-reach/browser/. True if something was removed."""
+    """Remove recorded browser artifacts only, preserving unknown files."""
+    from . import state as ledger
     root = browser_root()
     if not root.exists():
         return False
-    with contextlib.suppress(Exception), start_lock(wait=15.0):
-        stop()
-        pids = _profile_pids()
-        for pid in pids:
-            with contextlib.suppress(OSError):
-                os.kill(pid, signal.SIGTERM)
-        if not wait_for(lambda: not _profile_pids(), 5.0, interval=0.2):
-            for pid in _profile_pids():
-                with contextlib.suppress(OSError):
-                    os.kill(pid, signal.SIGKILL)
-        wait_for(lambda: not watcher_running(), 20.0, interval=0.2)
-    shutil.rmtree(root, ignore_errors=True)
+    paths = [root.parent / n for n in ledger.load().get("owned_paths", {})
+             if n.startswith("browser/") and ".." not in Path(n).parts]
+    if not paths:
+        return False
+    if not stop():
+        from .result import UPSTREAM_BROKEN, ReachError
+        raise ReachError(UPSTREAM_BROKEN, "The dedicated browser could not close; its files were retained")
+    wait_for(lambda: not watcher_running(), 20.0, interval=0.2)
+    paths = [root.parent / n for n in ledger.load().get("owned_paths", {})
+             if n.startswith("browser/") and ".." not in Path(n).parts]
+    for path in sorted(paths, key=lambda p: len(p.parts), reverse=True):
+        from agent_reach.utils.paths import ensure_no_symlink_path
+        ensure_no_symlink_path(path.parent, "browser artifact parent")
+        if path.is_file() or path.is_symlink():
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            shutil.rmtree(path)
+    try:
+        root.rmdir()
+    except OSError:
+        pass
     return not root.exists()
 
 
@@ -688,10 +759,10 @@ def delete_profile() -> bool:
 
 def connected_contexts() -> List[str]:
     """OpenCLI Browser Bridge profiles connected right now."""
-    from .run import run_cmd
+    from . import bridge
 
-    out = run_cmd(["opencli", "profile", "list"], timeout=20)
-    return _CONTEXT_RE.findall(out)
+    current = bridge.require_compatible()
+    return [p["contextId"] for p in current.get("profiles", []) if p.get("extensionConnected")]
 
 
 def bound_context() -> Optional[str]:
@@ -822,6 +893,7 @@ def status() -> dict:
         "opencli_context": ctx,
         "opencli_connected": connected,
         "idle_close_after_s": int(IDLE_LIMIT),
+        "bridge_note": _load_state().get("bridge_note"),
     }
 
 
@@ -833,82 +905,3 @@ def setup_problems() -> List[str]:
     if not can_load_extension() and not bound_context():
         return ["Agent Reach browser not set up: run `agent-reach browser setup`"]
     return []
-
-
-def import_session(channel: str, *, state_file=None, opencli_profile=None, only_missing: bool = False) -> dict:
-    """Explicit one-time, site-scoped import. Source data stays untouched."""
-    from . import cdp, manage, state
-    from .browser_binding import execution_lock
-    from .result import BAD_INPUT, UPSTREAM_BROKEN, ReachError
-    if bool(state_file) == bool(opencli_profile):
-        raise ReachError(BAD_INPUT, "Choose exactly one of --state-file or --opencli-profile")
-    ch = manage._channel(channel)
-    domains = manage.site_domains(ch)
-    if not domains:
-        raise ReachError(BAD_INPUT, "This channel has no browser login")
-    if state_file:
-        try:
-            data = json.loads(read_small_text_no_follow(Path(state_file), max_bytes=2 * 1024 * 1024) or "null")
-        except (ValueError, OSError, PrivatePathError):
-            raise ReachError(BAD_INPUT, "Cannot read the supplied session file") from None
-    else:
-        from agent_reach.backends.opencli import export_site_cookies
-        data = []
-        for domain in domains:
-            data.extend(export_site_cookies(opencli_profile, domain))
-    rows = data.get("cookies", []) if isinstance(data, dict) else data
-    if not isinstance(rows, list):
-        raise ReachError(BAD_INPUT, "Expected a cookie array or storage-state JSON")
-    cookies = []
-    for row in rows:
-        if not isinstance(row, dict) or not any(cdp.domain_matches(str(row.get("domain", "")), d) for d in domains):
-            continue
-        if not isinstance(row.get("name"), str) or not isinstance(row.get("value"), str):
-            continue
-        expiry = row.get("expires", row.get("expirationDate", -1))
-        if not isinstance(expiry, (int, float)) or (expiry > 0 and expiry <= time.time()):
-            continue
-        cookie = {k: row[k] for k in ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite") if k in row}
-        if expiry > 0:
-            cookie["expires"] = expiry
-        if cookie.get("sameSite") not in {"Strict", "Lax", "None"}:
-            cookie.pop("sameSite", None)
-        cookies.append(cookie)
-    if not cookies:
-        raise ReachError(BAD_INPUT, "No unexpired cookies for the selected site; the source login may need renewal")
-    ensure_running()
-    with execution_lock("browser:shared"):
-        if only_missing:
-            present = cdp.call("Storage.getCookies")
-            if present is None:
-                raise ReachError(UPSTREAM_BROKEN, "Could not inspect the saved dedicated session")
-            keys = {(c["name"], c["domain"], c.get("path", "/")) for c in present.get("cookies", [])}
-            cookies = [c for c in cookies if (c["name"], c["domain"], c.get("path", "/")) not in keys]
-        if cookies and cdp.call("Storage.setCookies", {"cookies": cookies}) is None:
-            raise ReachError(UPSTREAM_BROKEN, "The dedicated browser did not accept the imported session")
-    def invalidate(saved):
-        saved["checks"].pop(channel, None)
-        saved.get("reuse_sources", {}).pop(channel, None)
-        saved.setdefault("session_revisions", {})[channel] = state.now()
-    state.mutate(invalidate)
-    save_session()
-    touch()
-    return {"channel": channel, "imported_cookies": len(cookies), "original_browser_changed": False,
-            "logged_in": None, "authorization": "one_time_site_import", "next": f"agent-reach check {channel} --search --text"}
-
-
-def migrate_owned_session(channel: str) -> None:
-    """Merge old Reach-owned site snapshots once, without replacing a newer login."""
-    from . import state
-    from .result import BAD_INPUT, ReachError
-    source = state.root() / "sessions" / (channel + "-cloak") / "profile" / "reach-session.json"
-    if not source.is_file() or state.load().get("session_migrations", {}).get(channel):
-        return
-    try:
-        result = import_session(channel, state_file=source, only_missing=True)
-        status = {"at": state.now(), "imported_cookies": result["imported_cookies"]}
-    except ReachError as exc:
-        if exc.code != BAD_INPUT:
-            raise
-        status = {"at": state.now(), "imported_cookies": 0, "reason": "old snapshot unavailable or expired"}
-    state.mutate(lambda saved: saved.setdefault("session_migrations", {}).__setitem__(channel, status))

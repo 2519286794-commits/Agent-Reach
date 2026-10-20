@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
@@ -57,6 +58,18 @@ def _uses_browser(ch) -> bool:
 
 
 
+@lru_cache(maxsize=1)
+def code_signature() -> str:
+    """A candidate with the same version must not inherit another build's passes."""
+    root = Path(__file__).parents[1]
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*.py")):
+        if "api" not in path.relative_to(root).parts:
+            digest.update(path.relative_to(root).as_posix().encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
 def fingerprint(channel: str) -> str:
     """Invalidate checks when this build, channel dependencies, source, or network changes."""
     from agent_reach.config import Config
@@ -69,7 +82,7 @@ def fingerprint(channel: str) -> str:
     relevant = set(ch.prereqs) | set(ch.tools) | set(channel_tools(ch))
     relevant.update(name for action in ch.actions for name, _ in action.backends)
     session_revision = data.get("session_revisions", {}).get(channel)
-    value = [__version__, channel, profile_for(channel),
+    value = [__version__, code_signature(), channel, profile_for(channel),
              cfg.get("proxy"), session_revision,
              {k: data["tools"].get(k, {}).get("version") for k in sorted(relevant)}]
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:16]
@@ -252,7 +265,6 @@ def _install_channel(ch, *, allow_upgrade: bool = False) -> List[dict]:
     if _uses_browser(ch):
         from . import browser
         browser.setup()
-        browser.migrate_owned_session(ch.name)
     ch.on_add()
     return installed
 
@@ -307,14 +319,14 @@ def remove(name: str) -> dict:
     ch = _channel(name)
     data = state.load()
     was_added = is_added(ch, data)
-    data["channels"].pop(name, None)
-    data["checks"].pop(name, None)
-    if ch.level == "default" and name not in data["removed_defaults"]:
-        data["removed_defaults"].append(name)
-    state.save(data)
+    if not was_added:
+        return {"channel": name, "removed": False, "removed_tools": [], "cleared_cookies": 0,
+                "browser_deleted": False, "warnings": []}
+    # Keep the registration and its tools until required login cleanup succeeds.
+    cookies = browser.clear_site(site_domains(ch)) if _uses_browser(ch) else 0
     ch.on_remove()
     legacy_profile = state.root() / "sessions" / (name + "-cloak")
-    if legacy_profile.exists():
+    if state.owned_path(legacy_profile) and legacy_profile.exists():
         _remove(legacy_profile)
     if ch.session:
         clear_session(ch.session)
@@ -325,13 +337,11 @@ def remove(name: str) -> dict:
         for key in ch.logout_keys:
             if cfg.get(key):
                 cfg.delete(key)
-    cookies, browser_deleted, warnings = 0, False, []
-    if _uses_browser(ch):
-        try:
-            cookies = browser.clear_site(site_domains(ch))
-        except ReachError as err:
-            warnings.append(err.message)
     def forget(saved):
+        saved["channels"].pop(name, None)
+        saved["checks"].pop(name, None)
+        if ch.level == "default" and name not in saved["removed_defaults"]:
+            saved["removed_defaults"].append(name)
         for key in ("reuse_sources", "setup_failures", "backend_health", "cooldowns"):
             saved.get(key, {}).pop(name, None)
         for key in ("pending", "ask_pending"):
@@ -340,8 +350,8 @@ def remove(name: str) -> dict:
                     saved[key].pop(ident, None)
         saved.setdefault("session_revisions", {})[name] = state.now()
     state.mutate(forget)
-    return {"channel": name, "removed": was_added, "removed_tools": _prune(data),
-            "cleared_cookies": cookies, "browser_deleted": browser_deleted, "warnings": warnings}
+    return {"channel": name, "removed": True, "removed_tools": _prune(state.load()),
+            "cleared_cookies": cookies, "browser_deleted": False, "warnings": []}
 
 
 # ── skill (the agent-facing instructions) ──
@@ -451,7 +461,8 @@ def _remove(path: Path) -> None:
 
 def _write_real_copy(text: str) -> Path:
     real = skill_dir()
-    _remove(real)  # old instructions are replaced, not merged
+    if (real / "SKILL.md").exists() and not _is_our_copy(real):
+        raise ReachError(BAD_INPUT, "A different skill already occupies the Reach instruction path; left untouched")
     _write_copy(real, text)
     return real
 
@@ -459,13 +470,19 @@ def _write_real_copy(text: str) -> Path:
 def _write_copy(target: Path, text: str) -> None:
     from importlib.resources import files
 
-    target.mkdir(parents=True)
-    (target / "SKILL.md").write_text(text, encoding="utf-8")
+    from agent_reach.utils.paths import atomic_write_private_text, ensure_no_symlink_path
+    ensure_no_symlink_path(target, "skill directory")
+    target.mkdir(parents=True, exist_ok=True)
+    atomic_write_private_text(target / "SKILL.md", text)
+    written = [str(target / "SKILL.md")]
     references = target / "references"
+    ensure_no_symlink_path(references, "skill references")
     references.mkdir(exist_ok=True)
     for source in files("agent_reach").joinpath("skill").joinpath("references").iterdir():
         if source.is_file() and source.name.endswith(".md"):
-            (references / source.name).write_text(source.read_text("utf-8"), encoding="utf-8")
+            atomic_write_private_text(references / source.name, source.read_text("utf-8"))
+            written.append(str(references / source.name))
+    state.mutate(lambda data: data["skill"].setdefault("files", {}).update({str(target): written}))
 
 
 def _link_into(skills_dir: Path, text: str) -> tuple:
@@ -482,7 +499,8 @@ def _link_into(skills_dir: Path, text: str) -> tuple:
     if target.exists():
         if not _is_our_copy(target):
             return None, "a different skill named agent-reach is already there"
-        shutil.rmtree(target)
+        _write_copy(target, text)
+        return "copy", None
     skills_dir.mkdir(parents=True, exist_ok=True)
     try:
         target.symlink_to(skill_dir(), target_is_directory=True)
@@ -491,17 +509,6 @@ def _link_into(skills_dir: Path, text: str) -> tuple:
         # Windows without symlink rights: fall back to a copy that update refreshes.
         _write_copy(target, text)
         return "copy", None
-
-
-def _remove_native_old_copies() -> List[str]:
-    """Our old real copies in folders of AIs that now read ~/.agents/skills (so they don't see two)."""
-    removed = []
-    for _, skills in native_agents().values():
-        target = skills / SKILL_NAME
-        if _is_our_copy(target):
-            shutil.rmtree(target)
-            removed.append(str(target))
-    return removed
 
 
 def _agent_for(skills_dir: Path) -> str:
@@ -529,9 +536,8 @@ def place_skill() -> dict:
             links.append({"agent": agent, "path": str(target), "kind": kind})
         else:
             not_linked.append({"agent": agent, "path": str(target), "reason": reason})
-    data["skill"]["links"] = links
-    state.save(data)
-    return {**skill_status(), "not_linked": not_linked, "removed_old_copies": _remove_native_old_copies()}
+    state.mutate(lambda saved: saved["skill"].update(links=links))
+    return {**skill_status(), "not_linked": not_linked, "removed_old_copies": []}
 
 
 def skill_status() -> dict:
@@ -575,20 +581,21 @@ def link_skill(skills_dir: str) -> dict:
 
 
 def _skill_uninstall_targets() -> List[Path]:
-    """Real copy, recorded links/copies, and our links/old copies in every known skills folder."""
-    found: List[Path] = []
-    for rec in state.load()["skill"]["links"]:
-        p = Path(rec["path"])
-        if _links_to_real(p) or _is_our_copy(p):
-            found.append(p)
-    known = [skills for _, skills in linked_agents().values()] + [skills for _, skills in native_agents().values()]
-    for skills in known:
-        p = skills / SKILL_NAME
-        if _links_to_real(p) or _is_our_copy(p):
-            found.append(p)
-    real = skill_dir()
-    if real.exists() or real.is_symlink():
-        found.append(real)
+    """Only recorded files and still-matching shortcuts; preserve user additions."""
+    data = state.load()["skill"]
+    found = []
+    for rec in data["links"]:
+        path = Path(rec["path"])
+        if rec["kind"] == "link" and _links_to_real(path):
+            found.append(path)
+    for folder, files in data.get("files", {}).items():
+        base = Path(folder)
+        if base.is_symlink():
+            continue
+        for name in files:
+            path = Path(name)
+            if path.is_relative_to(base) and not any(p.is_symlink() for p in path.parents if p != base.parent):
+                found.append(path)
     return list(dict.fromkeys(found))
 
 
@@ -613,7 +620,7 @@ def migrate() -> dict:
         "migrated": True,
         "kept": "~/.agent-reach/config.yaml (keys and cookies unchanged)",
         "suggested_channels": sorted(set(hints) - defaults),
-        "note": "Your own global tools were not removed. Old logins can be copied with `agent-reach login <channel> --import-existing`.",
+        "note": "Your own global tools were not removed. Browser login must be completed by the user in the Reach dedicated window.",
     }
 
 
@@ -628,7 +635,7 @@ def setup() -> dict:
     migration = migrate() if not state.exists() and (state.root() / "config.yaml").exists() else None
     if not state.exists():
         state.save(state.load())
-    _cleanup_retired_mcp()
+    user_actions = _retired_mcp_notice()
     if state.load()["tools"].get("mcporter", {}).get("owner") == tools.OURS:
         tools.remove_private("mcporter")  # retired LinkedIn MCP transport, only our private copy
     state.mutate(lambda saved: (saved.pop("reuse_sources", None), saved.pop("ask_pending", None)))
@@ -649,6 +656,7 @@ def setup() -> dict:
     current = [{"channel": c.name, **channel_status(c, state.load())} for c in registered]
     result = {
         "version": __version__,
+        "user_actions": user_actions,
         "default_channels": added,
         "skill": skill,
         "optional_channels": optional,
@@ -662,6 +670,7 @@ def setup() -> dict:
     markdown = installation_report(result)
     report = {"markdown": markdown, "path": None}
     try:
+        state.remember_path(state.root() / "installation-report.md", "installation receipt")
         report["path"] = str(atomic_write_private_text(state.root() / "installation-report.md", markdown))
     except (OSError, PrivatePathError):
         # The receipt remains in stdout even if its local copy cannot be saved.
@@ -670,29 +679,11 @@ def setup() -> dict:
     return result
 
 
-def _cleanup_retired_mcp() -> None:
-    """Remove only the unchanged Cursor entry recorded as ours by an older build."""
-    from agent_reach.utils.paths import (
-        PrivatePathError,
-        atomic_write_private_text,
-        read_small_text_no_follow,
-    )
-    old = state.load().get("mcp", {}).get("cursor", {})
-    path = home_dir() / ".cursor" / "mcp.json"
-    if old.get("path") != str(path) or not path.is_file():
-        return
-    try:
-        data = json.loads(read_small_text_no_follow(path, max_bytes=1024 * 1024) or "{}")
-        if not isinstance(data, dict):
-            return
-        servers = data.get("mcpServers", {})
-        if not isinstance(servers, dict) or servers.get("agent-reach") != old.get("entry"):
-            return
-        servers.pop("agent-reach")
-        atomic_write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2))
-    except (OSError, ValueError, PrivatePathError):
-        return  # Preserve an unreadable or externally changed config.
-    state.mutate(lambda saved: saved.pop("mcp", None))
+def _retired_mcp_notice() -> list:
+    """Read the old ledger only; never edit another application's configuration."""
+    if state.load().get("mcp"):
+        return ["An older Reach build registered an MCP server. Remove the agent-reach entry in your AI application's MCP settings; Reach no longer edits those settings."]
+    return []
 
 
 # ── update ──
@@ -838,24 +829,38 @@ def update(check_only: bool = False) -> dict:
 
 # ── uninstall ──
 
-_OWNED = ("config.yaml", "state.json", "mcporter.json", "sessions", "browser", "cloak-binaries",
-          "update-check.json", "update-check.started")
-
 
 def uninstall(dry_run: bool = False) -> dict:
     from . import browser
 
     root = state.root()
     targets = _skill_uninstall_targets()  # before state.json goes: it records the links
-    targets += [root / n for n in _OWNED]
-    targets += [tools.tool_dir(n) for n in tools.TOOLS] + [tools.npm_global_dir(), root / "tools" / "xiaoyuzhou"]
+    data = state.load()
+    for name in data.get("owned_paths", {}):
+        path = root / name
+        if name and ".." not in Path(name).parts and path.is_relative_to(root) and not Path(name).is_absolute():
+            targets.append(path)
+    targets += [tools.tool_dir(n) for n, entry in data["tools"].items()
+                if entry.get("owner") == tools.OURS and entry.get("scope") == "private"
+                and tools._SAFE_NAME.fullmatch(n)]
     targets = [t for t in targets if t.exists() or t.is_symlink()]
     globals_ = tools.uninstall_global_owned(dry_run=True)
     if not dry_run:
-        browser.stop()
+        if state.owned_path(browser.browser_root()) or browser._load_state().get("backend"):
+            if not browser.stop():
+                raise ReachError(UPSTREAM_BROKEN, "The dedicated browser could not close; uninstall stopped before deleting its files")
         tools.uninstall_global_owned(dry_run=False)
-        for t in targets:
+        # Children first; directory entries do not authorize deleting unrecorded siblings.
+        for t in sorted(set(targets), key=lambda p: len(p.parts), reverse=True):
+            from agent_reach.utils.paths import ensure_no_symlink_path
+            ensure_no_symlink_path(t.parent, "uninstall parent")
             _remove(t)
+        for folder in data.get("skill", {}).get("files", {}):
+            for directory in (Path(folder) / "references", Path(folder)):
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass
         for d in (root / "tools", root):
             try:
                 d.rmdir()

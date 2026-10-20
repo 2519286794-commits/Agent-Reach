@@ -1,3 +1,5 @@
+> Historical test record, superseded by the dedicated-only policy audit. The import path described below has been removed. These earlier passes do not certify the current candidate.
+
 # Shared browser acceptance — 2026-10-20
 
 Candidate: **1.6.0**, targeting `release/1.6`. This record separates implementation checks from actual platform access. It does not certify every platform or Windows browser operation.
@@ -13,7 +15,7 @@ Candidate: **1.6.0**, targeting `release/1.6`. This record separates implementat
 | One dedicated browser | Passed locally | Shared `~/.agent-reach/browser/profile`; CloakBrowser launched by the existing watcher with OpenCLI extension 1.0.26 loaded automatically. No per-channel browser contexts. |
 | Ten idle minutes / automatic reopen | Passed with shortened live timer | Default is 600 seconds. Live test used 3 seconds: browser closed, watcher exited successfully; next call reopened and connected. The test did not wait ten wall-clock minutes. |
 | Chrome fallback | Unit-tested | Installation/download failure selects installed Chrome and remembers the fallback. `browser setup --retry-cloak` retries Cloak. No live network failure was deliberately induced. |
-| Login inheritance | Passed locally | Explicit one-time import of Xiaohongshu cookies from the user-selected leetengx Bridge profile; source unchanged; subsequent search returned a result. No personal Chrome Cookie database access. |
+| Login inheritance | Passed locally | Explicit one-time import of Xiaohongshu cookies from the user-selected Bridge profile; source unchanged; subsequent search returned a result. No personal Chrome Cookie database access. |
 | Preserve login on reopen | Passed locally | Session cookie survived close/reopen; Xiaohongshu and BOSS cookie counts remained 16 and 12. Cookie presence alone does not prove platform authentication. Private snapshot mode: 0600. |
 | BOSS shares browser | Wiring done; business check blocked | Native CLI uses the owned CDP endpoint. Actual search returned **PLATFORM_BLOCKED**. Stopped immediately without backend/account retries; search and JD remain for manual verification. |
 | Browser channel dependencies | Unit-tested; Xiaohongshu add exercised locally | Node, OpenCLI, browser and extension prepared by add. BOSS adds its native CLI too. Cloak download failure can use installed Chrome. |

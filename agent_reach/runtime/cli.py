@@ -9,8 +9,7 @@ go to stderr. Exit code 0 = ok, 1 = error. Exceptions for humans: `help`, and
 `--text` on setup / doctor / check. `login` shows the upstream's interactive
 output (QR codes, prompts) on stderr so stdout still carries only the JSON.
 
-When a newer release is known (cached by a background check at most once a
-day, never waited on), every JSON object carries meta.update = {current, latest, notes}.
+When a newer release is known (cached by an explicit update --check), every JSON object carries meta.update = {current, latest, notes}.
 """
 
 from __future__ import annotations
@@ -57,9 +56,6 @@ For the user:
   agent-reach add <channel>               install channel dependencies and prepare its browser
   agent-reach remove <channel>            remove a channel (defaults too) and what only it used
   agent-reach login|logout <channel>      log in (the user does it) / forget the login
-  agent-reach browser profiles           list connected login sources
-  agent-reach browser import CHANNEL --opencli-profile ID  one-time site login import
-  agent-reach browser import CHANNEL --state-file FILE      import an explicit local session file
   agent-reach browser setup|status|stop   shared dedicated browser
   agent-reach skill [link <skills-dir>]   where the agent skill is; link it for another AI
   agent-reach doctor [--text]             status of every channel and installed tool versions (no network)
@@ -408,6 +404,8 @@ def _cmd_login(args: Sequence[str]) -> int:
         ch, ns = _login_channel("login", args)
     except _ArgError as exc:
         return _bad_input(None, "login", str(exc))
+    if ns.import_existing and ch.login_url:
+        return _bad_input(ch.name, "login", "Personal-browser authentication import is unavailable; log in in the Reach dedicated window")
     if ns.import_existing and ch.session:
         copied = import_legacy_state(ch.session, ch.legacy_state)
         if copied:
@@ -463,7 +461,9 @@ def _cmd_logout(args: Sequence[str]) -> int:
         from . import manage, state
         browser.clear_site(manage.site_domains(ch))
         # Retired per-site snapshots must not revive a login after logout.
-        manage._remove(state.root() / "sessions" / (ch.name + "-cloak"))
+        legacy = state.root() / "sessions" / (ch.name + "-cloak")
+        if state.owned_path(legacy):
+            manage._remove(legacy)
         def forget(saved):
             saved["checks"].pop(ch.name, None)
             saved.get("reuse_sources", {}).pop(ch.name, None)
@@ -484,10 +484,7 @@ def _cmd_logout(args: Sequence[str]) -> int:
 
 def _cmd_browser(args: Sequence[str]) -> int:
     parser = _Parser(prog="browser", add_help=False)
-    parser.add_argument("op", choices=("setup", "status", "stop", "profiles", "import"))
-    parser.add_argument("channel", nargs="?")
-    parser.add_argument("--state-file")
-    parser.add_argument("--opencli-profile")
+    parser.add_argument("op", choices=("setup", "status", "stop"))
     parser.add_argument("--retry-cloak", action="store_true")
     try:
         ns = parser.parse_args(list(args))
@@ -495,16 +492,6 @@ def _cmd_browser(args: Sequence[str]) -> int:
             raise _ArgError("--retry-cloak applies only to browser setup")
         if ns.op == "setup":
             return _mgmt("browser setup", browser.setup, retry_cloak=ns.retry_cloak)
-        if ns.op == "import":
-            if not ns.channel:
-                raise _ArgError("browser import requires a channel")
-            return _mgmt("browser import", browser.import_session, ns.channel,
-                         state_file=ns.state_file, opencli_profile=ns.opencli_profile)
-        if ns.channel or ns.state_file or ns.opencli_profile:
-            raise _ArgError("session import arguments apply only to browser import")
-        if ns.op == "profiles":
-            from .onboarding import profiles
-            return _mgmt("browser profiles", profiles)
         return _mgmt("browser " + ns.op, getattr(browser, ns.op))
     except _ArgError as exc:
         return _bad_input(None, "browser", str(exc))
@@ -525,23 +512,18 @@ def _cmd_flow(head: str, args: Sequence[str]) -> int:
         else:
             parser.add_argument("--action")
             parser.add_argument("--no-verify", action="store_true")
-            parser.add_argument("--forget-source", action="store_true")
-        parser.add_argument("--reuse-profile")
     try:
         ns = parser.parse_args(list(args))
         if head == "resume":
             from .flow import resume
             result = resume(ns.operation_id)
         elif head == "ensure":
-            result = (flow.forget_source(ns.channel) if ns.forget_source else
-                      flow.ensure(ns.channel, action=ns.action, source_profile=ns.reuse_profile,
-                                  verify=not ns.no_verify))
+            result = flow.ensure(ns.channel, action=ns.action, verify=not ns.no_verify)
         else:
             params = json.loads(ns.params)
             if not isinstance(params, dict):
                 raise _ArgError("--params must be a JSON object")
-            result = flow.execute(ns.channel, ns.channel_action, params, timeout=ns.timeout,
-                                  source_profile=ns.reuse_profile)
+            result = flow.execute(ns.channel, ns.channel_action, params, timeout=ns.timeout)
     except (ValueError, _ArgError) as exc:
         return _bad_input(None, head, str(exc))
     except ReachError as err:
@@ -556,12 +538,10 @@ def main(argv: Sequence[str]) -> int:
     if not argv or argv[0] in ("help", "-h", "--help"):
         sys.stdout.write(HELP)
         return 0
-    from . import tools, update_notice
+    from . import tools
 
     tools.extend_path()
     _SHOW_NOTICE = argv[0] != "update"
-    if argv[0] not in ("update", "uninstall"):
-        update_notice.maybe_refresh()
     _apply_saved_proxy()
     head, rest = argv[0], argv[1:]
     if head == "channels":

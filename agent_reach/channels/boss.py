@@ -47,7 +47,7 @@ class BossChannel(Channel):
             timeout=90,
         ),
         Action("read", "Read a direct BOSS job URL", (Param("target", "full job URL"),),
-               (("boss-agent-cli", "_cli_read"),), timeout=60),
+               (("opencli", "_opencli_read"),), timeout=90),
     )
 
     def can_handle(self, url: str) -> bool:
@@ -120,26 +120,15 @@ class BossChannel(Channel):
         return opencli_items(rows)[:limit]
 
 
-    def _cli_read(self, *, target: str, timeout: float) -> list:
+    def _opencli_read(self, *, target: str, timeout: float) -> list:
         import re
 
-        from agent_reach.runtime.onboarding import require_boss_cdp
+        from agent_reach.backends.opencli import opencli_call, opencli_items
         if not host_matches(str(target), "zhipin.com"):
             raise ReachError("BAD_INPUT", "Expected a direct zhipin.com job URL")
         match = re.search(r"/job_detail/([A-Za-z0-9_-]+)\.html", str(target))
         if not match:
             raise ReachError("BAD_INPUT", "Expected a direct BOSS job URL")
-        exe = resolve("boss")
-        if not exe:
-            raise ReachError(NEED_SETUP, "Run agent-reach add boss")
-        python = Path(exe).with_name("python.exe" if os.name == "nt" else "python")
-        spec = {"action": "read", "job_id": match.group(1), "cdp_url": require_boss_cdp(),
-                "data_dir": str(session_dir(self.session) / ".boss-agent")}
-        runner = Path(__file__).parents[1] / "backends" / "boss_native.py"
-        result = json.loads(run_cmd([str(python), str(runner), json.dumps(spec)], timeout=timeout))
-        if not result.get("ok"):
-            err = result.get("error") or {}
-            raise ReachError(err.get("code", UPSTREAM_BROKEN), err.get("message", "BOSS detail unavailable"))
-        row = result["data"]
-        return [make_item(title=row.get("title"), url=str(target), author=row.get("company"),
-                          text=row.get("description"), raw=row)]
+        rows = opencli_call("boss", ["detail", match.group(1)], timeout=timeout,
+                            login_hint="Run agent-reach login boss; complete login yourself in the dedicated browser.")
+        return opencli_items(rows)[:1]

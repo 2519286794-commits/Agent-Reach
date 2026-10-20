@@ -20,7 +20,14 @@ def sessions_root() -> Path:
 
 def session_dir(tool: str) -> Path:
     """The tool's private home directory (created on first use)."""
-    return make_private_dir(sessions_root() / tool)
+    from . import state
+    path = sessions_root() / tool
+    if path.exists() and not state.owned_path(path) and state.load()["tools"].get(tool, {}).get("owner") != "agent-reach":
+        from .result import NEED_SETUP, ReachError
+        raise ReachError(NEED_SETUP, "Unrecorded files occupy the native session directory; left untouched")
+    path = make_private_dir(path)
+    state.remember_path(path, "native session")
+    return path
 
 
 def session_env(tool: str) -> dict:
@@ -38,7 +45,8 @@ def has_login_state(tool: str) -> bool:
 def clear_session(tool: str) -> bool:
     """Delete the tool's session directory. Returns whether anything was removed."""
     root = sessions_root() / tool
-    if not root.exists():
+    from . import state
+    if not state.owned_path(root) or not root.exists():
         return False
     ensure_no_symlink_path(root, "登录目录")
     shutil.rmtree(root)

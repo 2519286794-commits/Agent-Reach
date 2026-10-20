@@ -40,16 +40,15 @@ def test_unknown_resume_is_explicit_bad_input():
         flow.resume("missing")
 
 
-def test_prepare_reuses_one_shared_browser_and_imports_only_when_explicit(monkeypatch):
+def test_prepare_reuses_only_the_shared_dedicated_browser(monkeypatch):
     from agent_reach.runtime import browser, manage, tools
     monkeypatch.setattr(manage, "is_added", lambda *a: True)
     monkeypatch.setattr(tools, "present", lambda *a: True)
-    ready, importing = Mock(), Mock()
+    ready = Mock()
     monkeypatch.setattr(browser, "ensure_running", ready)
-    monkeypatch.setattr(browser, "import_session", importing)
-    flow.prepare("xiaohongshu", source_profile="consented-source")
+    assert not hasattr(browser, "import_session")
     flow.prepare("xiaohongshu")
-    assert ready.call_count == 2 and importing.call_count == 1
+    assert ready.call_count == 1
     assert not state.load().get("reuse_sources"), "no indefinite export authorization"
 
 

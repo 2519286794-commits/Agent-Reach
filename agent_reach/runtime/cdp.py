@@ -74,10 +74,12 @@ def _send(sock: socket.socket, text: str) -> None:
     sock.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
 
 
-def call(method: str, params: Optional[dict] = None, *, page: bool = False) -> Optional[dict]:
+def call(method: str, params: Optional[dict] = None, *, page: bool = False,
+         target_id: Optional[str] = None) -> Optional[dict]:
     """One browser-level CDP call; returns `result` or None if unreachable."""
-    target = (next((t for t in (_json("/json/list") or []) if t.get("type") == "page"), {})
-              if page else (_json("/json/version") or {}))
+    target = (next((t for t in (_json("/json/list") or []) if
+                    (t.get("id") == target_id if target_id else t.get("type") == "page")), {})
+              if page or target_id else (_json("/json/version") or {}))
     ws = target.get("webSocketDebuggerUrl")
     if not ws:
         return None

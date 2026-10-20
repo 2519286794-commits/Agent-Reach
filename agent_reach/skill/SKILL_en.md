@@ -38,7 +38,7 @@ Route by the evidence needed, on every platform:
 3. Load [Sessions](references/sessions.md) only when the remaining task's chosen path actually requires authentication or session setup. Reuse authorized sessions before requesting login. Missing browser setup, 403, challenges, DNS/TLS failures, rate limits and timeouts need their own diagnosis. A login button beside readable content is not a login wall.
 4. Keep public evidence and deliver it even if login is skipped. Identify the remaining gap. Counts, subtitle track lists, page shells and search snippets do not establish comment text, subtitle text or complete bodies.
 
-A platform name or URL identifies a source; it does not automatically trigger installation, ensure or login. Read Sessions for explicit setup/login/import/logout requests and [Maintenance](references/maintenance.md) for failures/updates/uninstall.
+A platform name or URL identifies a source; it does not automatically trigger installation, ensure or login. Read Sessions for explicit setup/login/logout requests and [Maintenance](references/maintenance.md) for failures/updates/uninstall.
 
 Public Reddit JSON may expose parent IDs; verify actual coverage. YouTube/Bilibili descriptions, subtitles and video content are separate evidence. Public X posts and reply streams are separate capabilities. Do not generalize a local failure into a platform-wide login requirement, or promise universal anonymous access. Distinguish local HTTP, proxy and built-in web-tool results.
 
@@ -69,7 +69,7 @@ Results:
 2. Say "using agent-reach channel X" before calling a Reach channel.
 3. Serialize commands sharing one browser profile; independent sessions may run in parallel.
 4. Read only. Never post, comment, or like.
-5. Never extract login state implicitly. Explicit authorization permits importing only the selected site's state. Never output cookies, tokens or credentials. Do not ask again for existing authorization.
+5. Never read or import personal-browser authentication. The user logs in only in the Reach browser. Never output credentials.
 
 ## Channels
 
@@ -82,7 +82,7 @@ The login column lists authentication entry points, not prerequisites for public
 ## Reuse before login
 
 
-`setup` installs defaults; adding a browser channel prepares the shared browser and extension. `login CHANNEL` opens the site for the user to log in. Imports are one-time and explicitly authorized; verify the requested action after import.
+`setup` installs defaults; adding a browser channel prepares the shared browser and extension. `login CHANNEL` opens the site for the user to log in. Reuse saved dedicated sessions and verify the requested action. Never import personal-browser login.
 
 
 XHS read returns text descriptions, not image/video understanding. Never guess BOSS salary digits when salary_encoded=true; read the job detail instead.
@@ -121,6 +121,6 @@ All browser channels use `~/.agent-reach/browser/profile`. CloakBrowser is prefe
 
 Use `agent-reach execute CHANNEL ACTION --params '{...}'` to prepare and perform the real action once. Reserve `ensure CHANNEL` for setup checks and diagnosis. After the user completes a requested login, use `agent-reach resume OPERATION_ID` when an operation ID was returned. There is no Reach MCP server or model planner in this version, and no model API key is required.
 
-Reuse the dedicated browser's saved login first. Explicit one-time site imports use `agent-reach browser import CHANNEL --opencli-profile ID` or `--state-file FILE`; they do not grant continuing access to personal Chrome. Verify the requested action after import. See [Sessions](references/sessions.md).
+Reuse only the dedicated browser’s saved login. Never read or import personal-browser authentication. The user logs in in the Reach window; sessions are saved periodically. Human page input and Reach calls reset the idle timer. The official Bridge is supervised alongside the browser; existing user processes are preserved. See [Sessions](references/sessions.md).
 
 `add CHANNEL` prepares dependencies, browser and extension. `remove CHANNEL` clears only that site's login/storage, preserving other sites. Xiaoyuzhou remains an optional transcription channel requiring a Groq key.

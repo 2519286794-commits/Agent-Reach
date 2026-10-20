@@ -26,6 +26,9 @@ def environment(channel: str):
     profile = browser.bound_context()
     if not profile:
         raise ReachError(NEED_SETUP, "OpenCLI has not connected to the dedicated browser")
+    from . import bridge
+    if not bridge.require_compatible():
+        raise ReachError(NEED_SETUP, "The dedicated browser Bridge disconnected; reopen the Reach browser")
     browser.touch()
     return {"OPENCLI_PROFILE": profile, "OPENCLI_WINDOW": "background",
             "OPENCLI_CDP_ENDPOINT": "", "OPENCLI_CDP_TARGET": ""}
@@ -62,6 +65,8 @@ def execution_lock(profile: str):
         except OSError:
             raise ReachError("BUSY", "Another Reach command is using this Chrome profile") from None
         try:
+            if profile != "reach-state-write":
+                state.remember_path(path, "execution lock")
             yield
         finally:
             if sys.platform == "win32":

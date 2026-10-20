@@ -11,7 +11,6 @@ import json
 import os
 import re
 import shutil
-import time
 
 import pytest
 
@@ -102,7 +101,7 @@ def env(monkeypatch):
 
     def fake_install(tool, *, global_=False):
         installs.append(tool.name)
-        version = versions.get(tool.name, "1.2.3")
+        version = versions.get(tool.name, "1.8.7" if tool.name == "opencli" else "1.2.3")
         if tool.kind in ("pip", "ffmpeg"):
             shutil.rmtree(tools.tool_dir(tool.name) / "venv", ignore_errors=True)  # as the real installer
         paths = ([tools._npm_global_bin() / (c + (".cmd" if tools._WIN else "")) for c in tool.commands] if global_
@@ -188,7 +187,7 @@ def test_install_spec_uses_tested_versions_or_floor_and_exclude():
     "user_version, allow, expect_install, expect_owner, expect_version",
     [("1.9.0", False, [], "user", "1.9.0"),
      ("1.8.0", True, [("user-upgrade", "opencli")], "user", "1.9.0"),
-     (None, False, ["opencli"], "agent-reach", "1.2.3")],
+     (None, False, ["opencli"], "agent-reach", "1.8.7")],
 )
 def test_singleton_reuses_user_copy_and_upgrades_only_with_consent(
     env, user_version, allow, expect_install, expect_owner, expect_version
@@ -380,30 +379,22 @@ def test_every_json_output_carries_meta_update_only_when_newer(env, capsys, monk
     assert "meta" not in _cli_json(capsys, ["doctor"])
 
 
-def test_background_check_starts_at_most_once_a_day(monkeypatch):
-    monkeypatch.delenv(update_notice.DISABLE_ENV)
-    started = []
-    monkeypatch.setattr(update_notice.subprocess, "Popen", lambda argv, **k: started.append(argv))
-    update_notice.maybe_refresh()
-    update_notice.maybe_refresh()
-    assert len(started) == 1 and started[0][-1] == "agent_reach.runtime.update_notice"
-    old = time.time() - update_notice.INTERVAL - 5
-    os.utime(update_notice.started_path(), (old, old))
-    update_notice.maybe_refresh()
-    assert len(started) == 2
+def test_queries_never_spawn_background_update_checks(env, monkeypatch, capsys):
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: pytest.fail("background process"))
+    assert _cli_json(capsys, ["doctor"])["ok"]
+    assert not hasattr(update_notice, "maybe_refresh")
 
 
-def test_background_check_writes_cache_or_stays_silent(monkeypatch):
-    def offline(timeout=10):
+def test_explicit_update_check_preserves_offline_error_and_writes_success_cache(env, monkeypatch):
+    monkeypatch.setattr(update_notice, "fetch_latest", lambda **k: {"latest": "9.9.9", "notes": "n"})
+    assert manage.update_check()["latest"] == "9.9.9"
+    assert update_notice.read_cache()["latest"] == "9.9.9"
+    def offline(**kwargs):
         raise OSError("offline")
-
     monkeypatch.setattr(update_notice, "fetch_latest", offline)
-    assert update_notice._main() == 1 and not update_notice.cache_path().exists()
-    monkeypatch.setattr(update_notice, "fetch_latest", lambda timeout=10: {"latest": "9.9.9", "notes": "n"})
-    assert update_notice._main() == 0 and update_notice.read_cache()["latest"] == "9.9.9"
-
-
-# ── doctor ──
+    with pytest.raises(ReachError, match="offline"):
+        manage.update_check()
 
 
 def _status(name):
@@ -543,7 +534,8 @@ def test_setup_receipt_never_overwrites_a_linked_foreign_file(env, tmp_path):
 def test_uninstall_removes_only_what_we_own(env):
     manage.add("bili")
     root = state.root()
-    (root / "config.yaml").write_text("x: 1")
+    from agent_reach.config import Config
+    Config().set("test", 1)
     (root / "my-notes").mkdir()
     (root / "tools" / "someone-elses-tool").mkdir(parents=True)
     update_notice.write_cache({"latest": "1.0.0", "notes": ""})
@@ -560,7 +552,7 @@ def test_uninstall_removes_only_what_we_own(env):
 
 def test_uninstall_closes_the_browser_instead_of_refusing(env):
     manage.uninstall()
-    assert env["stopped"] == [True]
+    assert env["stopped"] == [], "no owned browser was recorded"
 
 # ── skill ──
 
@@ -606,10 +598,10 @@ def test_skill_replaces_our_old_copy_but_not_a_foreign_one(env):
     native_old = home / ".codex" / "skills" / "agent-reach"
     _seed_our_copy(native_old)
     result = manage.place_skill()
-    assert ours.is_symlink()
+    assert ours.is_dir() and not ours.is_symlink()
     assert not foreign.is_symlink() and "someone-else" in (foreign / "SKILL.md").read_text(encoding="utf-8")
     assert [n["agent"] for n in result["not_linked"]] == ["cursor"]
-    assert not native_old.exists() and result["removed_old_copies"] == [str(native_old)]
+    assert native_old.exists() and result["removed_old_copies"] == [], "unrecorded files are retained"
 
 
 def test_skill_falls_back_to_a_copy_without_symlink_rights(env, monkeypatch):
@@ -641,13 +633,14 @@ def test_skill_link_for_an_unlisted_ai_and_uninstall_removes_everything(env):
     other = home / "my-ai" / "skills"
     manage.link_skill(str(other))
     assert (other / "agent-reach").is_symlink()
+    manage.place_skill()
     stray = home / ".gemini" / "skills" / "agent-reach"
     stray.parent.mkdir(parents=True)
     stray.symlink_to(home / ".agents" / "skills" / "agent-reach")
-    manage.place_skill()
     assert (other / "agent-reach").is_symlink(), "update keeps recorded links"
     manage.uninstall()
-    for p in (other / "agent-reach", home / ".claude" / "skills" / "agent-reach", stray,
+    assert stray.is_symlink(), "unrecorded shortcut is retained"
+    for p in (other / "agent-reach", home / ".claude" / "skills" / "agent-reach",
               home / ".agents" / "skills" / "agent-reach"):
         assert not p.exists() and not p.is_symlink()
 
@@ -689,15 +682,15 @@ def test_remove_browser_channel_forgets_grants_pending_and_only_its_login(env):
     assert state.load()["pending"] == {"b":{"channel":"site2"}}
 
 
-def test_setup_removes_only_recorded_unchanged_legacy_mcp_entry(env):
+def test_setup_reports_legacy_mcp_without_editing_external_configuration(env):
     path=home_dir()/".cursor"/"mcp.json"
     path.parent.mkdir()
     entry={"command":"/test/agent-reach","args":["mcp"]}
     path.write_text(json.dumps({"mcpServers":{"agent-reach":entry,"keep":{"command":"other"}}}))
     state.mutate(lambda data:data.update(mcp={"cursor":{"path":str(path),"entry":entry}}))
-    manage.setup()
-    assert json.loads(path.read_text())["mcpServers"]=={"keep":{"command":"other"}}
-    assert "mcp" not in state.load()
+    result = manage.setup()
+    assert json.loads(path.read_text())["mcpServers"]["agent-reach"] == entry
+    assert result["user_actions"] and "mcp" in state.load()
 
 
 def test_setup_preserves_unowned_or_changed_mcp_configuration(env):
@@ -728,5 +721,5 @@ def test_retired_mcp_cleanup_preserves_changed_private_path(env, monkeypatch):
     def changed(*args, **kwargs):
         raise paths.PrivatePathError("externally changed path")
     monkeypatch.setattr(paths, "read_small_text_no_follow", changed)
-    manage._cleanup_retired_mcp()
+    assert manage._retired_mcp_notice()
     assert path.read_text() == "unchanged"

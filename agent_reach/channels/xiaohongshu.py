@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""XiaoHongShu — persistent Cloak session with an existing-Chrome fallback."""
+"""XiaoHongShu through upstream OpenCLI in the Reach-owned browser."""
 
 from agent_reach.backends.opencli import opencli_call, opencli_items
 from agent_reach.runtime.result import BAD_INPUT, NOT_FOUND, UPSTREAM_BROKEN, ReachError
@@ -7,8 +7,8 @@ from agent_reach.runtime.result import BAD_INPUT, NOT_FOUND, UPSTREAM_BROKEN, Re
 from .base import Action, Channel, Param
 
 _XHS_LOGIN_HINT = (
-    "Ask the user to log in to xiaohongshu.com in their own Chrome (the one with "
-    "the OpenCLI extension). Never log in or read browser cookies for them."
+    "Run agent-reach login xiaohongshu to open the Agent Reach dedicated browser. "
+    "The user completes login there. Never ask for a password or read their personal browser login."
 )
 
 

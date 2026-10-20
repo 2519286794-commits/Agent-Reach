@@ -4,7 +4,6 @@ import urllib.request
 from datetime import datetime
 from urllib.parse import urlsplit
 
-from agent_reach.config import Config
 from agent_reach.utils.url import host_matches
 
 from .result import BAD_INPUT, ReachError
@@ -215,19 +214,3 @@ def require_boss_cdp():
         browser.open_url('https://www.zhipin.com/web/geek/jobs')
     browser.touch()
     return browser.CDP_URL
-
-
-
-
-def profiles():
-    from .browser import connected_contexts
-    from .result import ReachError
-    from .tools import resolve
-    if not resolve('opencli'):
-        return {'profiles': [], 'discovery_error': 'OpenCLI is not installed'}
-    try:
-        contexts = connected_contexts()
-    except ReachError as exc:
-        return {'profiles': [], 'discovery_error': exc.message}
-    labels = Config(read_only=True).get('browser_labels', {})
-    return {'profiles': [{'id': c, 'label': labels.get(c, c), 'connected': True} for c in contexts]}

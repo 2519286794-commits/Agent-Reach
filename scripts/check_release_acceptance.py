@@ -1,0 +1,67 @@
+"""A tag cannot publish an untested channel/action. No network or credentials here."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def source_digest(root: Path = ROOT) -> str:
+    digest = hashlib.sha256()
+    paths = sorted((root / "agent_reach").rglob("*.py"))
+    paths += [root / "pyproject.toml", root / "constraints.txt"]
+    for path in paths:
+        if "api" in path.relative_to(root).parts:
+            continue
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def validate(data: dict, required: set[tuple[str, str]], digest: str) -> list[str]:
+    errors = []
+    if data.get("source_sha256") != digest:
+        errors.append("Acceptance belongs to different source code")
+    passed = set()
+    for row in data.get("results", []):
+        key = (row.get("channel"), row.get("action"))
+        if key not in required:
+            errors.append(f"Unknown acceptance action: {key}")
+            continue
+        try:
+            at = datetime.fromisoformat(row["at"].replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - at).total_seconds()
+        except (KeyError, TypeError, ValueError):
+            age = float("inf")
+        if (row.get("source_sha256") == digest and row.get("method") == "real-cli" and row.get("passed") is True
+                and isinstance(row.get("item_count"), int) and row["item_count"] > 0
+                and row.get("backend") and row.get("os") and 0 <= age <= 7 * 86400):
+            passed.add(key)
+    errors += [f"Missing real acceptance: {channel}/{action}" for channel, action in sorted(required - passed)]
+    return errors
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("manifest", nargs="?", default="docs/validation/release-acceptance.json")
+    args = parser.parse_args()
+    from agent_reach.runtime.cli import unified_channels
+    required = {(channel.name, action.name) for channel in unified_channels() for action in channel.actions}
+    try:
+        data = json.loads(Path(args.manifest).read_text("utf-8"))
+        errors = validate(data, required, source_digest())
+    except (OSError, ValueError, TypeError) as exc:
+        errors = [f"Acceptance manifest unavailable: {exc}"]
+    for error in errors:
+        print(error)
+    if errors:
+        print("Release blocked. Unit tests and doctor do not replace real channel acceptance.")
+    return bool(errors)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

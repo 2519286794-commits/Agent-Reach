@@ -1,0 +1,279 @@
+{
+  "candidate": true,
+  "version": "1.6.0",
+  "source_sha256": "35c255b6b581976e90b7aafc93236e12a81b5d6d7899d20e646ae082c06fda1c",
+  "recorded_at": "2026-10-20T15:36:46Z",
+  "release_ready": false,
+  "results": [
+    {
+      "channel": "github",
+      "action": "search",
+      "at": "2026-10-20T15:34:29Z",
+      "os": "macOS",
+      "method": "real-cli",
+      "source_sha256": "35c255b6b581976e90b7aafc93236e12a81b5d6d7899d20e646ae082c06fda1c",
+      "backend": "gh",
+      "passed": true,
+      "item_count": 2,
+      "elapsed_ms": 1859,
+      "error": null
+    },
+    {
+      "channel": "youtube",
+      "action": "search",
+      "at": "2026-10-20T15:34:35Z",
+      "os": "macOS",
+      "method": "real-cli",
+      "source_sha256": "35c255b6b581976e90b7aafc93236e12a81b5d6d7899d20e646ae082c06fda1c",
+      "backend": "yt-dlp",
+      "passed": true,
+      "item_count": 2,
+      "elapsed_ms": 5435,
+      "error": null
+    },
+    {
+      "channel": "bilibili",
+      "action": "search",
+      "at": "2026-10-20T15:34:36Z",
+      "os": "macOS",
+      "method": "real-cli",
+      "source_sha256": "35c255b6b581976e90b7aafc93236e12a81b5d6d7899d20e646ae082c06fda1c",
+      "backend": "bili-cli",
+      "passed": true,
+      "item_count": 2,
+      "elapsed_ms": 1048,
+      "error": null
+    },
+    {
+      "channel": "v2ex",
+      "action": "hot",
+      "at": "2026-10-20T15:34:38Z",
+      "os": "macOS",
+      "method": "real-cli",
+      "source_sha256": "35c255b6b581976e90b7aafc93236e12a81b5d6d7899d20e646ae082c06fda1c",
+      "backend": "v2ex-api",
+      "passed": true,
+      "item_count": 3,
+      "elapsed_ms": 1539,
+      "error": null
+    },
+    {
+      "channel": "web",
+      "action": "search",
+      "at": "2026-10-20T15:34:39Z",
+      "os": "macOS",
+      "method": "real-cli",
+      "source_sha256": "35c255b6b581976e90b7aafc93236e12a81b5d6d7899d20e646ae082c06fda1c",
+      "backend": "exa",
+      "passed": true,
+      "item_count": 2,
+      "elapsed_ms": 1588,
+      "error": null
+    },
+    {
+      "channel": "xiaohongshu",
+      "action": "search",
+      "at": "2026-10-20T15:34:45Z",
+      "os": "macOS",
+      "method": "real-cli",
+      "source_sha256": "35c255b6b581976e90b7aafc93236e12a81b5d6d7899d20e646ae082c06fda1c",
+      "backend": "opencli",
+      "passed": true,
+      "item_count": 2,
+      "elapsed_ms": 5123,
+      "error": null
+    },
+    {
+      "channel": "xiaohongshu",
+      "action": "read",
+      "at": "2026-10-20T15:35:01Z",
+      "os": "macOS",
+      "method": "real-cli",
+      "source_sha256": "35c255b6b581976e90b7aafc93236e12a81b5d6d7899d20e646ae082c06fda1c",
+      "backend": "opencli",
+      "passed": true,
+      "item_count": 1,
+      "elapsed_ms": 8755,
+      "error": null
+    },
+    {
+      "channel": "xiaohongshu",
+      "action": "comments",
+      "at": "2026-10-20T15:35:19Z",
+      "os": "macOS",
+      "method": "real-cli",
+      "source_sha256": "35c255b6b581976e90b7aafc93236e12a81b5d6d7899d20e646ae082c06fda1c",
+      "backend": "opencli",
+      "passed": true,
+      "item_count": 24,
+      "elapsed_ms": 9282,
+      "error": null
+    }
+  ],
+  "pending": [
+    {
+      "channel": "bilibili",
+      "action": "hot",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "bilibili",
+      "action": "read",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "bilibili",
+      "action": "subtitle",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "boss",
+      "action": "read",
+      "reason": "Requires human platform verification before another request"
+    },
+    {
+      "channel": "boss",
+      "action": "search",
+      "reason": "Requires human platform verification before another request"
+    },
+    {
+      "channel": "facebook",
+      "action": "profile",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "facebook",
+      "action": "search",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "github",
+      "action": "read",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "instagram",
+      "action": "posts",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "instagram",
+      "action": "profile",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "instagram",
+      "action": "search",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "linkedin",
+      "action": "jobs",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "linkedin",
+      "action": "read",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "reddit",
+      "action": "read",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "reddit",
+      "action": "search",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "reddit",
+      "action": "subreddit",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "twitter",
+      "action": "profile",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "twitter",
+      "action": "search",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "twitter",
+      "action": "thread",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "twitter",
+      "action": "tweets",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "v2ex",
+      "action": "node",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "v2ex",
+      "action": "read",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "v2ex",
+      "action": "user",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "web",
+      "action": "read",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "xiaoyuzhou",
+      "action": "transcribe",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "xueqiu",
+      "action": "hot_posts",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "xueqiu",
+      "action": "hot_stocks",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "xueqiu",
+      "action": "quote",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "xueqiu",
+      "action": "search",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "youtube",
+      "action": "read",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "youtube",
+      "action": "subtitle",
+      "reason": "Not accepted on this candidate"
+    },
+    {
+      "channel": "youtube",
+      "action": "transcribe",
+      "reason": "Not accepted on this candidate"
+    }
+  ],
+  "additional_required_validation": [
+    "Windows dedicated browser, extension connection, manual login, reopen and site cleanup"
+  ],
+  "privacy": "Counts, timings and error codes only; no credentials, accounts or content URLs"
+}
