@@ -181,6 +181,7 @@ def test_cloak_launcher_shares_profile_and_keeps_bridge_off_proxy(home, monkeypa
     assert browser_watcher._launch_cloak("about:blank") is context
     kwargs = launch.call_args.kwargs
     assert launch.call_args.args == (str(browser.profile_dir()),)
+    assert kwargs["headless"] is True
     assert kwargs["extension_paths"] == [str(browser.extension_dir())]
     assert kwargs["proxy"] == {"server": "http://127.0.0.1:7890", "username": "user", "password": "pass",
                                 "bypass": "localhost,127.0.0.1,[::1]"}
@@ -201,3 +202,35 @@ def test_migration_keeps_old_profile_and_restores_one_shared_destination(home, m
     browser.profile_dir().mkdir()
     browser._prepare_shared_profile()
     assert browser.profile_dir().is_dir()  # migration never repeats on each start
+
+
+def test_chrome_queries_are_headless_and_human_login_is_visible():
+    assert '--headless=new' in browser.chrome_argv('/chrome','about:blank',pipe=False)
+    assert '--headless=new' not in browser.chrome_argv('/chrome','about:blank',pipe=False,headless=False)
+
+
+def test_cloak_manual_login_uses_the_same_profile_with_a_window(home, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from agent_reach.runtime import browser_watcher
+    context=SimpleNamespace(pages=[Mock()])
+    launch=Mock(return_value=context)
+    monkeypatch.setitem(sys.modules,'cloakbrowser',SimpleNamespace(launch_persistent_context=launch))
+    browser_watcher._launch_cloak('https://example.test',headless=False)
+    assert launch.call_args.kwargs['headless'] is False
+    assert launch.call_args.args==(str(browser.profile_dir()),)
+    context.pages[0].goto.assert_not_called() # restoration precedes navigation in the watcher
+
+
+def test_restore_failure_preserves_the_original_snapshot(home, monkeypatch):
+    from agent_reach.runtime.result import ReachError
+    browser.browser_root().mkdir(parents=True)
+    path=browser.browser_root()/'session.json'
+    original=json.dumps({'cookies':[{'name':'sid','value':'saved','domain':'example.test'}]})
+    path.write_text(original)
+    monkeypatch.setattr(cdp,'call',lambda method,*a,**k:{'cookies':[]}if method=='Storage.getCookies'else None)
+    with pytest.raises(ReachError,match='retained'):
+        browser.restore_session()
+    assert path.read_text()==original

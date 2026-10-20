@@ -332,7 +332,7 @@ def can_load_extension() -> bool:
     return _load_state().get("backend") == "cloakbrowser" or os.name != "nt"
 
 
-def chrome_argv(exe: str, url: str, *, pipe: bool) -> List[str]:
+def chrome_argv(exe: str, url: str, *, pipe: bool, headless: bool = True) -> List[str]:
     argv = [
         exe,
         "--remote-debugging-address=127.0.0.1",
@@ -341,6 +341,8 @@ def chrome_argv(exe: str, url: str, *, pipe: bool) -> List[str]:
         "--no-first-run",
         "--no-default-browser-check",
     ]
+    if headless:
+        argv += ["--headless=new"]
     if pipe:
         argv += ["--remote-debugging-pipe", "--enable-unsafe-extension-debugging"]
     if os.environ.get("AGENT_REACH_TEST_MOCK_KEYCHAIN") == "1":
@@ -433,7 +435,7 @@ def _detach_kwargs() -> dict:
     return {"cwd": str(root), "start_new_session": True}
 
 
-def _launch(url: str) -> None:
+def _launch(url: str, *, headless: bool = True) -> None:
     """Start the dedicated browser. Caller holds start_lock().
 
     The watcher launches Cloak through its public SDK on every OS. System
@@ -452,9 +454,9 @@ def _launch(url: str) -> None:
     ledger.remember_path(profile_dir(), "dedicated browser profile")
     for name in ("watcher.log", "session.json", "last_used", "watcher.lock", "start.lock", "session.lock"):
         ledger.remember_path(browser_root() / name, "browser lifecycle")
-    update_state(started_at=time.time())
+    update_state(started_at=time.time(), headless=headless)
     if not can_load_extension():
-        subprocess.Popen(chrome_argv(exe, url, pipe=False), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        subprocess.Popen(chrome_argv(exe, url, pipe=False, headless=headless), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, **_detach_kwargs())
         if not wait_for(is_running, START_WAIT):
             raise ReachError(UPSTREAM_BROKEN, f"the Agent Reach browser did not open within {START_WAIT:.0f}s")
@@ -467,7 +469,8 @@ def _launch(url: str) -> None:
     with open(watcher_log_path(), "wb") as log:
         proc = subprocess.Popen(
             [_load_state().get("launcher_python") or sys.executable, "-m", "agent_reach.runtime.browser_watcher",
-             "--launch", url, "--chrome", exe, *(["--cloak"] if _load_state().get("backend") == "cloakbrowser" else [])],
+             "--launch", url, "--chrome", exe, *(["--cloak"] if _load_state().get("backend") == "cloakbrowser" else []),
+             *([] if headless else ["--headed"])],
             stdin=subprocess.DEVNULL, stdout=log, stderr=log,
             env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[2]),
                  "CLOAKBROWSER_AUTO_UPDATE": "false",
@@ -523,19 +526,23 @@ def _remaining_start_wait() -> float:
     return max(_RUNNING_GRACE, started + START_WAIT - time.time())
 
 
+def _close_for_restart() -> None:
+    from .result import UPSTREAM_BROKEN, ReachError
+    if not stop() or not wait_for(lambda: not watcher_running(), 20.0, interval=0.1):
+        raise ReachError(UPSTREAM_BROKEN, "Could not close the owned browser safely; saved profile retained")
+
+
 def start(url: str = "about:blank") -> None:
-    """Show `url` in the dedicated browser, launching it if needed (login)."""
+    """Explicit human login: show a window using the same saved profile."""
     touch()
-    if is_running():
-        _require_owned()
-        open_url(url)
-        return
     with start_lock():
         if is_running():
             _require_owned()
-            open_url(url)
-            return
-        _launch(url)
+            if not _load_state().get("headless", False):
+                open_url(url)
+                return
+            _close_for_restart()
+        _launch(url, headless=False)
 
 
 def ensure_running(context: Optional[str] = None) -> None:
@@ -544,6 +551,9 @@ def ensure_running(context: Optional[str] = None) -> None:
     from .result import NEED_SETUP, UPSTREAM_BROKEN, ReachError
     if is_running():
         _require_owned()
+        if _load_state().get("headless") is not True:
+            setup()
+            return
     if context is None:
         context = bound_context()
         if not context:
@@ -657,8 +667,10 @@ def restore_session() -> None:
                and (row["name"], row["domain"], row.get("path", "/")) not in keys
                and isinstance(row.get("expires", -1), (int, float))
                and (row.get("expires", -1) <= 0 or row["expires"] > time.time())]
-    if missing:
-        cdp.call("Storage.setCookies", {"cookies": missing})
+    if missing and cdp.call("Storage.setCookies", {"cookies": missing}) is None:
+        from .result import UPSTREAM_BROKEN, ReachError
+        raise ReachError(UPSTREAM_BROKEN, "Saved login could not be restored; the saved session was retained")
+    update_state(restored_cookies=len(missing))
 
 
 def clear_site(domains: List[str]) -> int:
@@ -803,7 +815,7 @@ def _ambiguous(candidates: List[str]):
     )
 
 
-def setup(*, retry_cloak: bool = False) -> dict:
+def setup(*, retry_cloak: bool = False, headless: bool = True) -> dict:
     """Make the dedicated browser ready with the OpenCLI extension loaded and bound; returns status().
 
     macOS/Linux: fully automatic. Windows: opens the Web Store page and waits for the user's click.
@@ -816,20 +828,22 @@ def setup(*, retry_cloak: bool = False) -> dict:
             ensure_chrome(retry_cloak=True)
         else:
             ensure_chrome()
-        if not can_load_extension():
+        if not can_load_extension() and not bound_context():
             return _setup_from_store()
-        refresh_extension()
+        if can_load_extension():
+            refresh_extension()
         touch()
         with start_lock():
             ctx = bound_context()
             if (ctx and is_running() and watcher_running() and ctx in connected_contexts()
-                    and _load_state().get("running_backend") == _load_state().get("backend")):
+                    and _load_state().get("running_backend") == _load_state().get("backend")
+                    and _load_state().get("headless") == headless):
                 return status()
-            stop()  # (re)launch so this browser connects fresh and we can tell it apart
+            _close_for_restart()  # release profile and watcher before switching modes
             if ctx:  # let OpenCLI notice the old connection is gone before taking the snapshot
                 wait_for(lambda: ctx not in connected_contexts(), 10.0)
             baseline = connected_contexts()
-            _launch("about:blank")
+            _launch("about:blank", headless=headless)
             found: List[str] = []
 
             def new_context() -> bool:
@@ -890,6 +904,7 @@ def status() -> dict:
         "fallback_reason": _load_state().get("fallback_reason"),
         "extension_version": extension_version(),
         "running": running,
+        "headless": _load_state().get("headless") if running else None,
         "opencli_context": ctx,
         "opencli_connected": connected,
         "idle_close_after_s": int(IDLE_LIMIT),

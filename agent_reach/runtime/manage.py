@@ -286,8 +286,11 @@ def _next_step(ch) -> Optional[str]:
 def add(name: str, *, allow_upgrade: bool = False) -> dict:
     """Install whatever the channel needs (prerequisites included), add it, describe existing-session reuse."""
     ch = _channel(name)
+    previously_added = is_added(ch)
     installed = _install_channel(ch, allow_upgrade=allow_upgrade)
     def save_channel(data):
+        if not previously_added:
+            data.setdefault("session_reuse", {}).pop(name, None)
         data["channels"][name] = {"added_at": state.now()}
         data["removed_defaults"] = [n for n in data["removed_defaults"] if n != name]
     state.mutate(save_channel)
@@ -339,6 +342,7 @@ def remove(name: str) -> dict:
                 cfg.delete(key)
     def forget(saved):
         saved["channels"].pop(name, None)
+        saved.setdefault("session_reuse", {})[name] = {"blocked": True, "at": state.now()}
         saved["checks"].pop(name, None)
         if ch.level == "default" and name not in saved["removed_defaults"]:
             saved["removed_defaults"].append(name)

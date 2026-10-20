@@ -36,7 +36,7 @@ DEFAULT_HINTS = {
     "BUSY": "Another command uses this browser profile. Wait for it to finish; do not switch profiles.",
     PLATFORM_BLOCKED: "Stop automation. Keep this profile; the user must resolve the platform verification in the official page. Do not switch backends or retry.",
     NEED_SETUP: "This backend is not installed. Ask the user to run `agent-reach doctor` for setup steps.",
-    NEED_LOGIN: "Login is required or expired. Guide the user to log in themselves; never log in on their behalf.",
+    NEED_LOGIN: "The attempted saved/local session did not grant access. Offer site-scoped local reuse or let the user log in themselves; never ask for a password.",
     UPSTREAM_BROKEN: "The upstream tool failed. Tell the user this channel is unavailable right now; do not retry in a loop.",
     TIMEOUT: "The operation timed out. Inspect channel status and the failed stage; do not reopen login windows or repeat requests in a loop.",
     RATE_LIMITED: "The platform reported a rate limit. Reach pauses this channel; respect retry_after_seconds and do not switch backends.",

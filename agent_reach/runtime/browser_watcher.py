@@ -23,7 +23,7 @@ from urllib.parse import unquote, urlsplit
 from . import bridge, browser
 
 
-def _launch_with_pipe(chrome: str, url: str):
+def _launch_with_pipe(chrome: str, url: str, *, headless: bool = True):
     """Start Chrome with the CDP pipe on its fds 3 (commands in) and 4 (replies out)."""
     import fcntl
 
@@ -43,7 +43,7 @@ def _launch_with_pipe(chrome: str, url: str):
 
     try:
         proc = subprocess.Popen(
-            browser.chrome_argv(chrome, url, pipe=True),
+            browser.chrome_argv(chrome, url, pipe=True, headless=headless),
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             close_fds=False,  # Python fds are non-inheritable by default; only 3/4 get through
             preexec_fn=place_pipe,  # noqa: PLW1509 - single-threaded here
@@ -68,7 +68,7 @@ def _load_extension(conn) -> None:
         print(f"Extensions.loadUnpacked failed: {reply.get('error')}", file=sys.stderr, flush=True)
 
 
-def _launch_cloak(url: str):
+def _launch_cloak(url: str, *, headless: bool = True):
     """Use the SDK's public launcher; one persistent profile, no site rules."""
     from cloakbrowser import launch_persistent_context
 
@@ -84,20 +84,18 @@ def _launch_cloak(url: str):
 
 
     ctx = launch_persistent_context(
-        str(browser.profile_dir()), headless=False, locale="zh-CN",
+        str(browser.profile_dir()), headless=headless, locale="zh-CN",
         args=["--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={browser.CDP_PORT}"],
         extension_paths=[str(browser.extension_dir())],
         proxy=proxy_options,
     )
     if not ctx.pages:
         ctx.new_page()
-    if url != "about:blank":
-        ctx.pages[0].goto(url, wait_until="domcontentloaded", timeout=30000)
     return ctx
 
 
 def watch(idle: Optional[float] = None, poll: float = 2.0, *, launch: Optional[str] = None,
-          chrome: Optional[str] = None, cloak: bool = False) -> str:
+          chrome: Optional[str] = None, cloak: bool = False, headless: bool = True) -> str:
     """Run until the browser is gone. Returns why it stopped."""
     idle = browser.IDLE_LIMIT if idle is None else idle
     fd = browser._open_lock(browser.watcher_lock_path())
@@ -112,13 +110,18 @@ def watch(idle: Optional[float] = None, poll: float = 2.0, *, launch: Optional[s
             if browser.is_running():
                 return "a browser is already using the debugging port"
             if cloak:
-                ctx = _launch_cloak(launch)
+                ctx = _launch_cloak(launch, headless=headless)
             else:
-                proc, conn = _launch_with_pipe(chrome or browser.ensure_chrome(), launch)
+                proc, conn = _launch_with_pipe(chrome or browser.ensure_chrome(), "about:blank", headless=headless)
                 _load_extension(conn)
             browser.update_state(running_backend="cloakbrowser" if cloak else "chrome",
-                                 profile_backend="cloakbrowser" if cloak else "chrome")
+                                 profile_backend="cloakbrowser" if cloak else "chrome", headless=headless)
             browser.restore_session()
+            if launch != "about:blank":
+                if ctx is not None:
+                    ctx.pages[0].goto(launch, wait_until="domcontentloaded", timeout=30000)
+                else:
+                    browser.open_url(launch)
         browser.update_state(bridge_pid=bridge_proc.pid if bridge_proc else None, bridge_note=None)
         began = time.time()
 
@@ -178,8 +181,9 @@ def main() -> None:
     parser.add_argument("--launch", default=None, help="start Chrome with this URL and own it (macOS/Linux)")
     parser.add_argument("--chrome", default=None, help="Chrome binary for --launch")
     parser.add_argument("--cloak", action="store_true", help="use CloakBrowser's public launcher")
+    parser.add_argument("--headed", action="store_true", help="show a window for human login")
     ns = parser.parse_args()
-    reason = watch(ns.idle, launch=ns.launch, chrome=ns.chrome, cloak=ns.cloak)
+    reason = watch(ns.idle, launch=ns.launch, chrome=ns.chrome, cloak=ns.cloak, headless=not ns.headed)
     print(reason, file=sys.stderr, flush=True)
     sys.exit(0 if reason in ("browser closed", "closed after idle") else 1)
 

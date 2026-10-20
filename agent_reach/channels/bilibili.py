@@ -81,6 +81,36 @@ def _bili_json(args: list, timeout: float) -> Any:
     return payload.get("data") or {}
 
 
+def _reuse_subtitle_login(timeout: float) -> None:
+    """Use the official upstream credential writer; no browser launch or database read."""
+    import os
+    from pathlib import Path
+
+    from agent_reach.runtime import session_reuse, state, tools
+    saved = state.load().get("session_reuse", {}).get("bilibili", {})
+    if saved.get("blocked") or saved.get("source") == "manual":
+        return
+    cookies, source = session_reuse._source_cookies("bilibili", ("bilibili.com",))
+    jar = {c["name"]: c["value"] for c in cookies}
+    if not jar.get("SESSDATA"):
+        return  # keep a saved native login when no connected local source exists
+    exe = tools.resolve("bili")
+    if not exe:
+        return
+    python = Path(exe).with_name("python.exe" if os.name == "nt" else "python")
+    script = (
+        "import json,sys;from bili_cli.auth import save_credential;"
+        "from bilibili_api import Credential;d=json.load(sys.stdin);"
+        "save_credential(Credential(sessdata=d.get('SESSDATA',''),bili_jct=d.get('bili_jct',''),"
+        "ac_time_value=d.get('ac_time_value',''),buvid3=d.get('buvid3',''),"
+        "buvid4=d.get('buvid4',''),dedeuserid=d.get('DedeUserID','')))"
+    )
+    run_cmd([str(python), "-c", script], timeout=timeout, env=session_env("bili-cli"),
+            input_data=json.dumps(jar), label="Bilibili site login reuse")
+    state.mutate(lambda data: data.setdefault("session_reuse", {}).__setitem__("bilibili", {
+        "source": source, "copied_cookies": len(jar), "at": state.now(), "verified": False, "source_changed": False}))
+
+
 def _cli_video_item(v: dict, text=None) -> dict:
     owner = v.get("owner") or {}
     return make_item(
@@ -159,7 +189,7 @@ class BilibiliChannel(Channel):
         ),
         Action(
             "subtitle",
-            "Full subtitle text of a video (needs a Bilibili login)",
+            "Subtitle text of the first video part, when available (may need a Bilibili login)",
             (Param("target", "BV id or video link"),),
             (("bili-cli", "_cli_subtitle"),),
             live_test={"target": "BV1GJ411x7h7"},
@@ -193,9 +223,12 @@ class BilibiliChannel(Channel):
         return [_api_video_item(v) for v in (data.get("list") or [])[:limit]]
 
     def _cli_subtitle(self, *, target: str, timeout: float) -> list:
+        _reuse_subtitle_login(timeout)
         data = _bili_json(["video", _bvid(target, timeout), "--subtitle"], timeout)
         sub = data.get("subtitle") or {}
         if not sub.get("available"):
+            if any(w.get("code") == "subtitle_unavailable" for w in data.get("warnings", []) if isinstance(w, dict)):
+                raise ReachError(UPSTREAM_BROKEN, "Bilibili could not retrieve subtitles; this does not prove the video has none")
             if not (sessions_root() / "bili-cli" / ".bilibili-cli" / "credential.json").exists():
                 raise ReachError(NEED_LOGIN, "Bilibili is not logged in", hint=_BILI_LOGIN_HINT)
             raise ReachError(NOT_FOUND, "this video has no subtitles")

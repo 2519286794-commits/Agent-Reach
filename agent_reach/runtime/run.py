@@ -33,6 +33,7 @@ def run_cmd(
     env: Optional[Mapping[str, str]] = None,
     cwd: Optional[str] = None,
     label: Optional[str] = None,
+    input_data: Optional[str] = None,
 ) -> str:
     """Run an upstream command and return stdout.
 
@@ -56,13 +57,14 @@ def run_cmd(
         [exe, *argv[1:]],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
         env=run_env,
         cwd=cwd or os.path.expanduser("~"),
         start_new_session=(os.name != "nt" and not supervised),
     )
     try:
-        out, err = proc.communicate(timeout=max(timeout, 0.1))
+        kwargs = {"input": input_data.encode("utf-8")} if input_data is not None else {}
+        out, err = proc.communicate(timeout=max(timeout, 0.1), **kwargs)
     except subprocess.TimeoutExpired:
         if os.name == "nt":
             # Kill this command's descendants too (Playwright driver + Chrome).

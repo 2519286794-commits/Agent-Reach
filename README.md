@@ -84,7 +84,7 @@ agent-reach read https://www.v2ex.com/t/123   # 按链接自动选渠道
 ### ✅ 在你用之前，你可能想知道
 
 - **适用于哪些 Agent？** 任何能执行命令行的 Agent。`agent-reach setup` 会放一份使用说明（skill，就是告诉 AI 怎么用 Agent Reach 的说明文件），Codex、OpenCode 等直接能读到；Claude Code、OpenClaw、Cursor 等装了的话，会在它们的 skill 目录里放一个指向这份说明的链接（相当于快捷方式）。
-- **会碰我的浏览器和账号吗？** 浏览器渠道共用 Reach 专用浏览器，登录由你本人完成。经你明确授权，可一次性导入指定网站的登录态；不读取个人 Chrome 的 Cookie 数据库。详见[会话配置](agent_reach/skill/references/sessions.md)。
+- **会碰我的浏览器和账号吗？** 查询默认不弹窗口，会先尝试复用本机已登录的网站，只读复制该站 Cookie，原浏览器不变；不读 Cookie 数据库或密码库。确实需要重新登录时才打开 Reach 专用窗口，由你本人完成。详见[会话配置](agent_reach/skill/references/sessions.md)。
 - **支持哪些系统？** 优先保证 macOS，Linux 可用，Windows 尽力支持。
 - **要我自己装别的软件吗？** `agent-reach add` 会准备 Node、OpenCLI、专用浏览器和插件；已有登录优先复用，确实需要时再登录。
 - **怎么知道有新版本？** Agent Reach 每天最多在后台查一次，有新版本时 Agent 会用大白话告诉你改了什么、问你要不要更新，你同意了才更新。

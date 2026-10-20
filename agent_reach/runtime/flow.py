@@ -1,7 +1,7 @@
 """Resumable setup and execution for the CLI.
 
 The caller selects a channel and action. Reach handles its declared primary
-backend, reuses only its dedicated session, and records a real
+backend, reuses available local site sessions, and records a real
 query result. No password, cookie, or browser database is exposed here.
 """
 
@@ -68,7 +68,7 @@ def _record(channel: str, action: str, out: dict) -> None:
 
 def prepare(channel: str, *, action: Optional[str] = None,
             install: bool = True) -> dict:
-    """Prepare dependencies and the shared browser. No model and no implicit cookie export."""
+    """Prepare dependencies and the shared browser and reuse the requested site’s local login. No model."""
     ch = manage._channel(channel)
     selected = _action(ch, action)
     with execution_lock("prepare:" + channel):
@@ -82,8 +82,8 @@ def prepare(channel: str, *, action: Optional[str] = None,
                 return _needs(channel, selected.name, "install", f"Run agent-reach add {channel}")
             manage.add(channel)
         if ch.login_url:
-            from . import browser
-            browser.ensure_running()
+            from . import session_reuse
+            session_reuse.prepare(channel)
     return {"ok": True, "status": "prepared", "channel": channel,
             "action": selected.name, "backend": selected.backends[0][0]}
 

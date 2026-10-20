@@ -69,7 +69,7 @@ Results:
 2. Say "using agent-reach channel X" before calling a Reach channel.
 3. Serialize commands sharing one browser profile; independent sessions may run in parallel.
 4. Read only. Never post, comment, or like.
-5. Never read or import personal-browser authentication. The user logs in only in the Reach browser. Never output credentials.
+5. Reuse existing local site sessions first through read-only, site-scoped Browser Bridge export. Keep source browsers unchanged and never print credentials. Human login is the fallback.
 
 ## Channels
 
@@ -82,7 +82,7 @@ The login column lists authentication entry points, not prerequisites for public
 ## Reuse before login
 
 
-`setup` installs defaults; adding a browser channel prepares the shared browser and extension. `login CHANNEL` opens the site for the user to log in. Reuse saved dedicated sessions and verify the requested action. Never import personal-browser login.
+`setup` installs defaults; adding a browser channel prepares the shared browser and extension. `login CHANNEL` opens the site for the user to log in. Reuse saved dedicated sessions and verify the requested action. Read only the requested site’s local session.
 
 
 XHS read returns text descriptions, not image/video understanding. Never guess BOSS salary digits when salary_encoded=true; read the job detail instead.
@@ -117,10 +117,10 @@ After the user agrees, read [Maintenance](references/maintenance.md) and confirm
 
 ## Shared dedicated browser
 
-All browser channels use `~/.agent-reach/browser/profile`. CloakBrowser is preferred; installation/download failure falls back to installed Chrome. OpenCLI prepares the extension and performs website extraction. BOSS uses the same dedicated browser. The idle watcher closes it after ten minutes; the next action reopens it.
+Queries default to headless. Explicit login opens a window; the next query switches back using the same profile. All browser channels use `~/.agent-reach/browser/profile`. CloakBrowser is preferred; installation/download failure falls back to installed Chrome. OpenCLI prepares the extension and performs website extraction. BOSS uses the same dedicated browser. The idle watcher closes it after ten minutes; the next action reopens it.
 
 Use `agent-reach execute CHANNEL ACTION --params '{...}'` to prepare and perform the real action once. Reserve `ensure CHANNEL` for setup checks and diagnosis. After the user completes a requested login, use `agent-reach resume OPERATION_ID` when an operation ID was returned. There is no Reach MCP server or model planner in this version, and no model API key is required.
 
-Reuse only the dedicated browser’s saved login. Never read or import personal-browser authentication. The user logs in in the Reach window; sessions are saved periodically. Human page input and Reach calls reset the idle timer. The official Bridge is supervised alongside the browser; existing user processes are preserved. See [Sessions](references/sessions.md).
+Reuse the requested site’s existing local login first. Use a connected local Browser Bridge source or saved Reach state; preserve the source. Choose explicitly when multiple source accounts are available. The user logs in in the Reach window; sessions are saved periodically. Human page input and Reach calls reset the idle timer. The official Bridge is supervised alongside the browser; existing user processes are preserved. See [Sessions](references/sessions.md).
 
 `add CHANNEL` prepares dependencies, browser and extension. `remove CHANNEL` clears only that site's login/storage, preserving other sites. Xiaoyuzhou remains an optional transcription channel requiring a Groq key.

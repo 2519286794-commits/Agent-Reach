@@ -4,7 +4,7 @@ CloakBrowser supplies the browser, and OpenCLI/boss-agent-cli supply website ext
 
 `add` prepares Node, OpenCLI, the browser and extension. CloakBrowser runs through its public persistent-context launcher in a private tool environment. Its binaries are cached under `~/.agent-reach/cloak-binaries`; installation/download failure falls back to installed Chrome. The next browser action automatically prepares/reopens the same profile. BOSS uses this browser's CDP endpoint. On Windows the Cloak extension is loaded automatically; a system-Chrome fallback may need Web Store installation.
 
-Only the shared dedicated profile is reused. Personal-browser authentication import is unavailable. Human login is periodically saved; trusted page input and Reach calls reset idle closure. The official OpenCLI Bridge is supervised with the dedicated browser. Existing user-owned bridges are preserved; version conflicts require user action.
+Queries default to headless; human login opens a window using the same profile. Existing local site cookies are reused through a connected official Browser Bridge, read-only and scoped to the requested site. Saved Reach sessions remain usable when no local source is connected. Human login is periodically saved; trusted page input and Reach calls reset idle closure. The official OpenCLI Bridge is supervised with the dedicated browser. Existing user-owned bridges are preserved; version conflicts require user action.
 
 Previous Reach-owned per-site snapshots are merged once without replacing newer shared cookies. Logout/removal clears the retired per-site state too. Chrome fallback is remembered; use `agent-reach browser setup --retry-cloak` after fixing the download connection.
 

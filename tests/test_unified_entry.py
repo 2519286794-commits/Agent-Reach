@@ -360,7 +360,8 @@ def fake_browser(monkeypatch, tmp_path):
     state = {"contexts": ["daily"], "running": True, "opened": [], "launches": 0, "launch_delay": 0.0,
              "watched": False}
 
-    def fake_launch(url):
+    def fake_launch(url, *, headless=True):
+        browser.update_state(headless=headless)
         state["launches"] += 1
         time.sleep(state["launch_delay"])
         state["running"] = True
@@ -537,7 +538,7 @@ def test_opencli_rebinds_once_when_the_owned_extension_disconnects(fake_browser,
     from agent_reach.backends.opencli import opencli_call
     from agent_reach.runtime import browser
     browser.setup()
-    monkeypatch.setattr(browser, "watcher_running", lambda: True)
+    monkeypatch.setattr(browser, "watcher_running", lambda: fake_browser["watched"])
     fake_browser["contexts"].remove("dedicated")
     command = Mock(return_value="[]")
     monkeypatch.setattr("agent_reach.runtime.run.run_cmd", command)
@@ -581,3 +582,13 @@ def test_opencli_errors_map_to_unified_codes(yaml_text, code):
     from agent_reach.backends.opencli import _opencli_error
 
     assert _opencli_error(yaml_text, "").code == code
+
+
+def test_next_query_returns_from_visible_login_to_headless(fake_browser):
+    from agent_reach.runtime import browser
+    browser.setup()
+    context=browser.bound_context()
+    browser.update_state(headless=False)
+    browser.ensure_running()
+    assert browser._load_state()['headless'] is True
+    assert browser.bound_context()==context and fake_browser['launches']==2

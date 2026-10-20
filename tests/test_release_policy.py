@@ -57,7 +57,7 @@ def test_boss_detail_uses_upstream_browser_adapter_without_native_http(monkeypat
     call = Mock(return_value=[{"title": "Data Engineer", "description": "JD"}])
     monkeypatch.setattr(opencli, "opencli_call", call)
     ch = BossChannel()
-    assert ch.actions[1].backends == (("opencli", "_opencli_read"),)
+    assert ch.actions[1].backends == (("boss-agent-cli", "_cli_read"), ("opencli", "_opencli_read"))
     assert ch._opencli_read(target="https://www.zhipin.com/job_detail/abc123.html", timeout=20)[0]["text"] == "JD"
     assert call.call_args.args == ("boss", ["detail", "abc123"])
 

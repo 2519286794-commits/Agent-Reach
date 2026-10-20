@@ -149,7 +149,7 @@ def _xueqiu_symbol(market: str, code: str) -> str:
 
 
 def _import_from_browser() -> bool:
-    """Copy the Xueqiu session the user has in the Agent Reach browser (only on `login --sync`)."""
+    """Sync the reused Xueqiu site session into the existing native API client."""
     global _cookies_initialized
     from agent_reach.runtime import browser, cdp
 
@@ -164,6 +164,13 @@ def _import_from_browser() -> bool:
     _cookie_jar.clear()
     _cookies_initialized = False
     return True
+
+
+def _prepare_community_session() -> None:
+    from agent_reach.runtime import session_reuse
+
+    session_reuse.prepare("xueqiu")
+    _import_from_browser()
 
 
 def _xq_json(url: str) -> Any:
@@ -330,6 +337,7 @@ class XueqiuChannel(Channel):
         ]
 
     def _xq_hot_posts(self, *, limit: int, timeout: float) -> list:
+        _prepare_community_session()
         limit = max(0, min(limit, 50))
         posts = _parse_hot_posts(_xq_json(_HOT_POSTS_URL.format(limit=limit)), limit) if limit else []
         return [
@@ -338,6 +346,7 @@ class XueqiuChannel(Channel):
         ]
 
     def _xq_hot_stocks(self, *, limit: int, timeout: float) -> list:
+        _prepare_community_session()
         data = _xq_json(f"https://stock.xueqiu.com/v5/stock/hot_stock/list.json?size={limit}&type=10")
         return [
             make_item(

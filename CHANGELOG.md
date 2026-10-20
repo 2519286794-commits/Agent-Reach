@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - 公开内容继续先读，不强制登录；安装后用简短表格说明能查什么。
 - 保留小宇宙转录；去掉额外模型配置和重复的网站抓取实现。
 - Bridge 随专用浏览器管理；按真实页面操作计时、定期保存登录。清理失败保留渠道，卸载只删台账文件。发布前必须有渠道真实验收。
+- 查询默认无头，优先只读复用本机已有的站点登录；显窗登录与无头查询共用配置。B站字幕、雪球社区自动同步登录，BOSS JD 使用上游浏览器接口。缺失接口和限流不再误报为需要重登。
 
 English:
 - Browser channels share one profile, close after ten idle minutes and reopen on demand.
@@ -28,14 +29,14 @@ English:
 - 加一个平台只要一句话，需要的软件（Node.js、Chrome、ffmpeg、浏览器扩展）都会自动装好，不需要管理员密码；你只需要登录或者填一个 Key。
 - 默认平台也能去掉，去掉后更新不会再加回来；去掉时会一起清掉它的登录和专用工具。
 - 更新会把各平台用到的工具升到最新版；有新版本时，AI 会用大白话告诉你改了什么，你同意了才更新。
-- 登录由你本人在专用窗口完成；只复用专用浏览器已有会话，程序不读取个人 Chrome 登录。
+- 优先按站点复用本地已有登录，原浏览器不变；查询默认无头，需要本人登录时才显窗。
 
 English:
 
 - Adding a platform takes one sentence. Whatever it needs (Node.js, Chrome, ffmpeg, the browser extension) is installed for you, with no admin password; you only log in or enter a key.
 - Default platforms can be removed, and updates won't add them back; removing one also clears its login and private tools.
 - Updating also moves each platform's tools to their latest versions. When a new version is out, your AI tells you in plain words what changed and updates only if you say yes.
-- Reuse only the shared dedicated session; personal-browser authentication import is unavailable.
+- Reuse existing local site sessions read-only; queries default to headless, with a visible window for human login.
 
 1.6 is a rebuild. Agents call one command, `agent-reach`; everything Agent Reach installs or stores lives under `~/.agent-reach/`.
 1.6 是重构版本：Agent 只调一个命令 `agent-reach`，Agent Reach 装的、存的东西全部在 `~/.agent-reach/` 下。
@@ -48,7 +49,7 @@ English:
 - **Skill placement / skill 放置**: one real copy at `~/.agents/skills/agent-reach/SKILL.md` (read directly by Codex, OpenCode, Cline, Warp, Zed); a link to it in the skill folder of Claude Code, OpenClaw, Hermes, Cursor, Gemini CLI, GitHub Copilot and Windsurf when installed (a copy where links are not allowed, e.g. Windows). `agent-reach skill link <dir>` covers any other AI. / 只放一份真文件，其他 AI 的 skill 目录里放指向它的链接（链接：一个指向原文件的快捷方式）。
 - **Private upstream installs, latest allowed version / 上游私有安装，用最新可用版本**: tools go into `~/.agent-reach/tools/`; the user's own copies are untouched. New installations use the declared tested versions where available; otherwise they install the latest allowed version. `floor` and `exclude` define acceptable existing tools. `state.json` records the version actually installed and `doctor` shows it. Single-instance tools (OpenCLI) reuse the user's copy; if it is older than the floor, it is upgraded only with `--allow-upgrade`. / 优先安装已验收版本；已有工具按兼容范围复用；doctor 显示实际版本。
 - **`add` gives a finished result / `add` 一步到位**: missing prerequisites are installed without an admin password: uv (official script), ffmpeg (`imageio-ffmpeg` in a private venv), Node.js (official release under `~/.agent-reach/tools/node/` when the system has none), CloakBrowser (falling back to installed Chrome on download failure). git is no longer needed (Boss installs from a GitHub archive). The user only logs in or enters a key. / 缺的依赖自动装好，用户只需登录或填 Key。
-- **Login state under `~/.agent-reach/` / 登录状态统一管理**: CLI tool logins in `sessions/`, browser logins in a dedicated Agent Reach browser. The browser opens by itself when a channel needs it and closes after 10 minutes without use. The OpenCLI extension is loaded automatically on each CloakBrowser launch; Windows system-Chrome fallback may need one Web Store click. Personal-browser authentication is never read or imported. / 专用浏览器按需自动打开，10 分钟不用自动关闭；macOS/Linux 自动装好扩展。
+- **Login state under `~/.agent-reach/` / 登录状态统一管理**: CLI tool logins in `sessions/`, browser logins in a dedicated Agent Reach browser. The browser opens by itself when a channel needs it and closes after 10 minutes without use. The OpenCLI extension is loaded automatically on each CloakBrowser launch; Windows system-Chrome fallback may need one Web Store click. Only the requested site’s cookies are copied read-only from an existing connected local browser; the source remains unchanged. / 专用浏览器按需自动打开，10 分钟不用自动关闭；macOS/Linux 自动装好扩展。
 - **remove cleans up / 去掉渠道会清理干净**: deletes the channel's private tools nobody else uses, its CLI session, its login keys and its site cookies in the Agent Reach browser. The shared browser profile is retained for explicit logout/reuse; unused private tools are pruned.
 - **Removable default channels / 默认渠道可去掉**: `state.json` records `removed_defaults`; `setup` and `update` never add them back; `add` brings one back.
 - **doctor states / 体检**: not_added, needs_setup, needs_login, unverified, ready, broken; plus `regressed` per channel (passed in the previous check, fails in the latest).

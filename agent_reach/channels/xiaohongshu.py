@@ -8,7 +8,7 @@ from .base import Action, Channel, Param
 
 _XHS_LOGIN_HINT = (
     "Run agent-reach login xiaohongshu to open the Agent Reach dedicated browser. "
-    "The user completes login there. Never ask for a password or read their personal browser login."
+    "Reach first tries the existing local site login; the user completes any remaining login. Never ask for a password."
 )
 
 

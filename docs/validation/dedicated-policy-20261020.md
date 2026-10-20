@@ -1,5 +1,7 @@
 # Dedicated browser policy audit — 2026-10-20
 
+Historical candidate record. The user subsequently authorized local site-session reuse. Current behavior and acceptance are in [headless-session-reuse-20261021.md](headless-session-reuse-20261021.md); dedicated-only authentication statements below are superseded, not current rules.
+
 Candidate only. PR #815 remains a draft against `release/1.6`. No merge, tag or official release. Package version remains 1.6.0. The earlier 63c272a claim of complete acceptance was too broad.
 
 ## Review findings and fixes

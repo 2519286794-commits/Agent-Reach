@@ -21,8 +21,8 @@ def setup_problems(channel: str):
 
 
 def environment(channel: str):
-    from . import browser
-    browser.ensure_running()
+    from . import browser, session_reuse
+    session_reuse.prepare(channel, action_locked=True)
     profile = browser.bound_context()
     if not profile:
         raise ReachError(NEED_SETUP, "OpenCLI has not connected to the dedicated browser")

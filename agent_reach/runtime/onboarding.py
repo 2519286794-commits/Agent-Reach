@@ -31,7 +31,7 @@ _CAPABILITY_LIMITS = {
     'youtube': ['read 返回元信息和简介；没有独立 comments 动作。',
                 '字幕依赖可用轨道；转录还需配置服务及额度，登录不保证有字幕。'],
     'bilibili': ['read 返回元信息和简介；没有独立 comments 动作。',
-                 'Reach subtitle 路径可能要求登录，且视频须有可用字幕。'],
+                 'subtitle 当前读取首P已有字幕；可能要求登录，不代表整套多P视频。'],
     'reddit': ['read 仅承诺其返回的帖子和评论；不保证完整评论树，不提供发评论动作。'],
     'twitter': ['thread 仅覆盖实际返回的回复；不保证完整评论流，不提供发帖动作。'],
     'xiaohongshu': ['只报告实际读取的正文、已加载评论和回复，不承诺完整导出。'],
@@ -128,7 +128,7 @@ def installation_report(result):
     else:
         lines += ['', '还没逐项联网测试。']
     lines += ['摘要、标题和链接先从搜索引擎找；评论以已读内容为准，字幕需视频自带。', '',
-              '**想查什么，直接说。** 需要登录时，我帮你打开页面，你自己登录就行。']
+              '**想查什么，直接说。** 会先尝试复用已有登录；确实需要你登录时，再打开窗口。']
     return '\n'.join(lines) + '\n'
 
 
@@ -208,8 +208,8 @@ def cdp_status():
 
 
 def require_boss_cdp():
-    from . import browser
-    browser.ensure_running()
+    from . import browser, session_reuse
+    session_reuse.prepare("boss", action_locked=True)
     if not cdp_status()['boss_tab_present']:
         browser.open_url('https://www.zhipin.com/web/geek/jobs')
     browser.touch()

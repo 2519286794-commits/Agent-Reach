@@ -47,7 +47,7 @@ class BossChannel(Channel):
             timeout=90,
         ),
         Action("read", "Read a direct BOSS job URL", (Param("target", "full job URL"),),
-               (("opencli", "_opencli_read"),), timeout=90),
+               (("boss-agent-cli", "_cli_read"), ("opencli", "_opencli_read")), timeout=90),
     )
 
     def can_handle(self, url: str) -> bool:
@@ -56,6 +56,18 @@ class BossChannel(Channel):
     # ── unified entry backends ──
 
     def _cli_search(self, *, query: str, city, limit: int, timeout: float) -> list:
+        return self._native({"action": "search", "query": query, "city": city, "limit": limit}, timeout)
+
+    def _cli_read(self, *, target: str, timeout: float) -> list:
+        import re
+
+        match = re.search(r"/job_detail/([A-Za-z0-9_-]+)\.html", str(target))
+        if not host_matches(str(target), "zhipin.com") or not match:
+            raise ReachError("BAD_INPUT", "Expected a direct BOSS job URL")
+        return self._native({"action": "read", "job_id": match.group(1)}, timeout)
+
+    def _native(self, payload: dict, timeout: float) -> list:
+        from agent_reach.runtime import state
         from agent_reach.runtime.browser_binding import execution_lock
         from agent_reach.runtime.onboarding import require_boss_cdp
         endpoint = require_boss_cdp()
@@ -63,8 +75,10 @@ class BossChannel(Channel):
         if not exe:
             raise ReachError(NEED_SETUP, "Run agent-reach add boss first")
         python = Path(exe).with_name("python.exe" if os.name == "nt" else "python")
-        payload = {"action": "search", "query": query, "city": city, "limit": limit, "cdp_url": endpoint,
-                   "data_dir": str(session_dir(self.session) / ".boss-agent")}
+        stamp = state.load().get("session_reuse", {}).get("boss", {}).get("at")
+        payload = {**payload, "cdp_url": endpoint, "data_dir": str(session_dir(self.session) / ".boss-agent"),
+                   "session_stamp": stamp}
+        limit = payload.get("limit", 1)
         runner = Path(__file__).parents[1] / "backends" / "boss_native.py"
         try:
             with execution_lock(endpoint):
@@ -107,7 +121,7 @@ class BossChannel(Channel):
                     title=r.get("title"),
                     url=f"https://www.zhipin.com/job_detail/{job_id}.html" if job_id else None,
                     author=r.get("company"),
-                    text=" · ".join(str(x) for x in (r.get("salary"), r.get("city"), r.get("experience"), r.get("education")) if x),
+                    text=r.get("description") or " · ".join(str(x) for x in (r.get("salary"), r.get("city"), r.get("experience"), r.get("education")) if x),
                     raw=r,
                 )
             )

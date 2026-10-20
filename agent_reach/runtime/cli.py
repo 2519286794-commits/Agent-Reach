@@ -56,7 +56,8 @@ For the user:
   agent-reach add <channel>               install channel dependencies and prepare its browser
   agent-reach remove <channel>            remove a channel (defaults too) and what only it used
   agent-reach login|logout <channel>      log in (the user does it) / forget the login
-  agent-reach browser setup|status|stop   shared dedicated browser
+  agent-reach browser setup|status|stop   headless shared browser; login opens a window
+  agent-reach browser profiles|use ID    choose an existing local login source
   agent-reach skill [link <skills-dir>]   where the agent skill is; link it for another AI
   agent-reach doctor [--text]             status of every channel and installed tool versions (no network)
   agent-reach check [channel] [--text]    live-test channels; --search tests search/jobs only
@@ -405,7 +406,8 @@ def _cmd_login(args: Sequence[str]) -> int:
     except _ArgError as exc:
         return _bad_input(None, "login", str(exc))
     if ns.import_existing and ch.login_url:
-        return _bad_input(ch.name, "login", "Personal-browser authentication import is unavailable; log in in the Reach dedicated window")
+        from . import session_reuse
+        return _mgmt("reuse login", session_reuse.prepare, ch.name, force=True)
     if ns.import_existing and ch.session:
         copied = import_legacy_state(ch.session, ch.legacy_state)
         if copied:
@@ -416,6 +418,8 @@ def _cmd_login(args: Sequence[str]) -> int:
             from . import manage
             manage.add(ch.name)
             browser.start(ch.login_url)
+            from . import state
+            state.mutate(lambda data: data.setdefault("session_reuse", {}).__setitem__(ch.name, {"source": "manual", "at": state.now()}))
         except ReachError as err:
             return _emit(envelope(channel=ch.name, action="login", error=err))
         from . import manage
@@ -448,6 +452,8 @@ def _cmd_login(args: Sequence[str]) -> int:
     if code != 0 or not has_login_state(ch.session):
         return _emit(envelope(channel=ch.name, action="login",
                               error=ReachError(UPSTREAM_BROKEN, f"login did not complete (exit {code})")))
+    from . import state
+    state.mutate(lambda data: data.setdefault("session_reuse", {}).__setitem__(ch.name, {"source": "manual", "at": state.now()}))
     return _emit(envelope(channel=ch.name, action="login", backend=ch.session, items=[{"logged_in": True}]))
 
 
@@ -466,6 +472,7 @@ def _cmd_logout(args: Sequence[str]) -> int:
             manage._remove(legacy)
         def forget(saved):
             saved["checks"].pop(ch.name, None)
+            saved.setdefault("session_reuse", {})[ch.name] = {"blocked": True, "at": state.now()}
             saved.get("reuse_sources", {}).pop(ch.name, None)
             saved.setdefault("session_migrations", {})[ch.name] = {"at": state.now(), "logged_out": True}
             saved.setdefault("session_revisions", {})[ch.name] = state.now()
@@ -479,17 +486,30 @@ def _cmd_logout(args: Sequence[str]) -> int:
             if cfg.get(key):
                 cfg.delete(key)
                 removed = True
+    if not ch.login_url:
+        from . import state
+        state.mutate(lambda data: data.setdefault("session_reuse", {}).__setitem__(ch.name, {"blocked": True, "at": state.now()}))
     return _emit(envelope(channel=ch.name, action="logout", backend=ch.session or "config", items=[{"removed": removed}]))
 
 
 def _cmd_browser(args: Sequence[str]) -> int:
     parser = _Parser(prog="browser", add_help=False)
-    parser.add_argument("op", choices=("setup", "status", "stop"))
+    parser.add_argument("op", choices=("setup", "status", "stop", "profiles", "use"))
     parser.add_argument("--retry-cloak", action="store_true")
+    parser.add_argument("profile", nargs="?")
     try:
         ns = parser.parse_args(list(args))
         if ns.retry_cloak and ns.op != "setup":
             raise _ArgError("--retry-cloak applies only to browser setup")
+        if ns.op in ("profiles", "use"):
+            from . import session_reuse
+            if ns.op == "use":
+                if not ns.profile:
+                    raise _ArgError("browser use requires a connected profile ID")
+                return _mgmt("browser use", session_reuse.use, ns.profile)
+            return _mgmt("browser profiles", lambda: {"profiles": session_reuse.profiles()})
+        if ns.profile:
+            raise _ArgError("a profile ID applies only to browser use")
         if ns.op == "setup":
             return _mgmt("browser setup", browser.setup, retry_cloak=ns.retry_cloak)
         return _mgmt("browser " + ns.op, getattr(browser, ns.op))

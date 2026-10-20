@@ -1,4 +1,4 @@
-"""Dedicated-only authentication: prohibited imports never touch a source browser."""
+"""Local site-session reuse never navigates or modifies the source browser."""
 import json
 
 import pytest
@@ -20,11 +20,10 @@ def test_unmanaged_debugging_port_is_never_closed_or_navigated(monkeypatch):
 
 @pytest.mark.parametrize("args", [
     ["browser", "import", "xiaohongshu", "--opencli-profile", "foreign"],
-    ["browser", "profiles"],
     ["ensure", "xiaohongshu", "--reuse-profile", "foreign"],
     ["browser", "import", "xiaohongshu", "--state-file", "private.json"],
 ])
-def test_personal_login_import_is_unavailable(args, monkeypatch, capsys):
+def test_retired_raw_import_flags_are_not_accepted(args, monkeypatch, capsys):
     monkeypatch.setattr(browser, "ensure_running", lambda: pytest.fail("opened browser"))
     monkeypatch.setattr(cdp, "call", lambda *a, **k: pytest.fail("read credentials"))
     assert cli.main(args) == 1
@@ -32,7 +31,129 @@ def test_personal_login_import_is_unavailable(args, monkeypatch, capsys):
     assert not state.load().get("reuse_sources")
 
 
-def test_legacy_cookie_export_and_import_implementations_are_removed():
+def test_local_site_export_uses_the_unmodified_upstream_page_api(monkeypatch):
+    from unittest.mock import Mock
+
     from agent_reach.backends import opencli
-    assert not hasattr(browser, "import_session")
-    assert not hasattr(opencli, "export_site_cookies")
+    from agent_reach.runtime import bridge, run
+    source = state.root() / "upstream/dist/src/daemon.js"
+    module = source.parent / "browser/page.js"
+    module.parent.mkdir(parents=True)
+    module.write_text("// official API fixture")
+    monkeypatch.setattr(bridge, "launch_spec", lambda: (["node", str(source)], "1.8.7"))
+    command = Mock(return_value="[]")
+    monkeypatch.setattr(run, "run_cmd", command)
+    assert opencli.export_site_cookies("local", "xiaohongshu.com") == []
+    args = command.call_args.args[0]
+    assert module.as_uri() in args[3] and args[-2:] == ["local", "xiaohongshu.com"]
+    assert module.read_text() == "// official API fixture"
+
+
+def test_automatic_reuse_copies_only_the_requested_site_and_reuses_cache(monkeypatch):
+    from unittest.mock import Mock
+
+    from agent_reach.backends import opencli
+    from agent_reach.runtime import session_reuse
+    monkeypatch.setattr(browser, 'ensure_running', lambda: None)
+    monkeypatch.setattr(browser, 'connected_contexts', lambda: ['daily', 'owned'])
+    monkeypatch.setattr(browser, 'bound_context', lambda: 'owned')
+    export = Mock(return_value=[{'name':'sid','value':'test','domain':'.xiaohongshu.com','expirationDate':9999999999,'sameSite':'lax'},
+                                {'name':'foreign','value':'never-copy','domain':'other.test'},
+                                {'name':'expired','value':'never-copy','domain':'.xiaohongshu.com','expirationDate':1}])
+    monkeypatch.setattr(opencli, 'export_site_cookies', export)
+    calls=[]
+    monkeypatch.setattr(cdp, 'call', lambda method, params=None: calls.append((method,params)) or {})
+    result=session_reuse.prepare('xiaohongshu')
+    assert result['copied_cookies']==1 and not result['verified'] and not result['source_changed']
+    cookie=calls[0][1]['cookies'][0]
+    assert cookie['name']=='sid' and cookie['sameSite']=='Lax' and cookie['expires']==9999999999
+    assert session_reuse.prepare('xiaohongshu')==result
+    export.assert_called_once_with('daily','xiaohongshu.com')
+
+
+def test_multiple_local_accounts_are_not_guessed(monkeypatch):
+    from agent_reach.backends import opencli
+    from agent_reach.runtime import session_reuse
+    monkeypatch.setattr(browser,'ensure_running',lambda:None)
+    monkeypatch.setattr(browser,'connected_contexts',lambda:['one','two'])
+    monkeypatch.setattr(opencli,'export_site_cookies',lambda *args:[{'name':'sid','value':'test','domain':'.xiaohongshu.com'}])
+    monkeypatch.setattr(cdp,'call',lambda *a,**k:pytest.fail('ambiguous account copied'))
+    with pytest.raises(ReachError,match='Several'):
+        session_reuse.prepare('xiaohongshu')
+
+
+def test_logout_blocks_automatic_session_revival(monkeypatch):
+    from agent_reach.runtime import session_reuse
+    monkeypatch.setattr(browser,'ensure_running',lambda:None)
+    state.mutate(lambda data:data.update(session_reuse={'xiaohongshu':{'blocked':True}}))
+    monkeypatch.setattr(session_reuse,'_source_cookies',lambda *a:pytest.fail('revived logged-out account'))
+    assert session_reuse.prepare('xiaohongshu')['blocked']
+
+
+def test_unavailable_source_keeps_saved_destination_and_does_not_open_login(monkeypatch):
+    from agent_reach.runtime import session_reuse
+    monkeypatch.setattr(browser,'ensure_running',lambda:None)
+    monkeypatch.setattr(browser,'connected_contexts',lambda:[])
+    monkeypatch.setattr(browser,'start',lambda *a:pytest.fail('opened a login window'))
+    monkeypatch.setattr(cdp,'call',lambda *a,**k:pytest.fail('changed saved session'))
+    result=session_reuse.prepare('xiaohongshu')
+    assert result['source']=='saved-profile' and result['copied_cookies']==0
+
+
+def test_dispatch_worker_reuses_session_without_relocking_the_calling_thread(monkeypatch):
+    from agent_reach.channels.xiaohongshu import XiaoHongShuChannel
+    from agent_reach.runtime import dispatch, run, session_reuse
+    monkeypatch.setattr(browser, 'ensure_running', lambda: None)
+    monkeypatch.setattr(browser, 'bound_context', lambda: 'owned')
+    monkeypatch.setattr(browser, 'save_session', lambda: None)
+    monkeypatch.setattr(session_reuse, '_source_cookies', lambda *a: ([], 'saved-profile'))
+    monkeypatch.setattr(run, 'run_cmd', lambda *a, **k: '[{"title":"real result shape"}]')
+    result=dispatch.run_action(XiaoHongShuChannel(), 'search', {'query':'test','limit':1}, timeout=2)
+    assert result['ok'], result.get('error')
+
+
+def test_bili_reuses_only_site_cookies_through_upstream_writer_and_private_stdin(monkeypatch):
+    from unittest.mock import Mock
+
+    from agent_reach.channels import bilibili
+    from agent_reach.runtime import session_reuse, tools
+    monkeypatch.setattr(session_reuse, '_source_cookies', lambda *a: ([{'name':'SESSDATA','value':'test-secret'}], 'daily'))
+    monkeypatch.setattr(tools,'resolve',lambda *a:'/private/bin/bili')
+    call=Mock(return_value='')
+    monkeypatch.setattr(bilibili,'run_cmd',call)
+    bilibili._reuse_subtitle_login(10)
+    args=call.call_args
+    assert 'test-secret' not in repr(args.args)
+    assert json.loads(args.kwargs['input_data']) == {'SESSDATA':'test-secret'}
+    assert 'save_credential' in args.args[0][-1]
+    assert args.kwargs['env']['HOME'].endswith('/.agent-reach/sessions/bili-cli')
+    state.mutate(lambda data: data['session_reuse'].__setitem__('bilibili', {'blocked':True}))
+    bilibili._reuse_subtitle_login(10)
+    assert call.call_count == 1
+
+
+def test_node_warning_does_not_hide_upstream_error_and_404_is_not_login():
+    from agent_reach.backends.opencli import _opencli_error
+    warning='(node:123) Warning: experimental proxy\n'
+    error=_opencli_error(warning+'ok: false\nerror:\n  code: UNKNOWN\n  message: HTTP 404 - make sure you are logged in to Instagram\n','login')
+    assert error.code=='UPSTREAM_BROKEN'
+    assert '(node:' not in error.message
+    assert _opencli_error(warning+'ok: false\nerror:\n  code: AUTH_REQUIRED\n  message: Login required\n','login').code=='NEED_LOGIN'
+
+
+def test_xueqiu_syncs_reused_browser_login_only_for_community_actions(monkeypatch):
+    from unittest.mock import Mock
+
+    from agent_reach.channels import xueqiu
+    from agent_reach.runtime import session_reuse
+    reuse=Mock()
+    sync=Mock()
+    monkeypatch.setattr(session_reuse,'prepare',reuse)
+    monkeypatch.setattr(xueqiu,'_import_from_browser',sync)
+    monkeypatch.setattr(xueqiu,'_xq_json',lambda *a:{})
+    ch=xueqiu.XueqiuChannel()
+    ch._xq_search(query='AAPL',limit=2,timeout=2)
+    reuse.assert_not_called()
+    ch._xq_hot_posts(limit=2,timeout=2)
+    reuse.assert_called_once_with('xueqiu')
+    sync.assert_called_once_with()
