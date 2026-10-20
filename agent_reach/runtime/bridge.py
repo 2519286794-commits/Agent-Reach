@@ -76,15 +76,12 @@ def start():
     raise ReachError(NEED_SETUP, "OpenCLI Bridge could not start alongside the dedicated browser")
 
 
-def close(proc, context: str | None) -> str | None:
-    """Reap our child; preserve it if another browser has adopted it."""
+def close(proc) -> None:
+    """Reap only our child, unconditionally bounded to the dedicated browser."""
     if proc is None:
-        return None
-    current = status()
-    foreign = [p for p in current.get("profiles", []) if p.get("contextId") != context]
-    if current.get("pid") == proc.pid and foreign:
-        return "Bridge retained: another browser is using it. Close it through OpenCLI after that session ends."
-    # Popen is our ownership handle, not a PID discovered on the user's machine.
+        return
+    # Existing user daemons never have a Popen handle here. Other clients may
+    # reconnect through upstream after our browser-scoped child exits.
     if proc.poll() is None:
         proc.terminate()
         try:
@@ -92,4 +89,3 @@ def close(proc, context: str | None) -> str | None:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
-    return None

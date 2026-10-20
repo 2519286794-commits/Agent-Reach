@@ -167,10 +167,8 @@ def watch(idle: Optional[float] = None, poll: float = 2.0, *, launch: Optional[s
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(5)
-        note = bridge.close(bridge_proc, browser.bound_context())
-        browser.update_state(bridge_note=note, bridge_pid=None)
-        if note:
-            print(note, file=sys.stderr, flush=True)
+        bridge.close(bridge_proc)
+        browser.update_state(bridge_note=None, bridge_pid=None)
         os.close(fd)
 
 

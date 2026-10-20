@@ -23,7 +23,7 @@ All five concrete code defects were confirmed. The changes below distinguish reg
 - Ordinary commands no longer launch detached update checks. Existing tools/extensions are reused; an explicit update or allow-upgrade is required to change installed versions.
 - Cursor/other application MCP configuration is never changed. A retired entry recorded by old Reach is reported as a manual action only.
 - Created artifacts are recorded. Deletion uses this ledger or existing owned-tool records. Unknown files, unrecorded sessions and extra Skill notes survive. If the browser cannot close, uninstall stops before deleting files.
-- The user approved an official OpenCLI Bridge companion. The watcher starts/reaps its own child; a failed owned Bridge closes the browser. An existing compatible user Bridge is borrowed, never killed. If another browser adopts our child, it is retained with a visible status note. Incompatible existing versions are left unchanged.
+- The user approved an official OpenCLI Bridge companion. The watcher starts/reaps its own child; a failed owned Bridge closes the browser. An existing compatible user Bridge is borrowed, never killed. Reach-started Bridge children always exit with the dedicated browser, even if another client connected meanwhile. Incompatible existing versions are left unchanged.
 
 ## Browser lifetime
 
@@ -38,14 +38,14 @@ All rows below came from `python -m agent_reach.cli`, including saved proxy/PATH
 
 | Channel | Action | Backend | Items | ms |
 |---|---|---|---:|---:|
-| github | search | gh | 2 | 1859 |
-| youtube | search | yt-dlp | 2 | 5435 |
-| bilibili | search | bili-cli | 2 | 1048 |
-| v2ex | hot | v2ex-api | 3 | 1539 |
-| web | search | exa | 2 | 1588 |
-| xiaohongshu | search | opencli | 2 | 5123 |
-| xiaohongshu | read | opencli | 1 | 8755 |
-| xiaohongshu | comments | opencli | 24 | 9282 |
+| github | search | gh | 2 | 2089 |
+| youtube | search | yt-dlp | 2 | 7279 |
+| bilibili | search | bili-cli | 2 | 1090 |
+| v2ex | hot | v2ex-api | 3 | 2154 |
+| web | search | exa | 2 | 1686 |
+| xiaohongshu | search | opencli | 2 | 3129 |
+| xiaohongshu | read | opencli | 1 | 7262 |
+| xiaohongshu | comments | opencli | 25 | 9729 |
 
 XHS comments are the records actually loaded by upstream, including replies; this is not a complete-comment export guarantee.
 **8 of 40 declared actions accepted on macOS. 32 remain without current candidate acceptance.** BOSS requires human verification before another business request. Other platforms/actions need their own acceptance; no status/installation/old success is promoted to a new pass.
@@ -58,4 +58,4 @@ XHS comments are the records actually loaded by upstream, including replies; thi
 - Xiaoyuzhou remains present. ask/Reach MCP/custom Cloak site scraping/OpenCLI patching remain removed.
 - Archive and wheel are built only from reviewed Git files. Installed Skill files are generated from that source, not copied from a maintainer-specific working profile.
 
-Source digest: `35c255b6b581976e90b7aafc93236e12a81b5d6d7899d20e646ae082c06fda1c`. Sanitized machine-readable evidence: [release-acceptance.json](release-acceptance.json).
+Source digest: `36a297596b48bf7872e2e602731a2e3fd36bc147a2cf6dedab997a545fa5c645`. Sanitized machine-readable evidence: [release-acceptance.json](release-acceptance.json).

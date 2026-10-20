@@ -116,18 +116,18 @@ def test_trusted_page_activity_extends_idle_but_script_activity_does_not(monkeyp
     assert browser._load_state()["visited_origins"] == ["https://example.com"]
 
 
-def test_bridge_shutdown_reaps_our_child_and_preserves_foreign_clients(monkeypatch):
+def test_bridge_shutdown_reaps_only_our_child_even_if_others_connected(monkeypatch):
     proc = Mock(pid=123)
     proc.poll.return_value = None
     monkeypatch.setattr(bridge, "status", lambda: {"pid": 123, "profiles": [{"contextId": "reach"}]})
-    assert bridge.close(proc, "reach") is None
+    assert bridge.close(proc) is None
     proc.terminate.assert_called_once()
     proc.wait.assert_called_once()
     proc.reset_mock()
     monkeypatch.setattr(bridge, "status", lambda: {"pid": 123, "profiles": [{"contextId": "other"}]})
-    assert "retained" in bridge.close(proc, "reach")
-    proc.terminate.assert_not_called()
-    assert bridge.close(None, "reach") is None
+    assert bridge.close(proc) is None
+    proc.terminate.assert_called_once()
+    assert bridge.close(None) is None
 
 
 def test_release_gate_rejects_doctor_stale_and_wrong_source():
