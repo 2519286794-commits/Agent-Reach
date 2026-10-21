@@ -6,6 +6,7 @@ import http.client
 import os
 import signal
 import subprocess
+import sys
 import urllib.request
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
@@ -60,13 +61,13 @@ def run_cmd(
         stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
         env=run_env,
         cwd=cwd or os.path.expanduser("~"),
-        start_new_session=(os.name != "nt" and not supervised),
+        start_new_session=(sys.platform != "win32" and not supervised),
     )
     try:
         kwargs = {"input": input_data.encode("utf-8")} if input_data is not None else {}
         out, err = proc.communicate(timeout=max(timeout, 0.1), **kwargs)
     except subprocess.TimeoutExpired:
-        if os.name == "nt":
+        if sys.platform == "win32":
             # Kill this command's descendants too (Playwright driver + Chrome).
             # Killing only Python leaves the profile locked by orphan browsers.
             taskkill = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/taskkill.exe")

@@ -273,5 +273,5 @@ def run_action(
         action=action_name,
         elapsed_ms=elapsed(),
         attempts=attempts,
-        error=err,
+        error=final_err,
     )

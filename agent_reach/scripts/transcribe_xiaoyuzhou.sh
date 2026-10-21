@@ -27,18 +27,23 @@ URL="${1:?用法: bash transcribe.sh [--polish] <小宇宙链接> [输出文件�
 OUTPUT="${2:-}"
 
 PYTHON_CMD=()
+# Existing on PATH is not enough: Windows' Microsoft Store "python3" alias
+# resolves via `command -v` but only prints an install hint and exits 49.
+python_runs() {
+    "$@" -c 'import sys' >/dev/null 2>&1
+}
 ensure_python() {
     if [ "${#PYTHON_CMD[@]}" -gt 0 ]; then
         return 0
     fi
-    if command -v python3 >/dev/null 2>&1; then
+    if command -v python3 >/dev/null 2>&1 && python_runs python3; then
         PYTHON_CMD=(python3)
-    elif command -v python >/dev/null 2>&1; then
+    elif command -v python >/dev/null 2>&1 && python_runs python; then
         PYTHON_CMD=(python)
-    elif command -v py >/dev/null 2>&1; then
+    elif command -v py >/dev/null 2>&1 && python_runs py -3; then
         PYTHON_CMD=(py -3)
     else
-        echo "❌ 未找到 Python（尝试过 python3、python、py -3）" >&2
+        echo "❌ 未找到可用的 Python（尝试过 python3、python、py -3）" >&2
         return 1
     fi
 }

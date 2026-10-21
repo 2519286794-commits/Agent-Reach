@@ -56,7 +56,7 @@ agent-reach read <链接>                   # 给链接，自动认出渠道
 
 | error.code | 怎么办 |
 |---|---|
-| `UPSTREAM_BROKEN` | 这个渠道暂时不可用，告诉用户，不要反复重试 |
+| `UPSTREAM_BROKEN` | 告诉用户当前故障，可询问是否从原安装来源更新一次；不自动更新、不反复重试 |
 | `TIMEOUT` | 看失败阶段与渠道状态，不反复开窗或立即重试 |
 | `RATE_LIMITED` | 按 `retry_after_seconds` 等待，程序暂停该渠道 |
 | `NOT_FOUND` / `BAD_INPUT` | 检查链接或参数，必要时跑 `agent-reach channels` |

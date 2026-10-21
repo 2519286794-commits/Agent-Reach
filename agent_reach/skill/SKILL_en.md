@@ -58,7 +58,7 @@ Results:
 | error.code | What to do |
 |---|---|
 | `NEED_LOGIN` | Keep public results. If the remaining task needs this path, the user logs in; resume using `operation_id` |
-| `UPSTREAM_BROKEN` | Channel is down right now; tell the user, don't retry in a loop |
+| `UPSTREAM_BROKEN` | Report the failure; offer one update from the same source after user approval. Never update automatically or retry in a loop |
 | `TIMEOUT` | Inspect the failed stage and channel status; do not reopen or retry in a loop |
 | `RATE_LIMITED` | Respect `retry_after_seconds`; the runtime pauses this channel |
 | `NOT_FOUND` / `BAD_INPUT` | Check the link or args; run `agent-reach channels` if needed |

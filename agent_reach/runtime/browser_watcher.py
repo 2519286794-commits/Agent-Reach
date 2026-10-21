@@ -25,6 +25,8 @@ from . import bridge, browser
 
 def _launch_with_pipe(chrome: str, url: str, *, headless: bool = True):
     """Start Chrome with the CDP pipe on its fds 3 (commands in) and 4 (replies out)."""
+    if sys.platform == "win32":  # pragma: no cover
+        raise NotImplementedError("pipe launch is not supported on Windows")
     import fcntl
 
     from .cdp import PipeConnection

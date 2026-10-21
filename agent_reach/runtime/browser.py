@@ -286,7 +286,7 @@ def _system_chrome() -> Optional[str]:
             if base:
                 candidates.append(os.path.join(base, "Google", "Chrome", "Application", "chrome.exe"))
     else:
-        candidates = [shutil.which(n) for n in ("google-chrome", "google-chrome-stable", "chromium")]
+        candidates = [c for n in ("google-chrome", "google-chrome-stable", "chromium") if (c := shutil.which(n)) is not None]
     return next((c for c in candidates if c and os.path.exists(c)), None)
 
 
@@ -329,7 +329,7 @@ def ensure_chrome(*, retry_cloak: bool = False) -> str:
 
 def can_load_extension() -> bool:
     """Cloak loads extensions everywhere; system Chrome uses pipe loading on POSIX."""
-    return _load_state().get("backend") == "cloakbrowser" or os.name != "nt"
+    return _load_state().get("backend") == "cloakbrowser" or sys.platform != "win32"
 
 
 def chrome_argv(exe: str, url: str, *, pipe: bool, headless: bool = True) -> List[str]:
