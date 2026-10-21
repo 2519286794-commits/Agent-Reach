@@ -252,11 +252,25 @@
       "text_chars": 4783,
       "elapsed_ms": 18682,
       "error": null
+    },
+    {
+      "channel": "instagram",
+      "action": "profile",
+      "at": "2026-10-21T00:58:55Z",
+      "os": "macOS",
+      "method": "real-cli",
+      "source_sha256": "3ac98c106151237cb8e4deff46d315b23411411e3779d70728c3c0bc756e338f",
+      "backend": null,
+      "passed": false,
+      "item_count": 0,
+      "text_chars": 0,
+      "elapsed_ms": 6920,
+      "error": "NEED_LOGIN"
     }
   ],
   "candidate": true,
   "version": "1.6.0",
-  "recorded_at": "2026-10-20T20:03:15Z",
+  "recorded_at": "2026-10-21T02:26:14Z",
   "release_ready": false,
   "pending": [
     {
@@ -287,17 +301,17 @@
     {
       "channel": "instagram",
       "action": "posts",
-      "reason": "Earlier HTTP 429; cooldown remains in effect, no new request"
+      "reason": "Not requested after the source-browser API returned HTTP 429. Public post links are not a structured posts pass."
     },
     {
       "channel": "instagram",
       "action": "profile",
-      "reason": "Earlier HTTP 429; cooldown remains in effect, no new request"
+      "reason": "Refreshed site-cookie snapshot matched; formal route returned HTTP 401. The same endpoint in the logged-in source browser returned HTTP 429. No business pass."
     },
     {
       "channel": "instagram",
       "action": "search",
-      "reason": "Earlier HTTP 429; cooldown remains in effect, no new request"
+      "reason": "Earlier HTTP 404 on the search endpoint; source-browser profile API also returned HTTP 429. Not retested after that limit."
     },
     {
       "channel": "linkedin",
@@ -373,5 +387,22 @@
   "additional_required_validation": [
     "Windows headless startup, local site-session reuse, login mode switch, business actions and cleanup"
   ],
-  "privacy": "Counts, timings, error codes and source digest only; no account identifiers, credentials or content URLs"
+  "privacy": "Counts, timings, error codes and source digest only; no account identifiers, credentials or content URLs",
+  "diagnostics": [
+    {
+      "channel": "instagram",
+      "at": "2026-10-21T01:11:32Z",
+      "method": "read-only-source-comparison",
+      "formal_route_http": 401,
+      "site_cookie_count": 11,
+      "copied_values_matched": true,
+      "source_logged_in_ui": true,
+      "source_same_endpoint_http": 429,
+      "source_location_unchanged": true,
+      "owned_public_page_readable": true,
+      "owned_public_post_links": 12,
+      "owned_authenticated_session_verified": false,
+      "counted_as_business_pass": false
+    }
+  ]
 }
