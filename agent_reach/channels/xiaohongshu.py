@@ -36,12 +36,14 @@ class XiaoHongShuChannel(Channel):
             ),
             (("opencli", "_opencli_search"),),
             live_test={"query": "咖啡", "limit": 2},
+            public_web=("xiaohongshu.com/explore/", "xiaohongshu.com/search_result/", "xhslink.com/"),
         ),
         Action(
             "read",
             "Read a note (full link including xsec_token, as returned by search)",
             (Param("target", "full note link with xsec_token"),),
             (("opencli", "_opencli_read"),),
+            public_web=("xiaohongshu.com/explore/", "xiaohongshu.com/search_result/", "xhslink.com/"),
         ),
         Action(
             "comments",

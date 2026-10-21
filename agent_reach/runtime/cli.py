@@ -50,6 +50,8 @@ For agents:
   agent-reach resume OPERATION_ID         continue after the user logs in
   agent-reach <channel> <action> [args]   e.g. agent-reach bilibili search python
   agent-reach read <url>                  read a link with the matching channel
+  Search/read try declared public web routes first; --backend selects a site tool
+  --backend public-web                  public access only; no browser fallback
 
 For the user:
   agent-reach setup [--text]              install defaults and skill; --text displays the capability tables
@@ -134,7 +136,8 @@ def _parse_action_args(action: Action, args: Sequence[str]) -> Dict[str, object]
             parser.add_argument(p.name, nargs="+" if p.type is str else None)
         else:
             parser.add_argument(f"--{p.name}", dest=p.name, default=None)
-    parser.add_argument("--backend", choices=[b[0] for b in action.backends], default=None)
+    parser.add_argument("--backend", choices=[b[0] for b in action.backends] +
+                        (["public-web"] if action.public_web else []), default=None)
     parser.add_argument("--timeout", type=float, default=action.timeout or DEFAULT_TIMEOUT)
     ns = vars(parser.parse_args(list(args)))
     for p in action.params:
@@ -172,7 +175,7 @@ def _cmd_read(args: Sequence[str]) -> int:
     readers = [ch for ch in unified_channels() if find_action(ch, "read")]
     specific = [ch for ch in readers if ch.name != "web"]
     target = next((ch for ch in specific if ch.can_handle(ns.url)), None)
-    if target is not None and target.name == "reddit" and ns.backend in (None, "jina", "exa"):
+    if target is not None and target.name == "reddit" and ns.backend in ("jina", "exa"):
         target = next((ch for ch in readers if ch.name == "web"), None) or target
     target = target or next((ch for ch in readers if ch.name == "web"), None)
     if target is None:
@@ -205,6 +208,7 @@ def _cmd_channels(_args: Sequence[str]) -> int:
                             for p in a.params
                         ],
                         "backends": [label for label, _ in a.backends],
+                        "public_web": list(a.public_web),
                     }
                     for a in ch.actions
                 ],
@@ -529,6 +533,7 @@ def _cmd_flow(head: str, args: Sequence[str]) -> int:
             parser.add_argument("channel_action")
             parser.add_argument("--params", required=True)
             parser.add_argument("--timeout", type=float, default=60.0)
+            parser.add_argument("--backend")
         else:
             parser.add_argument("--action")
             parser.add_argument("--no-verify", action="store_true")
@@ -543,7 +548,7 @@ def _cmd_flow(head: str, args: Sequence[str]) -> int:
             params = json.loads(ns.params)
             if not isinstance(params, dict):
                 raise _ArgError("--params must be a JSON object")
-            result = flow.execute(ns.channel, ns.channel_action, params, timeout=ns.timeout)
+            result = flow.execute(ns.channel, ns.channel_action, params, timeout=ns.timeout, backend=ns.backend)
     except (ValueError, _ArgError) as exc:
         return _bad_input(None, head, str(exc))
     except ReachError as err:

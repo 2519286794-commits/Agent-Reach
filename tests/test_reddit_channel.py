@@ -55,7 +55,7 @@ def test_bare_403_is_not_classified_as_login():
     assert _opencli_error("HTTP 403 Forbidden", "").code != "NEED_LOGIN"
 
 
-@pytest.mark.parametrize("backend,expected", [(None, "web"), ("jina", "web"), ("opencli", "reddit")])
+@pytest.mark.parametrize("backend,expected", [(None, "reddit"), ("jina", "web"), ("opencli", "reddit")])
 def test_read_url_defaults_to_public_web_and_preserves_explicit_browser(monkeypatch, capsys, backend, expected):
     import json
 

@@ -172,6 +172,7 @@ def run_checks(names: Optional[List[str]] = None, timeout: float = 60.0, search_
                     "elapsed_ms": out["meta"]["elapsed_ms"],
                     "error": err and {"code": err["code"], "message": err["message"]},
                     "item_count": len(out["items"]), "attempts": out["meta"]["attempts"],
+                    "access": out["meta"].get("access"),
                 })
                 if err and err["code"] in {"PLATFORM_BLOCKED", "RATE_LIMITED", "NEED_LOGIN"}:
                     break
@@ -196,7 +197,7 @@ def run_checks(names: Optional[List[str]] = None, timeout: float = 60.0, search_
                     best = next((r for r in matches if r["verified"]), next((r for r in matches if r["passed"]), matches[-1]))
                     evidence[action] = {"backend": best["backend"], "at": state.now(),
                                         "item_count": best["item_count"], "verified": best["verified"],
-                                        "fingerprint": signatures[ch.name]}
+                                        "fingerprint": signatures[ch.name], "access": best.get("access")}
                 data["checks"][ch.name] = {"at": state.now(), "actions": {**previous, **actions},
                                            "codes": {**{a: code for a, code in old.get("codes", {}).items() if a not in actions}, **failed},
                                            "previous": previous, "scope": "search" if search_only else "all",

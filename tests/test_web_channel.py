@@ -8,6 +8,7 @@ URL before handing it to Jina Reader. Follow-up to #331 / #360 / #361,
 completing dedicated coverage for the channels that still lacked it.
 """
 
+import http.client
 import json
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +27,33 @@ def test_search_does_not_turn_unrecognized_payload_into_empty_success():
     with patch("agent_reach.channels.web._exa_call", return_value="Service temporarily unavailable"):
         with pytest.raises(ReachError, match="no recognizable search results"):
             WebChannel()._exa_search(query="python", limit=3, timeout=5)
+
+
+def test_exa_retries_a_truncated_read_once_within_the_same_budget():
+    from agent_reach.channels.web import _exa_call
+    body = json.dumps({"result": {"content": [{"type": "text", "text": "Content"}]}}).encode()
+    with patch("agent_reach.channels.web.http_request", side_effect=[http.client.IncompleteRead(b""), body]) as request:
+        assert _exa_call("web_fetch_exa", {"urls": ["https://example.com"]}, 5) == "Content"
+    assert request.call_count == 2
+    assert 0 < request.call_args_list[1].kwargs["timeout"] <= request.call_args_list[0].kwargs["timeout"] <= 5
+
+
+def test_exa_never_loops_after_two_truncated_reads():
+    from agent_reach.channels.web import _exa_call
+    with patch("agent_reach.channels.web.http_request", side_effect=http.client.IncompleteRead(b"")) as request:
+        with pytest.raises(http.client.IncompleteRead):
+            _exa_call("web_fetch_exa", {"urls": ["https://example.com"]}, 5)
+    assert request.call_count == 2
+
+
+def test_exa_does_not_retry_http_limits_or_access_denials():
+    import urllib.error
+    from agent_reach.channels.web import _exa_call
+    for code in (429, 403):
+        with patch("agent_reach.channels.web.http_request", side_effect=urllib.error.HTTPError("https://mcp.exa.ai/mcp", code, "denied", {}, None)) as request:
+            with pytest.raises(urllib.error.HTTPError):
+                _exa_call("web_fetch_exa", {"urls": ["https://example.com"]}, 5)
+        request.assert_called_once()
 
 
 @pytest.mark.parametrize(

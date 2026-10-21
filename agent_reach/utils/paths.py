@@ -7,11 +7,30 @@ import stat
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 
 class PrivatePathError(RuntimeError):
     """Raised when a private write could be redirected through a symlink."""
+
+
+@contextmanager
+def private_temporary_directory(prefix: str):
+    """Create and clean only this call's recorded work directory under Reach."""
+    from agent_reach.runtime import state
+
+    root = make_private_dir(state.root())
+    path = None
+    try:
+        with tempfile.TemporaryDirectory(prefix=prefix, dir=root) as tmp:
+            path = Path(tmp)
+            state.remember_path(path, "temporary work")
+            yield tmp
+    finally:
+        if path is not None and not path.exists():
+            relative = path.relative_to(root).as_posix()
+            state.mutate(lambda data: data.get("owned_paths", {}).pop(relative, None))
 
 
 def home_dir() -> Path:

@@ -41,19 +41,21 @@ class RedditChannel(Channel):
     actions = (
         Action(
             "search",
-            "Browser search; prefer existing web search for public Reddit posts",
+            "Search public posts first; --backend opencli uses site search",
             (
                 Param("query", "what to search for"),
                 Param("limit", "max results", required=False, type=int, default=5),
             ),
             (("opencli", "_opencli_search"),),
             live_test={"query": "python", "limit": 2},
+            public_web=("reddit.com/r/",),
         ),
         Action(
             "read",
-            "Browser read of a post and top comments; prefer web fetch for public posts",
+            "Read public page text first; --backend opencli requests the post and top comments",
             (Param("target", "post link or id"),),
             (("opencli", "_opencli_read"),),
+            public_web=("reddit.com/r/", "redd.it/"),
         ),
         Action(
             "subreddit",

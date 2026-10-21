@@ -134,7 +134,7 @@ def test_release_gate_rejects_doctor_stale_and_wrong_source():
     from scripts.check_release_acceptance import validate
     row = {"channel": "web", "action": "search", "passed": True, "item_count": 1,
            "backend": "exa", "os": "macOS", "at": state.now(), "method": "doctor", "source_sha256": "source"}
-    data = {"source_sha256": "source", "results": [row]}
+    data = {"source_sha256": "source", "release_ready": True, "results": [row]}
     assert validate(data, {("web", "search")}, "source")
     row["method"] = "real-cli"
     assert not validate(data, {("web", "search")}, "source")
@@ -142,6 +142,46 @@ def test_release_gate_rejects_doctor_stale_and_wrong_source():
     assert validate(data, {("web", "search")}, "changed")
     row["at"] = "2020-01-01T00:00:00Z"
     assert validate(data, {("web", "search")}, "source")
+
+
+def test_gate_cannot_ignore_release_flag_pending_validation_or_invalid_time():
+    from scripts.check_release_acceptance import validate
+    row = {"channel": "web", "action": "search", "passed": True, "item_count": 1,
+           "backend": "exa", "os": "macOS", "at": state.now(), "method": "real-cli", "source_sha256": "s"}
+    data = {"source_sha256": "s", "release_ready": True, "results": [row]}
+    required = {("web", "search")}
+    assert not validate(data, required, "s")
+    assert validate({**data, "release_ready": False}, required, "s")
+    assert validate({**data, "additional_required_validation": ["Windows"]}, required, "s")
+    assert validate({**data, "pending": ["web/read"]}, required, "s")
+    assert validate({**data, "results": [{**row, "at": None}]}, required, "s")
+    assert validate({**data, "results": [{**row, "item_count": True}]}, required, "s")
+
+
+def test_install_and_uninstall_preserve_preexisting_unrecorded_cache(monkeypatch):
+    cache = state.root() / "cache"
+    cache.mkdir(parents=True)
+    note = cache / "my-notes.txt"
+    note.write_text("keep")
+    tools.install_env()
+    assert not state.owned_path(cache)
+    assert state.owned_path(cache / "downloads")
+    monkeypatch.setattr(manage, "linked_agents", lambda: {})
+    manage.uninstall()
+    assert note.read_text() == "keep"
+    assert not (cache / "downloads").exists()
+
+
+def test_temporary_work_is_private_recorded_and_removed_on_failure():
+    from pathlib import Path
+    from agent_reach.utils.paths import private_temporary_directory
+    with pytest.raises(RuntimeError, match="work failed"):
+        with private_temporary_directory("test-") as tmp:
+            path = Path(tmp)
+            assert path.parent == state.root() and state.owned_path(path)
+            (path / "audio").write_bytes(b"private")
+            raise RuntimeError("work failed")
+    assert not path.exists() and not state.owned_path(path)
 
 
 def test_existing_incompatible_bridge_is_never_restarted(monkeypatch):

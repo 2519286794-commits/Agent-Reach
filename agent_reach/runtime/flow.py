@@ -13,7 +13,7 @@ from typing import Any, Optional
 from . import manage, state, tools
 from .browser_binding import execution_lock
 from .dispatch import cooldown, find_action, run_action, validate_action
-from .result import BAD_INPUT, NEED_LOGIN, PLATFORM_BLOCKED, RATE_LIMITED, ReachError
+from .result import BAD_INPUT, NEED_LOGIN, NEED_SETUP, PLATFORM_BLOCKED, RATE_LIMITED, ReachError
 
 
 def _action(ch, name: Optional[str]):
@@ -52,7 +52,7 @@ def _record(channel: str, action: str, out: dict) -> None:
         if not keep_verified:
             evidence[action] = {"backend": out.get("backend"), "at": stamp,
                                 "item_count": len(out["items"]), "verified": bool(out["ok"] and out["items"]),
-                                "fingerprint": signature}
+                                "fingerprint": signature, "access": out.get("meta", {}).get("access")}
         data["checks"][channel] = {"at": stamp, "actions": actions, "codes": codes,
                                      "previous": old.get("actions", {}), "scope": action,
                                      "evidence": evidence,
@@ -77,11 +77,21 @@ def prepare(channel: str, *, action: Optional[str] = None,
             return {"ok": False, "status": "cooldown", "channel": channel,
                     "action": selected.name, "retry_after_seconds": limited["retry_after_seconds"],
                     "error": {"code": RATE_LIMITED, "message": limited["message"]}}
-        if not manage.is_added(ch) or any(not tools.present(t) for t in manage.channel_tools(ch)):
+        browser_action = selected.backends[0][0] in {"opencli", "boss-agent-cli"}
+        if not browser_action:
+            # Native clients prepare their own session only if that route needs it.
+            # A stock quote must not provision the whole community browser channel.
+            for tool in dict.fromkeys((*ch.prereqs, *ch.tools)):
+                if tool in {"chrome", "opencli"} or tools.present(tool):
+                    continue
+                if not install:
+                    return _needs(channel, selected.name, "install", f"Run agent-reach add {channel}")
+                tools.ensure(tool)
+        elif not manage.is_added(ch) or any(not tools.present(t) for t in manage.channel_tools(ch)):
             if not install:
                 return _needs(channel, selected.name, "install", f"Run agent-reach add {channel}")
             manage.add(channel)
-        if ch.login_url:
+        if ch.login_url and browser_action:
             from . import session_reuse
             session_reuse.prepare(channel)
     return {"ok": True, "status": "prepared", "channel": channel,
@@ -97,7 +107,7 @@ def ensure(channel: str, *, action: Optional[str] = None,
     if selected.live_test is None:
         return {**prepared, "status": "prepared", "verified": False}
     out = run_action(manage._channel(channel), selected.name, dict(selected.live_test),
-                     timeout=selected.timeout or 60, preferred_backend=prepared.get("backend"))
+                     timeout=selected.timeout or 60, preferred_backend=prepared.get("backend"), public_first=False)
     _record(channel, selected.name, out)
     if out["ok"]:
         return {**prepared, "status": "ready" if out["items"] else "prepared", "verified": bool(out["items"]),
@@ -117,16 +127,28 @@ def _failure(channel: str, action: str, out: dict) -> dict:
 
 
 def execute(channel: str, action: str, params: dict[str, Any], *, timeout: float = 60,
-            operation_id: Optional[str] = None) -> dict:
+            operation_id: Optional[str] = None, backend: Optional[str] = None) -> dict:
     if not isinstance(params, dict):
         raise ReachError(BAD_INPUT, "params must be an object")
     ch = manage._channel(channel)
     _, params = validate_action(ch, action, params, timeout=timeout)
-    prepared = prepare(channel, action=action)
-    if not prepared["ok"]:
+    prepared: dict = {}
+    def prepare_site():
+        prepared.update(prepare(channel, action=action))
+        if not prepared["ok"]:
+            err = prepared.get("error")
+            if err:
+                raise ReachError(err["code"], err["message"], err.get("hint"))
+            required = prepared.get("required_action") or {}
+            code = {"login": NEED_LOGIN, "platform_verification": PLATFORM_BLOCKED}.get(required.get("type") or "", NEED_SETUP)
+            raise ReachError(code, required.get("message") or "Site tool preparation did not complete")
+
+    # Resuming a confirmed auth wall verifies the site path, not another index hit.
+    out = run_action(ch, action, params, timeout=timeout, before_backends=prepare_site,
+                     public_first=operation_id is None, only_backend=backend)
+    if prepared and not prepared["ok"]:
         result = prepared
     else:
-        out = run_action(ch, action, params, timeout=timeout, preferred_backend=prepared.get("backend"))
         _record(channel, action, out)
         result = ({"ok": True, "status": "ready", "channel": channel, "action": action,
                    "backend": out["backend"], "items": out["items"], "meta": out["meta"]}
@@ -137,7 +159,7 @@ def execute(channel: str, action: str, params: dict[str, Any], *, timeout: float
             def save_pending(data):
                 pending = data.setdefault("pending", {})
                 pending[token] = {"channel": channel, "action": action,
-                                  "params": params, "timeout": timeout, "at": state.now()}
+                                  "params": params, "timeout": timeout, "backend": backend, "at": state.now()}
                 for old in list(pending):
                     if state.age_seconds(pending[old].get("at", "")) > 7 * 86400:
                         pending.pop(old, None)
@@ -158,5 +180,5 @@ def resume(operation_id: str) -> dict:
     if not pending:
         raise ReachError(BAD_INPUT, "Unknown or completed operation_id")
     result = execute(pending["channel"], pending["action"], pending["params"],
-                     timeout=pending["timeout"], operation_id=operation_id)
+                     timeout=pending["timeout"], operation_id=operation_id, backend=pending.get("backend"))
     return result

@@ -4,6 +4,18 @@
 from agent_reach.channels.boss import BossChannel
 
 
+def test_ambiguous_upstream_detail_login_signal_is_not_a_login_instruction(monkeypatch):
+    import pytest
+    from agent_reach.backends import opencli
+    from agent_reach.runtime.result import ReachError
+    def broken(*a, **k):
+        raise ReachError("NEED_LOGIN", "BOSS redirected the job detail page to the login flow")
+    monkeypatch.setattr(opencli, "opencli_call", broken)
+    with pytest.raises(ReachError) as exc:
+        BossChannel()._opencli_read(target="https://www.zhipin.com/job_detail/job123.html", timeout=10)
+    assert exc.value.code == "UPSTREAM_BROKEN"
+
+
 def test_can_handle_matches_zhipin_hosts():
     ch = BossChannel()
     for url in [

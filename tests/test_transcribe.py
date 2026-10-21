@@ -534,22 +534,11 @@ class TestOrchestrator:
         fake_config.set("groq_api_key", "gsk_test")
         created_work_dirs = []
 
-        class FakeTemporaryDirectory:
-            def __init__(self, prefix=None):
-                self.path = tmp_path / "auto-work"
-
-            def __enter__(self):
-                self.path.mkdir()
-                created_work_dirs.append(self.path)
-                return str(self.path)
-
-            def __exit__(self, *_):
-                for child in self.path.iterdir():
-                    child.unlink()
-                self.path.rmdir()
-
         def fake_download(source, out_dir):
-            assert Path(out_dir) == tmp_path / "auto-work"
+            from agent_reach.runtime import state
+            assert Path(out_dir).parent == state.root()
+            assert state.owned_path(Path(out_dir))
+            created_work_dirs.append(Path(out_dir))
             audio = Path(out_dir) / "source.m4a"
             audio.write_bytes(b"audio")
             return audio
@@ -559,7 +548,6 @@ class TestOrchestrator:
             compressed.write_bytes(b"x" * 1024)
             return compressed
 
-        monkeypatch.setattr(tr.tempfile, "TemporaryDirectory", FakeTemporaryDirectory)
         monkeypatch.setattr(tr, "download_audio", fake_download)
         monkeypatch.setattr(tr, "compress_audio", fake_compress)
         monkeypatch.setattr(

@@ -25,7 +25,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -254,9 +253,16 @@ def install_env() -> dict:
     """
     extend_path()
     env = dict(os.environ)
-    cache = state.root() / "cache"
-    cache.mkdir(parents=True, exist_ok=True)
+    cache = state.root() / "cache" / "downloads"
+    if cache.exists() and not state.owned_path(cache):
+        raise ReachError(NEED_SETUP, "Unrecorded download cache left untouched; choose a clean Reach directory")
+    from agent_reach.utils.paths import make_private_dir
+
+    make_private_dir(cache)
     state.remember_path(cache, "download caches")
+    # Older releases could claim an already existing cache parent. Preserve it;
+    # only the newly created, dedicated child is eligible for recursive cleanup.
+    state.mutate(lambda data: data.get("owned_paths", {}).pop("cache", None))
     env.update(PIP_CACHE_DIR=str(cache / "pip"), UV_CACHE_DIR=str(cache / "uv"),
                npm_config_cache=str(cache / "npm"), XDG_CACHE_HOME=str(cache))
     https = env.get("HTTPS_PROXY") or env.get("https_proxy")
@@ -373,7 +379,9 @@ def _install_node(tool: Tool) -> None:
     import zipfile
 
     os_name, arch, ext = _node_platform()
-    with tempfile.TemporaryDirectory(prefix="node-", dir=_work_dir()) as tmp:
+    from agent_reach.utils.paths import private_temporary_directory
+
+    with private_temporary_directory(prefix="node-") as tmp:
         index = Path(tmp) / "index.json"
         _download("https://nodejs.org/dist/index.json", index)
         key = {"darwin": f"osx-{arch}-tar", "linux": f"linux-{arch}", "win": f"win-{arch}-zip"}[os_name]
@@ -415,7 +423,9 @@ def _install_uv(tool: Tool) -> None:
     if _WIN:
         _run(["powershell", "-ExecutionPolicy", "ByPass", "-c", "irm https://astral.sh/uv/install.ps1 | iex"], env=env)
     else:
-        with tempfile.TemporaryDirectory(prefix="uv-", dir=_work_dir()) as tmp:
+        from agent_reach.utils.paths import private_temporary_directory
+
+        with private_temporary_directory(prefix="uv-") as tmp:
             script = Path(tmp) / "install.sh"
             _download("https://astral.sh/uv/install.sh", script)
             _run(["sh", str(script)], env=env)
@@ -426,13 +436,6 @@ def _install_uv(tool: Tool) -> None:
         nested.rmdir()
     if not _private_bin(tool, "uvx").exists():
         raise ReachError(UPSTREAM_BROKEN, "the uv installer finished but uvx is missing")
-
-
-def _work_dir() -> Path:
-    folder = state.root() / "tmp"
-    folder.mkdir(parents=True, exist_ok=True)
-    state.remember_path(folder, "installer temporary files")
-    return folder
 
 
 def _install(tool: Tool, *, global_: bool = False) -> None:

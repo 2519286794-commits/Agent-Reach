@@ -9,7 +9,10 @@ from agent_reach.runtime.result import ReachError, envelope
 
 def test_execute_prepares_and_runs_the_actual_query_once(monkeypatch):
     prepare = Mock(return_value={"ok": True, "backend": "opencli"})
-    run = Mock(return_value=envelope(channel="xiaohongshu", action="search", backend="opencli", items=[{"title": "note"}]))
+    def execute(*args, **kwargs):
+        kwargs["before_backends"]()
+        return envelope(channel="xiaohongshu", action="search", backend="opencli", items=[{"title": "note"}])
+    run = Mock(side_effect=execute)
     monkeypatch.setattr(flow, "prepare", prepare)
     monkeypatch.setattr(flow, "run_action", run)
     out = flow.execute("xiaohongshu", "search", {"query": "VLA"})
@@ -38,6 +41,20 @@ def test_invalid_execute_cannot_install_or_open_browser(monkeypatch, params):
 def test_unknown_resume_is_explicit_bad_input():
     with pytest.raises(ReachError, match="Unknown"):
         flow.resume("missing")
+
+
+@pytest.mark.parametrize("action,params", [("quote", {"symbol": "00700"}), ("search", {"query": "腾讯"})])
+def test_native_public_execute_never_prepares_a_browser_channel(monkeypatch, action, params):
+    from agent_reach.channels.xueqiu import XueqiuChannel
+    from agent_reach.runtime import browser, manage, tools
+    monkeypatch.setattr(manage, "is_added", lambda *a: False)
+    monkeypatch.setattr(manage, "add", lambda *a, **k: pytest.fail("public action added browser dependencies"))
+    monkeypatch.setattr(browser, "ensure_running", lambda *a, **k: pytest.fail("public action opened browser"))
+    monkeypatch.setattr(tools, "ensure", lambda *a, **k: pytest.fail("public quote installed a tool"))
+    method = "_tencent_quote" if action == "quote" else "_tencent_search"
+    monkeypatch.setattr(XueqiuChannel, method, lambda *a, **k: [{"title": "Tencent"}])
+    result = flow.execute("xueqiu", action, params)
+    assert result["ok"] and result["backend"] == "tencent"
 
 
 def test_prepare_reuses_only_the_shared_dedicated_browser(monkeypatch):

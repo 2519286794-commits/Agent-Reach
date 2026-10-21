@@ -39,6 +39,8 @@ metadata:
 
 平台名称和 URL 用来识别来源，不自动触发安装、`ensure` 或登录。用户要求安装、登录或退出时读会话配置；故障、升级或卸载时读 [维护说明](references/maintenance.md)，查询时按需加载。
 
+CLI 也按此顺序执行：`channels` 中带 `public_web` 的搜索/阅读动作，先复用 Reach 的免登录网页搜索/读取，成功后直接返回，不准备浏览器。`backend: public-web` 和 `meta.access.scope` 区分搜索结果与页面文字；不保证站内排序、最新状态、全文或全部评论。公开结果不足才尝试站内工具，实际返回 `NEED_LOGIN` 才请用户登录。用 `--backend public-web` 可只查公开网页；需要站内数据时指定该动作声明的 `--backend opencli` 或 `--backend boss-agent-cli`。评论、字幕、账号列表等动作保持原有粒度；Instagram 搜用户不以通用网页搜索冒充。
+
 Reddit 公开帖可搜索 `site:reddit.com 关键词` 再打开原帖，公开 JSON 有时包含评论父子 ID；以本次实际返回为准。YouTube/B站简介与字幕、视频内容分别验收；X 的单帖公开内容与评论流分别验收。某台机器的失败不能推广为平台必须登录，也不固化“某平台总能匿名读全”。网络路径不同的结果分别记录。
 
 
@@ -120,7 +122,7 @@ agent-reach read <链接>                   # 给链接，自动认出渠道
 
 普通查询默认 headless，不弹窗；`login CHANNEL` 才显窗，下一次查询收回窗口转回无头，始终沿用同一配置。所有浏览器渠道使用 `~/.agent-reach/browser/profile`，CloakBrowser 优先，下载失败回退本机 Chrome。OpenCLI 插件自动准备，网页提取由上游 OpenCLI 或原生 CLI 执行。BOSS 使用同一专用浏览器；不启动额外个人 Chrome。闲置 10 分钟自动关闭，下次调用自动重开。
 
-需要 Reach 时可直接运行 `agent-reach execute CHANNEL ACTION --params '{...}'`，程序准备依赖并执行真实动作，无需先额外搜索一次。`ensure CHANNEL` 留给安装验收和排障；需要本人登录会返回明确提示。`execute` 返回 `operation_id` 时，在用户完成后运行 `agent-reach resume OPERATION_ID`。本版没有 ask 或 Reach MCP 服务，无需模型 API Key。
+需要 Reach 时可直接运行 `agent-reach execute CHANNEL ACTION --params '{...}'`，公开路径成功就返回，剩余站内请求才准备依赖和会话。`ensure CHANNEL` 留给站内安装验收和排障；需要本人登录会返回明确提示。`execute` 返回 `operation_id` 时，在用户完成后运行 `agent-reach resume OPERATION_ID`，直接验证待完成的站内动作。本版没有 ask 或 Reach MCP 服务，无需模型 API Key。
 
 优先按站点复用本地已有登录；默认使用已连接的浏览器，只读复制当前网站 Cookie。多个来源对应不同账号时，用 `browser profiles` / `browser use ID` 选择，不随机切换。来源不可用时保留 Reach 已保存的会话。定期保存会话；真实页面操作和 Reach 调用重置十分钟计时。OpenCLI Bridge 随浏览器启动和回收；已有用户进程保留，版本冲突交由用户处理。详细步骤见 [sessions.md](references/sessions.md)。
 

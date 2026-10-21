@@ -42,12 +42,14 @@ class BossChannel(Channel):
                 Param("city", "city, e.g. 深圳", required=False),
                 Param("limit", "max results", required=False, type=int, default=10),
             ),
-            (("boss-agent-cli", "_cli_search"), ("opencli", "_opencli_search")),
+            (("opencli", "_opencli_search"), ("boss-agent-cli", "_cli_search")),
             live_test={"query": "Python", "city": "深圳", "limit": 3},
             timeout=90,
+            public_web=("zhipin.com/job_detail/",),
         ),
         Action("read", "Read a direct BOSS job URL", (Param("target", "full job URL"),),
-               (("boss-agent-cli", "_cli_read"), ("opencli", "_opencli_read")), timeout=90),
+               (("boss-agent-cli", "_cli_read"), ("opencli", "_opencli_read")), timeout=90,
+               public_web=("zhipin.com/job_detail/",)),
     )
 
     def can_handle(self, url: str) -> bool:
@@ -143,6 +145,14 @@ class BossChannel(Channel):
         match = re.search(r"/job_detail/([A-Za-z0-9_-]+)\.html", str(target))
         if not match:
             raise ReachError("BAD_INPUT", "Expected a direct BOSS job URL")
-        rows = opencli_call("boss", ["detail", match.group(1)], timeout=timeout,
-                            login_hint="Run agent-reach login boss; complete login yourself in the dedicated browser.")
+        try:
+            rows = opencli_call("boss", ["detail", match.group(1)], timeout=timeout,
+                                login_hint="Run agent-reach login boss; complete login yourself in the dedicated browser.")
+        except ReachError as exc:
+            # Upstream's detector also matches hidden login components on readable
+            # job pages. Its message alone cannot establish an expired session.
+            if exc.code == NEED_LOGIN and "BOSS redirected the job detail page to the login flow" in exc.message:
+                raise ReachError(UPSTREAM_BROKEN, "OpenCLI could not extract this BOSS JD; its login signal is ambiguous",
+                                 hint="Check the existing job page. Do not ask for repeated login based on this adapter error.") from None
+            raise
         return opencli_items(rows)[:1]

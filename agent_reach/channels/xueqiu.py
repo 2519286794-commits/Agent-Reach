@@ -9,7 +9,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from agent_reach.runtime.result import BAD_INPUT, NEED_LOGIN, NOT_FOUND, ReachError, make_item
+from agent_reach.runtime.result import BAD_INPUT, NEED_LOGIN, NOT_FOUND, UPSTREAM_BROKEN, ReachError, make_item
 from agent_reach.runtime.run import http_request
 
 from .base import Action, Channel, Param
@@ -176,11 +176,12 @@ def _prepare_community_session() -> None:
 def _xq_json(url: str) -> Any:
     try:
         return _get_json(url)
-    except (urllib.error.HTTPError, json.JSONDecodeError) as exc:
-        rejected = isinstance(exc, json.JSONDecodeError) or exc.code in (400, 401, 403)
-        if not rejected:
-            raise
-        raise ReachError(NEED_LOGIN, "Xueqiu rejected the session", hint=_XQ_LOGIN_HINT) from None
+    except json.JSONDecodeError:
+        raise ReachError(UPSTREAM_BROKEN, "Xueqiu returned an unreadable response; login expiry was not established") from None
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            raise ReachError(NEED_LOGIN, "Xueqiu rejected the session", hint=_XQ_LOGIN_HINT) from None
+        raise
 
 
 _HOT_POSTS_URL = (

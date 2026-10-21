@@ -24,21 +24,35 @@ def source_digest(root: Path = ROOT) -> str:
 
 def validate(data: dict, required: set[tuple[str, str]], digest: str) -> list[str]:
     errors = []
+    if not isinstance(data, dict):
+        return ["Acceptance manifest must be an object"]
     if data.get("source_sha256") != digest:
         errors.append("Acceptance belongs to different source code")
+    if data.get("release_ready") is not True:
+        errors.append("Acceptance is not marked release_ready")
+    if data.get("pending") or data.get("additional_required_validation"):
+        errors.append("Acceptance still has pending actions or required validation")
+    if not isinstance(data.get("results"), list):
+        return errors + ["Acceptance results must be a list"]
     passed = set()
     for row in data.get("results", []):
+        if not isinstance(row, dict):
+            errors.append("Acceptance result must be an object")
+            continue
         key = (row.get("channel"), row.get("action"))
         if key not in required:
             errors.append(f"Unknown acceptance action: {key}")
             continue
         try:
-            at = datetime.fromisoformat(row["at"].replace("Z", "+00:00"))
+            stamp = row.get("at")
+            if not isinstance(stamp, str):
+                raise ValueError("Missing timestamp")
+            at = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
             age = (datetime.now(timezone.utc) - at).total_seconds()
         except (KeyError, TypeError, ValueError):
             age = float("inf")
         if (row.get("source_sha256") == digest and row.get("method") == "real-cli" and row.get("passed") is True
-                and isinstance(row.get("item_count"), int) and row["item_count"] > 0
+                and type(row.get("item_count")) is int and row["item_count"] > 0
                 and row.get("backend") and row.get("os") and 0 <= age <= 7 * 86400):
             passed.add(key)
     errors += [f"Missing real acceptance: {channel}/{action}" for channel, action in sorted(required - passed)]

@@ -44,6 +44,9 @@ class Action:
     live_test: Optional[Dict[str, object]] = None
     #: Default timeout in seconds for slow actions (e.g. transcription); None = global default.
     timeout: Optional[float] = None
+    #: Public URL scopes tried through the existing Web channel before site tools.
+    #: Search results/page text are labelled separately from authenticated site data.
+    public_web: Tuple[str, ...] = ()
 
 
 class Channel(ABC):

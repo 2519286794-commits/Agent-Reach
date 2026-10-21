@@ -21,7 +21,7 @@ Use only when evidence depth needs clarification. Declared actions and local acc
 | 小红书 | 公开列表或索引可能有笔记 ID、作者、标题，空字段不能补猜 | search/read/comments；文字描述、顶级评论及已加载回复；不保证全部评论，不声称理解图片/视频 |
 | Instagram | 部分索引和主页浅层信息；HTML 应用壳不算帖文 | search 搜用户、profile 主页、posts 指定用户帖子描述；无统一评论动作，不声称理解图片/视频 |
 | Facebook | 部分索引或 HTML 摘要；摘要可能被截断 | search/profile；无统一详情或评论动作，不把搜索摘要当全文 |
-| LinkedIn | 搜索索引中部分公开职位 | jobs/read 职位列表与详情；内容深度与所选路径有关 |
+| LinkedIn | 搜公开职位、读公开 JD；已有免登录成功样本 | jobs/read 先尝试公开网页；指定 opencli 才直接走站内；不保证所有职位可读 |
 | BOSS | 搜索索引中可能有职位摘要 | search/read 职位列表与 JD；不能根据编码薪资猜数字；详情后备能力依渠道声明 |
 | V2EX | 主题、正文及公开回复 | hot/node/read/user；返回范围以本次响应为准，不保证隐藏或缺失回复 |
 | 雪球 | 部分公开行情和索引信息 | quote/search/hot_posts/hot_stocks；行情与社区路径分别验收 |

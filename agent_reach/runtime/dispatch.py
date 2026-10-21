@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from contextlib import nullcontext
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from agent_reach.channels.base import Action, Channel
 
@@ -192,6 +192,8 @@ def run_action(
     timeout: float = DEFAULT_TIMEOUT,
     only_backend: Optional[str] = None,
     preferred_backend: Optional[str] = None,
+    before_backends: Optional[Callable[[], None]] = None,
+    public_first: bool = True,
 ) -> dict:
     """Execute one unified action and return the envelope dict."""
     started = time.monotonic()
@@ -204,7 +206,10 @@ def run_action(
     except ReachError as validation_error:
         return envelope(channel=channel.name, action=action_name, elapsed_ms=elapsed(), error=validation_error)
 
-    backends = [b for b in action.backends if only_backend in (None, b[0])]
+    from . import public_web
+
+    public_only = only_backend == public_web.BACKEND and bool(action.public_web)
+    backends = [b for b in action.backends if only_backend in (None, b[0]) or public_only]
     if not backends:
         return envelope(channel=channel.name, action=action_name, elapsed_ms=elapsed(),
                         error=ReachError(BAD_INPUT, f"no backend named '{only_backend}'"))
@@ -219,6 +224,26 @@ def run_action(
         if limited:
             raise ReachError(RATE_LIMITED, limited["message"],
                              hint=f"Wait {limited['retry_after_seconds']} seconds before retrying this channel.")
+        if action.public_web and ((public_first and only_backend is None) or public_only):
+            budget = clock.remaining() if public_only else min(public_web.MAX_SECONDS, clock.remaining() / 2)
+            public = public_web.attempt(channel, action, clean, timeout=budget)
+            if public is not None:
+                attempts.extend(public["meta"]["attempts"])
+                if public["ok"] or public_only:
+                    public["meta"]["elapsed_ms"] = elapsed()
+                    return public
+            elif public_only:
+                raise ReachError(BAD_INPUT, "This input has no public web route; use a full supported URL")
+        # Preparation is deferred until public access actually proves insufficient.
+        if before_backends:
+            if clock.remaining() <= 0:
+                raise ReachError(TIMEOUT, "No time left to prepare the site tool")
+            # Keep the existing rule: cold setup is outside the query deadline.
+            clock.pause()
+            try:
+                before_backends()
+            finally:
+                clock.resume()
         # One action per site keeps an agent's parallel requests from fighting
         # over the same persistent session; worker-level profile locks remain.
         browser_action = any(b[0] in {"opencli", "boss-agent-cli"} for b in action.backends)
@@ -273,5 +298,5 @@ def run_action(
         action=action_name,
         elapsed_ms=elapsed(),
         attempts=attempts,
-        error=final_err,
+        error=err,
     )

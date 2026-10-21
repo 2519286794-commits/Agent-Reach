@@ -25,6 +25,7 @@ class FacebookChannel(OpenCLISiteChannel):
             ),
             (("opencli", "_opencli_search"),),
             live_test={"query": "openai", "limit": 2},
+            public_web=("facebook.com/",),
         ),
         Action(
             "profile",

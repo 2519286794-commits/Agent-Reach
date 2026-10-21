@@ -5,8 +5,10 @@ This channel is a fallback: agents that already have working built-in web
 search / fetch should use those first.
 """
 
+import http.client
 import json
 import re
+import time
 import urllib.request
 
 from agent_reach.runtime.result import (
@@ -77,12 +79,19 @@ def _exa_call(tool: str, arguments: dict, timeout: float) -> str:
     body = json.dumps(
         {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
     ).encode("utf-8")
-    raw = http_request(
-        _EXA_MCP,
-        timeout=timeout,
-        data=body,
-        headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
-    ).decode("utf-8", errors="replace")
+    started = time.monotonic()
+    for attempt in range(2):
+        try:
+            raw = http_request(
+                _EXA_MCP, timeout=max(0.1, timeout - (time.monotonic() - started)), data=body,
+                headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
+            ).decode("utf-8", errors="replace")
+            break
+        except http.client.IncompleteRead:
+            # Read-only provider requests: one retry for a truncated transport,
+            # within the original budget. Never retry HTTP 429/403 or tool errors.
+            if attempt or time.monotonic() - started >= timeout:
+                raise
     payloads = [ln[5:].strip() for ln in raw.splitlines() if ln.startswith("data:")] or [raw]
     msg = json.loads(payloads[-1])
     if "error" in msg:

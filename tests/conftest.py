@@ -4,6 +4,7 @@
 import os
 import shutil
 import subprocess
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,11 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENCLAW_HOME", raising=False)
     # never start the background release check from tests
     monkeypatch.setenv("AGENT_REACH_NO_UPDATE_CHECK", "1")
+    # Public-first routing must not turn adapter unit tests into live requests.
+    # Network tests supply their own response below this fixture.
+    def no_network(*args, **kwargs):
+        raise OSError("Unit tests require an explicit mocked HTTP response")
+    monkeypatch.setattr(urllib.request, "urlopen", no_network)
 
     from agent_reach.runtime import bridge, cdp
     monkeypatch.setattr(bridge, "status", lambda: {"ok": True, "daemonVersion": "1.8.7", "profiles": []})
@@ -94,6 +100,8 @@ def isolated_home(tmp_path, monkeypatch):
         # OpenCLI uses a machine-wide port even when HOME is temporary.
         if isinstance(argv, (list, tuple)) and argv:
             executable = Path(argv[0])
+            if "pip" in argv and "install" in argv:
+                pytest.fail("Unmocked pip install would download real dependencies during a unit test")
             if executable.name in {"opencli", "opencli.cmd"} and "--version" not in argv and home not in executable.resolve().parents:
                 pytest.fail("Unmocked OpenCLI command would touch the user's Bridge daemon")
         return original_popen(argv, *args, **kwargs)

@@ -25,7 +25,6 @@ import math
 import re
 import socket
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlparse
@@ -439,7 +438,9 @@ def transcribe(
     if out_dir:
         return _transcribe_in_dir(source, order, cfg, Path(out_dir))
 
-    with tempfile.TemporaryDirectory(prefix="transcribe-") as tmp:
+    from agent_reach.utils.paths import private_temporary_directory
+
+    with private_temporary_directory(prefix="transcribe-") as tmp:
         return _transcribe_in_dir(source, order, cfg, Path(tmp))
 
 

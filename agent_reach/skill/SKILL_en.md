@@ -40,6 +40,8 @@ Route by the evidence needed, on every platform:
 
 A platform name or URL identifies a source; it does not automatically trigger installation, ensure or login. Read Sessions for explicit setup/login/logout requests and [Maintenance](references/maintenance.md) for failures/updates/uninstall.
 
+CLI search/read actions with `public_web` try anonymous web access before preparing site tools. Results identify `backend: public-web` and `meta.access.scope` as search results or page text; site ordering, freshness and completeness remain unverified. Use `--backend public-web` for public access only, or an action's declared `--backend opencli` / `--backend boss-agent-cli` for a site-specific request. Only an actual login requirement warrants asking the user to log in. Comments, subtitles and account-list actions keep their declared scope.
+
 Public Reddit JSON may expose parent IDs; verify actual coverage. YouTube/Bilibili descriptions, subtitles and video content are separate evidence. Public X posts and reply streams are separate capabilities. Do not generalize a local failure into a platform-wide login requirement, or promise universal anonymous access. Distinguish local HTTP, proxy and built-in web-tool results.
 
 
@@ -119,7 +121,7 @@ After the user agrees, read [Maintenance](references/maintenance.md) and confirm
 
 Queries default to headless. Explicit login opens a window; the next query switches back using the same profile. All browser channels use `~/.agent-reach/browser/profile`. CloakBrowser is preferred; installation/download failure falls back to installed Chrome. OpenCLI prepares the extension and performs website extraction. BOSS uses the same dedicated browser. The idle watcher closes it after ten minutes; the next action reopens it.
 
-Use `agent-reach execute CHANNEL ACTION --params '{...}'` to prepare and perform the real action once. Reserve `ensure CHANNEL` for setup checks and diagnosis. After the user completes a requested login, use `agent-reach resume OPERATION_ID` when an operation ID was returned. There is no Reach MCP server or model planner in this version, and no model API key is required.
+Use `agent-reach execute CHANNEL ACTION --params '{...}'` to try the declared public route first and prepare site tools only when needed. Reserve `ensure CHANNEL` for setup checks and diagnosis. After the user completes a requested login, use `agent-reach resume OPERATION_ID` when an operation ID was returned. There is no Reach MCP server or model planner in this version, and no model API key is required.
 
 Reuse the requested site’s existing local login first. Use a connected local Browser Bridge source or saved Reach state; preserve the source. Choose explicitly when multiple source accounts are available. The user logs in in the Reach window; sessions are saved periodically. Human page input and Reach calls reset the idle timer. The official Bridge is supervised alongside the browser; existing user processes are preserved. See [Sessions](references/sessions.md).
 

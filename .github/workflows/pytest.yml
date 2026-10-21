@@ -37,6 +37,10 @@ jobs:
         run: |
           mypy agent_reach
 
+      - name: Require real acceptance before merge
+        if: github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: python scripts/check_release_acceptance.py
+
   windows-test:
     runs-on: windows-latest
     steps:
