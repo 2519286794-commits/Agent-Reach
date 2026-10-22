@@ -1,7 +1,7 @@
 # 能力边界 / Capability scope
 
-查询时仅在需要核对粒度时加载。安装摘要同时给出声明能力和本机状态；下表用于解释结果，不代表所有网络、账号和内容均已实测。
-Use only when evidence depth needs clarification. Declared actions and local acceptance are separate.
+用户问"能查什么、查得全吗"，或要判断结果完整度时读这份。下表是声明能力，不代表所有网络、账号和内容都已实测。
+Read when the user asks what can be fetched or how complete a result is. Declared capabilities, not guaranteed results.
 
 ## 三层说明
 
@@ -9,7 +9,7 @@ Use only when evidence depth needs clarification. Declared actions and local acc
 - **Reach 补充**：当前发布版声明的动作，见 `agent-reach channels`。需要配置时先复用专用浏览器已保存的会话，所选路径实际要求登录时才本人登录。
 - **本机已验证**：只列本机最近成功验收的具体动作；安装、保存会话和网络可达均不等于业务验收。
 
-## 本版渠道（包含小宇宙）
+## 本版渠道
 
 | 渠道 | 公开路径可尝试 | Reach 补充与边界 |
 |---|---|---|
@@ -21,16 +21,11 @@ Use only when evidence depth needs clarification. Declared actions and local acc
 | 小红书 | 公开列表或索引可能有笔记 ID、作者、标题，空字段不能补猜 | search/read/comments；文字描述、顶级评论及已加载回复；不保证全部评论，不声称理解图片/视频 |
 | Instagram | 部分索引和主页浅层信息；HTML 应用壳不算帖文 | search 搜用户、profile 主页、posts 指定用户帖子描述；无统一评论动作，不声称理解图片/视频 |
 | Facebook | 部分索引或 HTML 摘要；摘要可能被截断 | search/profile；无统一详情或评论动作，不把搜索摘要当全文 |
-| LinkedIn | 搜公开职位、读公开 JD；已有免登录成功样本 | jobs/read 先尝试公开网页；指定 opencli 才直接走站内；不保证所有职位可读 |
+| LinkedIn | 搜公开职位、读公开 JD | jobs/read 先尝试公开网页；指定 opencli 才直接走站内；不保证所有职位可读 |
 | BOSS | 搜索索引中可能有职位摘要 | search/read 职位列表与 JD；不能根据编码薪资猜数字；详情后备能力依渠道声明 |
 | V2EX | 主题、正文及公开回复 | hot/node/read/user；返回范围以本次响应为准，不保证隐藏或缺失回复 |
 | 雪球 | 部分公开行情和索引信息 | quote/search/hot_posts/hot_stocks；行情与社区路径分别验收 |
 | Web | Agent 自带搜索/读取 | Reach web search/read 为匿名保底；摘要、页面壳和验证页不能当完整正文 |
-
-## 今日验证如何使用
-
-2026-10-19 的本机测试显示：内置网页工具与本机 HTTP/代理可能返回不同内容。Reddit 的内置读取拿到评论父子 ID；X 的公开嵌入拿到单帖全文；独立 yt-dlp 拿到 5 条评论及英文字幕正文；B 站公开接口拿到部分评论父子 ID。Claude 的另组样本出现不同的 HTML 壳、验证页和空字幕响应。这些差异要求按路径、样本和结果验收，不能固化成平台必须登录或匿名总能成功的规则。
-
-上述原生工具结果不自动成为 Reach 的正式动作；尤其 YouTube/B站的公开评论能力尚无 Reach 统一 comments 动作。新增渠道本版暂不发布。
+| 小宇宙 | 节目页标题、简介 | transcribe 整集转文字；需要用户提供 Groq Key（`agent-reach configure groq-key`） |
 
 登录后的能力表述使用“可启用/尝试上述浏览器动作”，不使用“登录后支持全部评论”。用户跳过登录时交付已有公开证据。

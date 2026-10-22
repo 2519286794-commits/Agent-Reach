@@ -1,15 +1,14 @@
 ---
 name: agent-reach
 description: >
-  Use when the user names a supported platform, shares its URL, or asks to configure or diagnose its channel:
-  Xiaohongshu, Bilibili, Twitter/X, Reddit, Facebook, Instagram, YouTube
-  (subtitles, transcripts), V2EX, Xueqiu stock quotes,
-  GitHub, LinkedIn / Boss Zhipin jobs,
-  or when your built-in web search / fetch
-  is missing or fails. Read-only: never post, comment, like, or log in on the
-  user's behalf.
-  Supplement existing agent capabilities: prefer available public web tools on every platform.
-  Use Reach for missing evidence, unavailable tools or declared structured actions.
+  Read-only access to platform content: search, read posts, view comments, fetch subtitles, stock quotes and jobs.
+  Use when the user mentions or pastes a link from Xiaohongshu, Bilibili, Twitter/X, Reddit,
+  YouTube (subtitles, transcripts), GitHub, V2EX, Xueqiu/stock quotes, LinkedIn/Boss Zhipin jobs,
+  Instagram, Facebook or Xiaoyuzhou podcasts; or says "search / look up / read this link" and your built-in
+  web search or fetch is unavailable, fails, or misses the body;
+  or wants to install, add/remove a platform, log in/out, check status, update or uninstall Agent Reach.
+  Does not: post, comment, like, message or any other write; never logs in for the user or asks for passwords.
+  Prefer your own tools for public content; Reach fills the gaps.
 metadata:
   homepage: https://github.com/Panniantong/Agent-Reach
   version: "{{VERSION}}"
@@ -17,112 +16,90 @@ metadata:
 
 # Agent Reach
 
-One command for every platform: `agent-reach`. Read-only; JSON by default, or a human-readable installation report with `setup --text`.
+One command for every platform: `agent-reach`. Read-only; prints one JSON object by default.
 
-## Compact installation handoff
+Before acting, say "using the agent-reach skill (channel X)". Once invoked, these rules apply for the whole session.
 
-Present `result.installation_report.markdown` directly: a greeting generated from the installing computer's local clock, the install outcome, an icon legend, one three-column table (platform / content without login / features to try after login), and one verification line. Do not add another greeting, detailed matrices or internal action lists. Load [Capability scope](references/capabilities.md) only when the user asks for detail.
+## Choosing a route
 
-Use JSON `agent-reach setup`, or `setup --text` for direct terminal output. A report link is supplementary. Preserve failed installs, user removals and states requiring attention. ✅ marks content to try without login; ❌ marks the listed authenticated Reach features, with no promise that login guarantees access; — means no additional login feature here. Public Reddit search, post bodies and available comments use existing web tools without login; do not promise complete comment trees.
-
-Local greeting hours: morning 05–10, noon 11–13, afternoon 14–17, evening 18–21, late night otherwise. No geolocation or timezone question is needed. Name concrete content and actions; avoid vague phrases such as "when the page asks," "more site features" or "some tweets." Network failures, untested paths and unsupported actions must not become ❌ login requirements. If `installation_report` is missing, check the build/source.
-
-Keep feature labels short: "read posts, view replies" or "view posts, trending stocks." Preserve distinctions between snippets, links and full text; trending stocks are not investment picks. State shared comment coverage and subtitle availability once below the table.
-
-## Usage
-
-Route by the evidence needed, on every platform:
-
-1. For public information, open supplied links with existing web tools or search with an optional site filter. Check body text, comments and subtitles separately. Answer when sufficient; no channel setup or login is needed.
-2. Use a declared Reach action when evidence is missing, existing tools are unavailable, or a structured/site-specific operation is requested. Inspect `agent-reach channels` when needed. Reuse available anonymous native tools or public APIs directly; do not force a redundant web search before a suitable action. Reach `web search` / `web read` provide an anonymous fallback.
-3. Load [Sessions](references/sessions.md) only when the remaining task's chosen path actually requires authentication or session setup. Reuse authorized sessions before requesting login. Missing browser setup, 403, challenges, DNS/TLS failures, rate limits and timeouts need their own diagnosis. A login button beside readable content is not a login wall.
-4. Keep public evidence and deliver it even if login is skipped. Identify the remaining gap. Counts, subtitle track lists, page shells and search snippets do not establish comment text, subtitle text or complete bodies.
-
-A platform name or URL identifies a source; it does not automatically trigger installation, ensure or login. Read Sessions for explicit setup/login/logout requests and [Maintenance](references/maintenance.md) for failures/updates/uninstall.
-
-When a channel is **already added** (a default channel, or one the user added), its search/read actions go straight to that channel's site tools, with no web search first. For channels **not added yet**, CLI search/read actions with `public_web` try anonymous web access before preparing site tools. Results identify `backend: public-web` and `meta.access.scope` as search results or page text; site ordering, freshness and completeness remain unverified. Use `--backend public-web` for public access only, or an action's declared `--backend opencli` / `--backend boss-agent-cli` for a site-specific request. Only an actual login requirement warrants asking the user to log in. Comments, subtitles and account-list actions keep their declared scope.
-
-Public Reddit JSON may expose parent IDs; verify actual coverage. YouTube/Bilibili descriptions, subtitles and video content are separate evidence. Public X posts and reply streams are separate capabilities. Do not generalize a local failure into a platform-wide login requirement, or promise universal anonymous access. Distinguish local HTTP, proxy and built-in web-tool results.
-
+- For public content, use your own search/read tools first (optionally `site:domain`). Check body text, comments and subtitles separately; when they are enough, answer directly without adding channels or logging in.
+- Use Reach when your tools are unavailable, the result lacks what the user needs, or the user wants a site action a channel declares. Unsure of actions and params? Run `agent-reach channels`.
+- An added channel (a default one, or one added with `add`) sends search/read straight to its site tool. For channels not added yet, search/read first try anonymous public web access; results mark it with `backend: public-web`. `--backend public-web` limits to public web; `--backend <backend>` picks a site tool.
+- A platform name or link only identifies the source; it never triggers install or login by itself.
+- Snippets, page shells, comment counts and subtitle track lists are not body text, comments or subtitles; say which you have. If the user skips login, still deliver the public results already gathered.
 
 ```bash
-agent-reach channels                      # actions and params per channel (run this when unsure)
-agent-reach ensure <channel>             # setup, authorized reuse, live check
+agent-reach channels                      # actions and params per channel
 agent-reach <channel> <action> [args]     # e.g. agent-reach bilibili search "rust async" --limit 5
 agent-reach read <url>                    # picks the channel from the URL
 ```
 
-Results:
+## Results and errors
 
 - `ok: true` → content in `items`; each has `title / url / author / published_at / text`, upstream data in `raw`.
 - `ok: false` → branch on `error.code` and follow `error.hint`:
 
 | error.code | What to do |
 |---|---|
-| `NEED_LOGIN` | Keep public results. If the remaining task needs this path, the user logs in; resume using `operation_id` |
-| `UPSTREAM_BROKEN` | Report the failure; offer one update from the same source after user approval. Never update automatically or retry in a loop |
-| `TIMEOUT` | Inspect the failed stage and channel status; do not reopen or retry in a loop |
-| `RATE_LIMITED` | Respect `retry_after_seconds`; the runtime pauses this channel |
-| `NOT_FOUND` / `BAD_INPUT` | Check the link or args; run `agent-reach channels` if needed |
+| `NEED_SETUP` | Missing dependency or key. Run `agent-reach add <channel>` as hinted; for a key, the user provides it, then `agent-reach configure <key>` |
+| `NEED_LOGIN` | Keep existing results and tell the user login is needed; `agent-reach login <channel>` opens the browser and the user logs in themselves. Never log in for them or ask for a password |
+| `UPSTREAM_BROKEN` | The upstream tool failed. Explain, and after the user agrees run `agent-reach update` once; never retry in a loop |
+| `TIMEOUT` | Check the failed stage and channel status (`agent-reach doctor --text`); do not retry or reopen windows in a loop |
+| `RATE_LIMITED` | The platform rate-limited; Reach paused the channel. Wait `retry_after_seconds`; do not switch backends |
+| `PLATFORM_BLOCKED` | The platform wants verification (captcha/risk check). Stop; the user resolves it on the official page. Do not switch accounts or backends |
+| `BUSY` | The browser stayed full for the 2-minute wait in line, or the user has a login window open. Retry later, or after the user says they are logged in; do not close the window or switch profiles |
+| `NOT_FOUND` | Content does not exist; check the link or ID |
+| `BAD_INPUT` | Wrong arguments; run `agent-reach channels` for usage |
 
-## Rules
+On `PLATFORM_BLOCKED`, `RATE_LIMITED`, `NEED_LOGIN` or `BUSY`, stop this attempt; do not retry with other accounts, backends or browsers. A network failure or a failure on one machine does not mean "the platform requires login".
 
-1. On every platform, check whether existing public capabilities satisfy the request; use Reach for the missing capability. Declared structured/site-specific actions may be selected directly; authentication depends on the actual path.
-2. Say "using agent-reach channel X" before calling a Reach channel.
-3. Serialize commands sharing one browser profile; independent sessions may run in parallel.
-4. Read only. Never post, comment, or like.
-5. Reuse existing local site sessions first through read-only, site-scoped Browser Bridge export. Keep source browsers unchanged and never print credentials. Human login is the fallback.
+## Login and the dedicated browser
+
+All browser channels share one dedicated browser (CloakBrowser preferred, falling back to installed Chrome). It runs headless by default, closes after 10 idle minutes and reopens on the next call. Calls may run in parallel, including from subagents: up to 2 per platform and 4 in total run at once, the rest wait in line, and same-platform searches are spaced a few seconds apart.
+
+The first time a site is used, if the user's Chrome is connected to the OpenCLI extension, that site's login is copied once into the dedicated browser and reused afterwards; only that site is copied and the source browser is untouched. Only when the login has expired or there is no source to copy from does the user run `agent-reach login <channel>` and log in themselves. Refreshing, choosing a source and logging out are in [Sessions](references/sessions.md): read it when the user wants to log in, log out or switch accounts, or on `NEED_LOGIN`.
+
+## Platform notes
+
+- Xiaohongshu read returns text descriptions only; never claim to understand the images or video.
+- When a Boss Zhipin search result has `salary_encoded=true`, never guess the salary digits; read the job link for the readable salary in the detail.
+- What each platform offers publicly and what Reach adds is in [Capability scope](references/capabilities.md): read it when the user asks "what can it get / is it complete" or you need to judge completeness.
 
 ## Channels
 
 {{CHANNEL_TABLE}}
 
-The login column lists authentication entry points, not prerequisites for public access. Requirements depend on the selected action. `default` means installed by default, not guaranteed network reachability; `ensure` prepares optional channels when needed. Reddit's public web path needs no Reddit channel setup. Default channels can be removed too; updates never add a removed one back.
+`default` channels are installed by default and can be removed; updates never add a removed one back. The `login` column is the authentication entry point, not a prerequisite for public content.
 
+## After installation
 
-
-## Reuse before login
-
-
-`setup` installs defaults; adding a browser channel prepares the shared browser and extension. `login CHANNEL` opens the site for the user to log in. Reuse saved dedicated sessions and verify the requested action. Read only the requested site’s local session.
-
-
-XHS read returns text descriptions, not image/video understanding. Never guess BOSS salary digits when salary_encoded=true; read the job detail instead.
-
-
-Stop on PLATFORM_BLOCKED/RATE_LIMITED/NEED_LOGIN/BUSY. Serialize commands sharing a profile. Use `check CHANNEL --search` for live verification. See [Maintenance](references/maintenance.md) for dependency repair and distribution. Never modify dependencies during queries.
+After `agent-reach setup`, show `result.installation_report.markdown` to the user as is: no additions, removals, reordering, extra greeting or tables. The program generates it.
 
 ## When the user wants to manage Agent Reach
 
-| User asks | You run |
+| User says | You run |
 |---|---|
-| Status / what works | `agent-reach doctor --text` (for a live test, `agent-reach check <channel> --search --text`) |
-| Add a platform ("add Xiaohongshu") | `agent-reach add <channel>`; one command installs everything it needs. Tell the user only what they must do: follow the login instructions (`agent-reach login <channel>`), or provide a key |
-| Login expired | Read Sessions first; `agent-reach login <channel>` opens the shared browser for the user to log in |
-| Remove a platform / log out | `agent-reach remove <channel>`; read Sessions before logout. `agent-reach logout <channel>` clears only that site in the shared browser |
-| Upgrade / update | Read [Maintenance](references/maintenance.md), check the installation source, then update from the same source |
+| Add a platform | `agent-reach add <channel>`; dependencies install automatically. Tell the user only what they must do (log in or provide a key) |
+| Remove a platform | `agent-reach remove <channel>` |
+| Log in / login expired | `agent-reach login <channel>`; the user logs in themselves in the window that opens |
+| Log out | `agent-reach logout <channel>` |
+| Status / what works | `agent-reach doctor --text`; for a live test `agent-reach check <channel> --text` |
+| Upgrade / update | `agent-reach update` |
 | Uninstall | show `agent-reach uninstall --dry-run` first, then `agent-reach uninstall` once they confirm |
 | Another AI should use it | `agent-reach skill link <that AI's skills folder>`; `agent-reach skill` shows where it is placed now |
 
-Follow the required installation handoff above. Ordinary queries load [Capability scope](references/capabilities.md) only when needed and do not install every optional channel.
+Troubleshooting, browser maintenance and uninstall details are in [Maintenance](references/maintenance.md): read it when an update fails, the browser will not start, or the user wants to uninstall.
 
 ## When there is a new version
 
 Any result with `meta.update` means a newer version exists. Mention it once per conversation, in the user's language and plain words:
 
 1. Agent Reach has a new version (`meta.update.latest`).
-2. What changed: 1 to 3 short points taken from `meta.update.notes`.
-3. Ask whether to update.
+2. What changed: 1 to 3 short points from `meta.update.notes`.
+3. Ask whether to update; run `agent-reach update` only after the user agrees.
 
-After the user agrees, read [Maintenance](references/maintenance.md) and confirm the installation source. Update from the same source, then report the actual changes and remaining user actions.
+## Red lines
 
-
-## Shared dedicated browser
-
-Queries default to headless. Explicit login opens a window; the next query switches back using the same profile. All browser channels use `~/.agent-reach/browser/profile`. CloakBrowser is preferred; installation/download failure falls back to installed Chrome. OpenCLI prepares the extension and performs website extraction. BOSS uses the same dedicated browser. The idle watcher closes it after ten minutes; the next action reopens it.
-
-Use `agent-reach execute CHANNEL ACTION --params '{...}'` to try the declared public route first and prepare site tools only when needed. Reserve `ensure CHANNEL` for setup checks and diagnosis. After the user completes a requested login, use `agent-reach resume OPERATION_ID` when an operation ID was returned. There is no Reach MCP server or model planner in this version, and no model API key is required.
-
-Reuse the requested site’s existing local login first. Use a connected local Browser Bridge source or saved Reach state; preserve the source. Choose explicitly when multiple source accounts are available. The user logs in in the Reach window; sessions are saved periodically. Human page input and Reach calls reset the idle timer. The official Bridge is supervised alongside the browser; existing user processes are preserved. See [Sessions](references/sessions.md).
-
-`add CHANNEL` prepares dependencies, browser and extension. `remove CHANNEL` clears only that site's login/storage, preserving other sites. Xiaoyuzhou remains an optional transcription channel requiring a Groq key.
+- Read only. Never post, comment, like or message.
+- Never log in for the user; never ask for or print passwords, cookies or other credentials.
+- Ordinary queries never change dependencies or update automatically.
