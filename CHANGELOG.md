@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - 查询默认无头，优先只读复用本机已有的站点登录；显窗登录与无头查询共用配置。B站字幕、雪球社区自动同步登录，BOSS JD 使用上游浏览器接口。缺失接口和限流不再误报为需要重登。
 - 专用浏览器按扩展保存在它自己配置里的编号识别，不会再把用户日常的 Chrome 认成专用浏览器；登录窗口开着时查询不再把它收掉。
 - 浏览器渠道可以并行查询：同一平台最多 2 条、合计 4 条同时跑，多出来的排队而不是立刻报"正忙"；登录窗口、退出登录等操作等正在跑的查询结束再做。
+- 没登录时报"需要登录"而不是"上游工具坏了"：雪球社区（错误码 400016）、B站字幕（没有 B站登录）、LinkedIn（专用浏览器里没有 LinkedIn 登录）。
 
 English:
 - Browser channels share one profile, close after ten idle minutes and reopen on demand.
@@ -28,6 +29,7 @@ English:
 - Keep Xiaoyuzhou transcription; remove the extra planner and duplicate site extraction.
 - The dedicated browser is identified by the id its extension saves inside its own profile, so the user's own Chrome is never mistaken for it; a query no longer closes an open login window.
 - Browser channels run queries in parallel: up to 2 per platform and 4 in total, with the rest queued instead of failing BUSY at once; login windows, logout and browser setup wait for running queries.
+- Report NEED_LOGIN instead of UPSTREAM_BROKEN when not logged in: Xueqiu community (error 400016), Bilibili subtitles (no Bilibili login), LinkedIn (no LinkedIn login in the dedicated browser).
 
 
 中文：

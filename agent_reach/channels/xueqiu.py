@@ -188,7 +188,16 @@ def _xq_json(url: str) -> Any:
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
             raise ReachError(NEED_LOGIN, "Xueqiu rejected the session", hint=_XQ_LOGIN_HINT) from None
+        if exc.code == 400 and _error_code(exc) == "400016":  # Xueqiu: login token missing or expired
+            raise ReachError(NEED_LOGIN, "Xueqiu requires a logged-in session", hint=_XQ_LOGIN_HINT) from None
         raise
+
+
+def _error_code(exc: urllib.error.HTTPError) -> str:
+    try:
+        return str(json.loads(exc.read().decode("utf-8")).get("error_code", ""))
+    except Exception:  # noqa: BLE001 - an unreadable body is not login evidence
+        return ""
 
 
 _HOT_POSTS_URL = (

@@ -15,6 +15,7 @@ class LinkedInChannel(OpenCLISiteChannel):
     domains = ("linkedin.com",)
     login_hint = "linkedin.com"
     login_url = "https://www.linkedin.com/login"
+    login_cookie = "li_at"
     level = "optional"
     actions = (
         Action("jobs", "Search LinkedIn jobs", (

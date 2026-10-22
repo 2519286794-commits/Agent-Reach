@@ -227,10 +227,11 @@ class BilibiliChannel(Channel):
         data = _bili_json(["video", _bvid(target, timeout), "--subtitle"], timeout)
         sub = data.get("subtitle") or {}
         if not sub.get("available"):
-            if any(w.get("code") == "subtitle_unavailable" for w in data.get("warnings", []) if isinstance(w, dict)):
-                raise ReachError(UPSTREAM_BROKEN, "Bilibili could not retrieve subtitles; this does not prove the video has none")
+            # Without a Bilibili login, upstream only says subtitles were unavailable.
             if not (sessions_root() / "bili-cli" / ".bilibili-cli" / "credential.json").exists():
                 raise ReachError(NEED_LOGIN, "Bilibili is not logged in", hint=_BILI_LOGIN_HINT)
+            if any(w.get("code") == "subtitle_unavailable" for w in data.get("warnings", []) if isinstance(w, dict)):
+                raise ReachError(UPSTREAM_BROKEN, "Bilibili could not retrieve subtitles; this does not prove the video has none")
             raise ReachError(NOT_FOUND, "this video has no subtitles")
         text = sub.get("text") or "\n".join(i.get("content", "") for i in sub.get("items") or [])
         return [_cli_video_item(data.get("video") or {}, text=text)]

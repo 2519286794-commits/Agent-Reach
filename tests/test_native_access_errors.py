@@ -32,10 +32,18 @@ def test_github_403_requires_rate_limit_evidence(monkeypatch, headers, code):
     assert exc.value.code == code
 
 
+def _http_error(code, body):
+    import io
+    return urllib.error.HTTPError("https://xueqiu.com/test", code, "x", {}, io.BytesIO(body))
+
+
 @pytest.mark.parametrize("failure,code", [
     (json.JSONDecodeError("invalid", "", 0), "UPSTREAM_BROKEN"),
     (urllib.error.HTTPError("https://xueqiu.com/test", 403, "Forbidden", {}, None), "UPSTREAM_BROKEN"),
     (urllib.error.HTTPError("https://xueqiu.com/test", 401, "Unauthorized", {}, None), "NEED_LOGIN"),
+    (_http_error(400, b'{"error_code":"400016"}'), "NEED_LOGIN"),
+    (_http_error(400, b'{"error_code":"10001"}'), "UPSTREAM_BROKEN"),
+    (_http_error(400, b"<html>"), "UPSTREAM_BROKEN"),
 ])
 def test_xueqiu_only_confirmed_auth_failure_requests_login(monkeypatch, failure, code):
     def fail(*a, **k):
@@ -56,3 +64,36 @@ def test_youtube_bot_challenge_does_not_instruct_a_login(monkeypatch):
     with pytest.raises(ReachError) as exc:
         youtube._run_ytdlp([], 5)
     assert exc.value.code == "PLATFORM_BLOCKED"
+
+
+def test_bilibili_subtitles_without_login_ask_for_login(monkeypatch, tmp_path):
+    from agent_reach.channels import bilibili
+    monkeypatch.setattr(bilibili, "sessions_root", lambda: tmp_path)
+    monkeypatch.setattr(bilibili, "_reuse_subtitle_login", lambda timeout: None)
+    monkeypatch.setattr(bilibili, "_bvid", lambda target, timeout: "BV1")
+    monkeypatch.setattr(bilibili, "_bili_json", lambda argv, timeout: {
+        "subtitle": {"available": False}, "warnings": [{"code": "subtitle_unavailable"}]})
+    ch = bilibili.BilibiliChannel()
+    with pytest.raises(ReachError) as exc:
+        ch._cli_subtitle(target="https://www.bilibili.com/video/BV1", timeout=5)
+    assert exc.value.code == "NEED_LOGIN"
+    cred = tmp_path / "bili-cli" / ".bilibili-cli" / "credential.json"
+    cred.parent.mkdir(parents=True)
+    cred.write_text("{}")
+    with pytest.raises(ReachError) as exc:
+        ch._cli_subtitle(target="https://www.bilibili.com/video/BV1", timeout=5)
+    assert exc.value.code == "UPSTREAM_BROKEN"  # logged in: a real upstream failure stays one
+
+
+@pytest.mark.parametrize("cookies,code", [([], "NEED_LOGIN"), ([{"name": "li_at"}], "UPSTREAM_BROKEN")])
+def test_opencli_failure_without_the_site_login_cookie_asks_for_login(monkeypatch, cookies, code):
+    from agent_reach.channels import _opencli_site, linkedin
+    from agent_reach.runtime import browser, cdp
+    def broken(*a, **k):
+        raise ReachError("UPSTREAM_BROKEN", "OpenCLI: Error: Text not found: Jobs")
+    monkeypatch.setattr(_opencli_site, "opencli_call", broken)
+    monkeypatch.setattr(browser, "is_running", lambda: True)
+    monkeypatch.setattr(cdp, "cookies", lambda domain: cookies)
+    with pytest.raises(ReachError) as exc:
+        linkedin.LinkedInChannel()._jobs(query="python", location=None, limit=2, timeout=5)
+    assert exc.value.code == code
