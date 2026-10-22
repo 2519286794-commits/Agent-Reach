@@ -44,6 +44,17 @@ def test_explicit_site_backend_bypasses_web_search(monkeypatch, public_search):
     public_search.assert_not_called()
 
 
+def test_added_channel_goes_straight_to_its_site_tool(monkeypatch, public_search):
+    data = state.load()
+    data["channels"]["linkedin"] = {"added_at": state.now()}
+    state.save(data)
+    site = Mock(return_value=[make_item(title="Site result", url=URL)])
+    monkeypatch.setattr(LinkedInChannel, "_jobs", site)
+    out = run_action(LinkedInChannel(), "jobs", {"query": "Data"})
+    assert out["ok"] and out["backend"] != "public-web" and site.call_count == 1
+    public_search.assert_not_called()
+
+
 @pytest.mark.parametrize("code", ["UPSTREAM_BROKEN", "TIMEOUT", "RATE_LIMITED"])
 def test_web_provider_failure_does_not_become_platform_login_or_cooldown(monkeypatch, code):
     def fail(self, **kwargs):

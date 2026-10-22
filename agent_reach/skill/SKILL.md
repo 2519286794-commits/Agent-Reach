@@ -39,7 +39,7 @@ metadata:
 
 平台名称和 URL 用来识别来源，不自动触发安装、`ensure` 或登录。用户要求安装、登录或退出时读会话配置；故障、升级或卸载时读 [维护说明](references/maintenance.md)，查询时按需加载。
 
-CLI 也按此顺序执行：`channels` 中带 `public_web` 的搜索/阅读动作，先复用 Reach 的免登录网页搜索/读取，成功后直接返回，不准备浏览器。`backend: public-web` 和 `meta.access.scope` 区分搜索结果与页面文字；不保证站内排序、最新状态、全文或全部评论。公开结果不足才尝试站内工具，实际返回 `NEED_LOGIN` 才请用户登录。用 `--backend public-web` 可只查公开网页；需要站内数据时指定该动作声明的 `--backend opencli` 或 `--backend boss-agent-cli`。评论、字幕、账号列表等动作保持原有粒度；Instagram 搜用户不以通用网页搜索冒充。
+CLI 也按此顺序执行：渠道**已经加上**（默认渠道或 `add` 过）时，搜索/阅读直接走这个渠道的站内工具，不先查网页。渠道**还没加**时，带 `public_web` 的搜索/阅读动作先复用 Reach 的免登录网页搜索/读取，成功后直接返回，不准备浏览器。`backend: public-web` 和 `meta.access.scope` 区分搜索结果与页面文字；不保证站内排序、最新状态、全文或全部评论。公开结果不足才尝试站内工具，实际返回 `NEED_LOGIN` 才请用户登录。用 `--backend public-web` 可只查公开网页；需要站内数据时指定该动作声明的 `--backend opencli` 或 `--backend boss-agent-cli`。评论、字幕、账号列表等动作保持原有粒度；Instagram 搜用户不以通用网页搜索冒充。
 
 Reddit 公开帖可搜索 `site:reddit.com 关键词` 再打开原帖，公开 JSON 有时包含评论父子 ID；以本次实际返回为准。YouTube/B站简介与字幕、视频内容分别验收；X 的单帖公开内容与评论流分别验收。某台机器的失败不能推广为平台必须登录，也不固化“某平台总能匿名读全”。网络路径不同的结果分别记录。
 
