@@ -73,6 +73,14 @@ Paste the `check --text` output into the PR. Also add unit tests under `tests/` 
 
 Every version section in `CHANGELOG.md` starts with a short plain summary for users, in Chinese and in English: what changed for them and anything they must do, in 1 to 4 short points, with no jargon (no file names, commands or internal terms). This text becomes the GitHub release body, which the AI reads from `meta.update.notes` and shows the user when it offers an update. Technical entries follow below the summary.
 
+## Releasing (maintainers)
+
+Users install and update from the latest GitHub release, and 1.5 users read `docs/update.md` on `main`, so the merge and the release must land together:
+
+1. On the release branch, with the needed logins and keys in place, run `python scripts/record_release_acceptance.py` until it prints `release_ready: True` (`--only <channel>` rechecks some channels and keeps the rest). Commit `.github/release-acceptance.json`. Any later change under `agent_reach/` invalidates it; the record is valid for 7 days.
+2. Set the version's date in `CHANGELOG.md`.
+3. Merge the PR, then immediately tag the merge commit (`git tag vX.Y.Z && git push origin vX.Y.Z`). The release workflow tests, checks the record, and publishes the release with `agent-reach.zip`, which the install and update guides point at. Until it finishes, the guides' download link does not work, so don't leave a gap.
+
 ## Reporting issues
 
 Include your OS, `agent-reach doctor --text`, `agent-reach check <channel> --text`, steps to reproduce, and what you expected. Remove personal data first.

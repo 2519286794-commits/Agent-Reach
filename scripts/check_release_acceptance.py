@@ -61,7 +61,7 @@ def validate(data: dict, required: set[tuple[str, str]], digest: str) -> list[st
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("manifest", nargs="?", default="docs/validation/release-acceptance.json")
+    parser.add_argument("manifest", nargs="?", default=".github/release-acceptance.json")
     args = parser.parse_args()
     from agent_reach.runtime.cli import unified_channels
     required = {(channel.name, action.name) for channel in unified_channels() for action in channel.actions}

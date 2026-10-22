@@ -855,7 +855,7 @@ def _move_to_uv(info: dict) -> dict:
     child = [str(exe), "setup"] if fresh else [str(exe), "update", "--sync-only"]
     out = subprocess.run(child, capture_output=True, text=True, timeout=1800)
     try:
-        result = json.loads(out.stdout.strip().splitlines()[-1]).get("result") or {}
+        result = json.loads(out.stdout.strip().split("\n")[-1]).get("result") or {}
     except (ValueError, IndexError):
         result = {"raw": out.stdout[-500:]}
     actions = list(result.get("user_actions") or [])
@@ -895,7 +895,7 @@ def update(check_only: bool = False) -> dict:
         exe = shutil.which("agent-reach") or sys.argv[0]
         out = subprocess.run([exe, "update", "--sync-only"], capture_output=True, text=True, timeout=1800)
         try:
-            synced = json.loads(out.stdout.strip().splitlines()[-1]).get("result") or {}
+            synced = json.loads(out.stdout.strip().split("\n")[-1]).get("result") or {}
         except (ValueError, IndexError):
             synced = {"raw": out.stdout[-500:]}
         return {**info, "upgraded": True, "method": method, "sync": synced,

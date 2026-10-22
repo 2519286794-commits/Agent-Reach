@@ -10,10 +10,28 @@ All notable changes to this project will be documented in this file.
 ## [1.6.0] - unreleased
 
 中文：
+
+- 从旧版升级：把"帮我更新 Agent Reach"那句话发给你的 AI 就行。你的密钥和设置都保留，旧版程序会自动删掉。
+- 加一个平台只要说一句，需要的软件都会自动装好，不需要管理员密码；你只需要登录或者填一个 Key。
+- 小红书、推特这类要登录的平台，改用 Agent Reach 自己的专用浏览器，不弹窗、不占用你的浏览器；多个 AI 可以同时查。
+- RSS 订阅和 Exa 全网搜索合并进了"网页"。以后有新版本，AI 会用大白话告诉你改了什么，你同意了才更新。
+
+English:
+
+- Upgrading from an older version: just send your AI the "update Agent Reach" sentence. Your keys and settings are kept, and the old program is removed for you.
+- Adding a platform takes one sentence. Everything it needs is installed for you, with no admin password; you only log in or enter a key.
+- Platforms that need a login, such as Xiaohongshu and X, now use Agent Reach's own browser in the background, never yours, and several AIs can search at once.
+- RSS and Exa search are now part of "web". When a new version is out, your AI tells you in plain words what changed and updates only if you say yes.
+
+1.6 is a rebuild. Agents call one command, `agent-reach`; everything Agent Reach installs or stores lives under `~/.agent-reach/`.
+1.6 是重构版本：Agent 只调一个命令 `agent-reach`，Agent Reach 装的、存的东西全部在 `~/.agent-reach/` 下。
+
+中文（技术细节）：
 - 修复未登录 gh 阻断公开 API、公开行情触发浏览器、错误认证提示和未登记缓存清理；临时音频/字幕保存在 Reach 内。BOSS 站内搜索优先官方 OpenCLI，JD 上游适配故障单列；PR 与发版均检查真实验收和待验状态。
 - CLI 对已声明的公开搜索/阅读先复用网页工具，成功后不准备浏览器；结果标注来源和内容范围，站内路径明确要求认证时才提示登录。可指定后端保留原有站内能力。
 - 浏览器渠道共用一份登录，闲置十分钟自动关闭，下次使用自动打开。
-- 添加渠道自动准备工具；删除时只清理该网站的登录。
+- 添加渠道自动准备工具；删除时只清理该网站的登录。默认平台也能去掉，去掉后更新不会再加回来。
+- 更新时，有已测版本的工具保持在已测版本，其他工具用兼容范围内的最新版。
 - 公开内容继续先读，不强制登录；安装后用简短表格说明能查什么。
 - 保留小宇宙转录；去掉额外模型配置和重复的网站抓取实现。
 - Bridge 随专用浏览器管理；按真实页面操作计时、定期保存登录。清理失败保留渠道，卸载只删台账文件。发布前必须有渠道真实验收。
@@ -23,33 +41,17 @@ All notable changes to this project will be documented in this file.
 - 没登录时报"需要登录"而不是"上游工具坏了"：雪球社区（错误码 400016）、B站字幕（没有 B站登录）、LinkedIn（专用浏览器里没有 LinkedIn 登录）。
 - 从 1.5 升级更顺：update.md 先看版本再分流；`agent-reach update` 遇到 pip/pipx 装的旧版会自己换成 uv 安装；`setup` 删掉旧版 Agent Reach 程序（只删它自己，不动其他工具），安装汇报说明保留了什么、变了什么、以前用过哪些渠道可以加回来。安装地址改为始终指向最新正式版。
 
-English:
+English (technical):
 - Browser channels share one profile, close after ten idle minutes and reopen on demand.
-- Adding a channel prepares its tools; removal clears only that site's login.
+- Adding a channel prepares its tools; removal clears only that site's login. Default platforms can be removed and updates won't add them back.
+- Updating keeps tools that have a tested version at that version; other tools get the newest version inside their supported range.
 - Public content remains public-first, with a compact capability receipt.
 - Keep Xiaoyuzhou transcription; remove the extra planner and duplicate site extraction.
+- Reuse existing local site sessions read-only; queries default to headless, with a visible window for human login.
 - The dedicated browser is identified by the id its extension saves inside its own profile, so the user's own Chrome is never mistaken for it; a query no longer closes an open login window.
 - Browser channels run queries in parallel: up to 2 per platform and 4 in total, with the rest queued instead of failing BUSY at once; login windows, logout and browser setup wait for running queries.
 - Report NEED_LOGIN instead of UPSTREAM_BROKEN when not logged in: Xueqiu community (error 400016), Bilibili subtitles (no Bilibili login), LinkedIn (no LinkedIn login in the dedicated browser).
 - Smoother upgrade from 1.5: update.md checks the version first; `agent-reach update` moves a pip/pipx install to uv by itself; `setup` removes the old Agent Reach program (only Agent Reach itself) and the install report explains what was kept, what changed and which old channels can be added back. Install URLs always point at the latest release.
-
-
-中文：
-
-- 加一个平台只要一句话，需要的软件（Node.js、Chrome、ffmpeg、浏览器扩展）都会自动装好，不需要管理员密码；你只需要登录或者填一个 Key。
-- 默认平台也能去掉，去掉后更新不会再加回来；去掉时会一起清掉它的登录和专用工具。
-- 更新时，有已测版本的工具保持在已测版本，其他工具用兼容范围内的最新版；有新版本时，AI 会用大白话告诉你改了什么，你同意了才更新。
-- 优先按站点复用本地已有登录，原浏览器不变；查询默认无头，需要本人登录时才显窗。
-
-English:
-
-- Adding a platform takes one sentence. Whatever it needs (Node.js, Chrome, ffmpeg, the browser extension) is installed for you, with no admin password; you only log in or enter a key.
-- Default platforms can be removed, and updates won't add them back; removing one also clears its login and private tools.
-- Updating keeps tools that have a tested version at that version; other tools get the newest version inside their supported range. When a new version is out, your AI tells you in plain words what changed and updates only if you say yes.
-- Reuse existing local site sessions read-only; queries default to headless, with a visible window for human login.
-
-1.6 is a rebuild. Agents call one command, `agent-reach`; everything Agent Reach installs or stores lives under `~/.agent-reach/`.
-1.6 是重构版本：Agent 只调一个命令 `agent-reach`，Agent Reach 装的、存的东西全部在 `~/.agent-reach/` 下。
 
 ### ✨ New / 新增
 

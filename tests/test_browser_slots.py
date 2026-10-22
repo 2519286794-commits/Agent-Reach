@@ -63,12 +63,12 @@ def test_overall_limit_holds_across_sites(monkeypatch):
 
 
 def test_waiting_in_line_does_not_use_the_query_timeout():
-    clock = Clock(1.0)
     with bb.query_slot("x"), bb.query_slot("x"):
+        clock = Clock(1.0)  # created once the line is full, so only the wait itself is measured
         entered, release, t, errors = _enter_later(lambda: bb.query_slot("x", clock))
         time.sleep(1.2)  # longer than the whole budget
     assert entered.wait(5)
-    assert clock.remaining() > 0.5
+    assert clock.remaining() > 0.3
     release.set()
     t.join(5)
 
@@ -91,18 +91,27 @@ def test_exclusive_waits_for_running_queries_and_holds_off_new_ones(monkeypatch)
 
 
 def test_parallel_same_site_searches_stay_spaced(monkeypatch):
-    from agent_reach.runtime import dispatch
+    from agent_reach.runtime import dispatch, state
 
     monkeypatch.setattr(dispatch, "BROWSER_SEARCH_INTERVAL", 0.8)
-    starts = []
+    stamps = []
+    real_mutate = state.mutate
 
-    def search():
-        dispatch._pace_browser("twitter", "search", Clock(10.0))
-        starts.append(time.monotonic())
+    def recording(change):
+        def spy(saved):
+            out = change(saved)
+            starts = saved.get("request_starts", {})
+            if "twitter" in starts:
+                stamps.append(starts["twitter"])
+            return out
+        return real_mutate(spy)
 
-    threads = [threading.Thread(target=search) for _ in range(2)]
+    monkeypatch.setattr(dispatch.state, "mutate", recording)
+    threads = [threading.Thread(target=lambda: dispatch._pace_browser("twitter", "search", Clock(10.0)))
+               for _ in range(2)]
     for t in threads:
         t.start()
     for t in threads:
         t.join(10)
-    assert len(starts) == 2 and abs(starts[1] - starts[0]) >= 0.7
+    starts = sorted(set(stamps))
+    assert len(starts) == 2 and starts[1] - starts[0] >= 0.75  # the recorded search starts

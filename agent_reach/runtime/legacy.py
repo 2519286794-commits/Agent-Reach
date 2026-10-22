@@ -20,14 +20,30 @@ from agent_reach.utils.paths import home_dir
 _WIN = os.name == "nt"
 
 
+def _pipx_reported_venvs() -> str:
+    """Where the installed pipx keeps its programs (it differs by OS and pipx version)."""
+    pipx = shutil.which("pipx")
+    if not pipx:
+        return ""
+    try:
+        out = subprocess.run([pipx, "environment", "--value", "PIPX_LOCAL_VENVS"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return (getattr(out, "stdout", "") or "").strip() if getattr(out, "returncode", 1) == 0 else ""
+
+
 def _pipx_venvs() -> List[Path]:
     home = home_dir()
-    roots = [os.environ.get("PIPX_HOME", ""),
-             str(home / ".local" / "pipx"),
-             str(home / "Library" / "Application Support" / "pipx"),
-             str(home / ".local" / "share" / "pipx"),
-             str(home / "pipx")]
-    return [Path(r) / "venvs" / "agent-reach" for r in roots if r]
+    local = os.environ.get("LOCALAPPDATA", "")
+    venv_dirs = [_pipx_reported_venvs(),
+                 os.path.join(os.environ["PIPX_HOME"], "venvs") if os.environ.get("PIPX_HOME") else "",
+                 str(home / ".local" / "pipx" / "venvs"),
+                 str(home / "Library" / "Application Support" / "pipx" / "venvs"),
+                 str(home / ".local" / "share" / "pipx" / "venvs"),
+                 os.path.join(local, "pipx", "pipx", "venvs") if local else "",
+                 str(home / "pipx" / "venvs")]
+    return [Path(d) / "agent-reach" for d in venv_dirs if d]
 
 
 def _has_agent_reach(venv: Path) -> bool:

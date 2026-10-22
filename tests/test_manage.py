@@ -346,11 +346,13 @@ def test_update_from_a_non_uv_install_moves_itself_to_uv(env, monkeypatch, tmp_p
         def __init__(self, stdout=""):
             self.returncode, self.stdout, self.stderr = 0, stdout, ""
 
+    exe = tmp_path / ("agent-reach.exe" if os.name == "nt" else "agent-reach")
+
     def run(cmd, **kw):
         calls.append(cmd)
         if cmd[1:4] == ["tool", "dir", "--bin"]:
             return Done(str(tmp_path))
-        if cmd[0] == str(tmp_path / "agent-reach"):
+        if cmd[0] == str(exe):
             return Done(json.dumps({"ok": True, "result": {"user_actions": ["log in to x"],
                                                            "installation_report": {"markdown": "r"}}}))
         return Done()
@@ -358,7 +360,7 @@ def test_update_from_a_non_uv_install_moves_itself_to_uv(env, monkeypatch, tmp_p
     monkeypatch.setattr(manage.subprocess, "run", run)
     out = manage.update()
     assert calls[0][:4] == ["/fake/uv", "tool", "install", "--force"] and calls[0][-1].endswith("/v2.0.1.zip")
-    assert calls[2] == [str(tmp_path / "agent-reach"), "setup"]  # no state yet: the new copy sets itself up
+    assert calls[2] == [str(exe), "setup"]  # no state yet: the new copy sets itself up
     assert out["upgraded"] and out["installation_report"] == {"markdown": "r"}
     assert "log in to x" in out["user_actions"]
 
@@ -392,12 +394,14 @@ def test_old_pipx_copy_and_its_launcher_are_removed(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("PIPX_HOME", raising=False)
     monkeypatch.delenv("PIPX_BIN_DIR", raising=False)
+    monkeypatch.setattr(legacy, "_pipx_reported_venvs", lambda: "")
     venv = _old_venv(tmp_path / ".local" / "pipx" / "venvs" / "agent-reach")
     (venv / "bin").mkdir()
     (venv / "bin" / "agent-reach").write_text("")
     shim = tmp_path / ".local" / "bin" / "agent-reach"
     shim.parent.mkdir(parents=True)
-    shim.symlink_to(venv / "bin" / "agent-reach")
+    if os.name != "nt":  # pipx links its launcher on macOS/Linux; on Windows uv overwrites the copy
+        shim.symlink_to(venv / "bin" / "agent-reach")
     (tmp_path / ".agent-reach-venv").mkdir()  # a venv without Agent Reach is not ours to touch
     assert [i["kind"] for i in legacy.find()] == ["pipx"]
     out = legacy.remove()
@@ -407,6 +411,7 @@ def test_old_pipx_copy_and_its_launcher_are_removed(monkeypatch, tmp_path):
 
 def test_old_shared_venv_only_loses_agent_reach(monkeypatch, tmp_path):
     from agent_reach.runtime import legacy
+    monkeypatch.setattr(legacy, "_pipx_reported_venvs", lambda: "")
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("PIPX_HOME", raising=False)
     venv = _old_venv(tmp_path / ".agent-reach-venv")
