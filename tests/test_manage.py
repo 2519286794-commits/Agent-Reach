@@ -335,14 +335,87 @@ def test_upgrade_reinstalls_the_release_with_uv():
     assert cmd[:4] == ["uv", "tool", "install", "--force"] and cmd[-1].endswith("/v2.0.1.zip")
 
 
-def test_update_from_a_non_uv_install_asks_for_one_uv_reinstall(monkeypatch):
+def test_update_from_a_non_uv_install_moves_itself_to_uv(env, monkeypatch, tmp_path):
     monkeypatch.setattr(manage, "update_check", lambda: {"current": "2.0.0", "latest": "2.0.1",
                                                          "update_available": True})
     monkeypatch.setattr(manage, "install_method", lambda: "other")
-    monkeypatch.setattr(manage.subprocess, "run", lambda *a, **k: pytest.fail("must not run an installer"))
-    with pytest.raises(ReachError) as info:
-        manage.update()
-    assert "uv tool install --force" in info.value.hint
+    monkeypatch.setattr(manage.tools, "resolve", lambda c: "/fake/uv" if c == "uv" else None)
+    calls = []
+
+    class Done:
+        def __init__(self, stdout=""):
+            self.returncode, self.stdout, self.stderr = 0, stdout, ""
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        if cmd[1:4] == ["tool", "dir", "--bin"]:
+            return Done(str(tmp_path))
+        if cmd[0] == str(tmp_path / "agent-reach"):
+            return Done(json.dumps({"ok": True, "result": {"user_actions": ["log in to x"],
+                                                           "installation_report": {"markdown": "r"}}}))
+        return Done()
+
+    monkeypatch.setattr(manage.subprocess, "run", run)
+    out = manage.update()
+    assert calls[0][:4] == ["/fake/uv", "tool", "install", "--force"] and calls[0][-1].endswith("/v2.0.1.zip")
+    assert calls[2] == [str(tmp_path / "agent-reach"), "setup"]  # no state yet: the new copy sets itself up
+    assert out["upgraded"] and out["installation_report"] == {"markdown": "r"}
+    assert "log in to x" in out["user_actions"]
+
+
+def test_migration_suggests_channels_from_the_old_config(env):
+    (state.root()).mkdir(parents=True, exist_ok=True)
+    (state.root() / "config.yaml").write_text("twitter_auth_token: t\nxueqiu_cookie: c\n")
+    result = manage.migrate()
+    assert result["suggested_channels"] == ["twitter", "xueqiu"]
+    assert result["retired_channels"] == ["rss", "exa_search"]
+    assert state.load()["migration"] == result
+
+
+def test_upgrade_report_explains_the_move_from_1_5():
+    from agent_reach.runtime import onboarding
+    assert onboarding._upgrade_lines({"migration": None}) == []
+    text = "\n".join(onboarding._upgrade_lines({
+        "migration": {"suggested_channels": ["twitter"]},
+        "old_copies": {"removed": [], "failed": [{"kind": "pipx", "path": "/x"}]}}))
+    assert "1.5" in text and "X / Twitter" in text and "pipx uninstall agent-reach" in text
+
+
+def _old_venv(root):
+    site = root / ("Lib/site-packages" if os.name == "nt" else "lib/python3.12/site-packages")
+    (site / "agent_reach").mkdir(parents=True)
+    return root
+
+
+def test_old_pipx_copy_and_its_launcher_are_removed(monkeypatch, tmp_path):
+    from agent_reach.runtime import legacy
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("PIPX_HOME", raising=False)
+    monkeypatch.delenv("PIPX_BIN_DIR", raising=False)
+    venv = _old_venv(tmp_path / ".local" / "pipx" / "venvs" / "agent-reach")
+    (venv / "bin").mkdir()
+    (venv / "bin" / "agent-reach").write_text("")
+    shim = tmp_path / ".local" / "bin" / "agent-reach"
+    shim.parent.mkdir(parents=True)
+    shim.symlink_to(venv / "bin" / "agent-reach")
+    (tmp_path / ".agent-reach-venv").mkdir()  # a venv without Agent Reach is not ours to touch
+    assert [i["kind"] for i in legacy.find()] == ["pipx"]
+    out = legacy.remove()
+    assert len(out["removed"]) == 1 and not venv.exists() and not shim.is_symlink()
+    assert (tmp_path / ".agent-reach-venv").is_dir()
+
+
+def test_old_shared_venv_only_loses_agent_reach(monkeypatch, tmp_path):
+    from agent_reach.runtime import legacy
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("PIPX_HOME", raising=False)
+    venv = _old_venv(tmp_path / ".agent-reach-venv")
+    ran = []
+    monkeypatch.setattr(legacy.subprocess, "run",
+                        lambda cmd, **k: ran.append(cmd) or type("P", (), {"returncode": 0})())
+    out = legacy.remove()
+    assert len(out["removed"]) == 1 and venv.is_dir()  # the venv stays; only the package is uninstalled
+    assert ran[0][-4:] == ["uninstall", "-y", "-q", "agent-reach"]
 
 
 def test_update_without_new_release_still_upgrades_tools(env, monkeypatch):

@@ -90,6 +90,28 @@ def _local_greeting():
         return '晚上好，想搜点什么？'
     return '夜深了，想搜点什么？🌙'
 
+def _upgrade_lines(result):
+    """Only for users coming from 1.5: what was kept, what changed, what is left to do."""
+    migration = result.get('migration')
+    if not migration:
+        return []
+    lines = ['**这次是从旧版本（1.5）升级上来的：**', '',
+             '- 你的密钥和设置都保留了。',
+             '- RSS 订阅和 Exa 全网搜索不再单独提供，搜资料、读网页统一用"网页"。',
+             '- 推特、小红书这类要登录的平台，现在用 Agent Reach 自己的专用浏览器；第一次用时会先尝试复用你 Chrome 里的登录。',
+             '- 你以前另外装的命令行工具（比如 twitter-cli、bili）原样保留，没有删。']
+    suggested = [_DISPLAY_NAMES.get(n, n) for n in migration.get('suggested_channels') or []]
+    if suggested:
+        lines.append('- 你以前用过' + '、'.join(suggested) + '，想继续用直接跟我说"加上 XX"。')
+    old = result.get('old_copies') or {}
+    if old.get('removed'):
+        lines.append('- 旧版程序已经删掉，以后不会和新版冲突。')
+    for item in old.get('failed') or []:
+        from .legacy import manual_command
+        lines.append(f"- 旧版程序没删成，请运行：`{manual_command(item)}`")
+    return lines + ['']
+
+
 
 def installation_report(result):
     """Render one short receipt; keep detailed evidence in the structured summary."""
@@ -104,6 +126,7 @@ def installation_report(result):
         _local_greeting(), '',
         f"**Agent Reach {result['version']} {'安装完成' if completed else '安装还差一步'}。** "
         f'默认功能：{installed}/{len(installs)} 项准备成功。', '',
+        *_upgrade_lines(result),
         '✅ 不用登录；❌ 登录后再试；🔑 需 Key；— 不用额外登录。', '',
         '| 平台 | 不登录可以查什么 | 需要登录后再试 |', '|---|---|---|',
     ]

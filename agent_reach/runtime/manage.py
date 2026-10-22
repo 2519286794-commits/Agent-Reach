@@ -604,27 +604,53 @@ def _skill_uninstall_targets() -> List[Path]:
 
 # ── setup / migrate ──
 
+#: 1.5 config keys and CLI tools that show which channels the user relied on.
+_LEGACY_KEYS = {"twitter_auth_token": "twitter", "twitter_ct0": "twitter", "xueqiu_cookie": "xueqiu",
+                "xhs_cookie": "xiaohongshu"}
+_LEGACY_COMMANDS = {"twitter": "twitter", "xhs": "xiaohongshu", "opencli": "xiaohongshu", "rdt": "reddit",
+                    "bili": "bilibili", "boss": "boss"}
+#: 1.5 channels that 1.6 no longer has; the report says what replaces them.
+RETIRED_CHANNELS = ("rss", "exa_search")
+
+
 def migrate() -> dict:
-    """First run after an older Agent Reach: create state, keep credentials, suggest channels."""
+    """First run after an older Agent Reach: create state, keep credentials, suggest channels.
+
+    The result is kept in state so the first install report can explain the upgrade even
+    when another process (the new uv copy) renders it.
+    """
     from agent_reach.config import Config
 
     cfg = Config(read_only=True)
-    hints = []
-    for cmd, channel in (("bili", "bilibili"), ("opencli", "xiaohongshu"), ("boss", "boss")):
-        if shutil.which(cmd):
-            hints.append(channel)
-    if cfg.get("xueqiu_cookie"):
-        hints.append("xueqiu")
+    hints = {ch for key, ch in _LEGACY_KEYS.items() if cfg.get(key)}
+    hints |= {ch for cmd, ch in _LEGACY_COMMANDS.items() if shutil.which(cmd)}
     defaults = {c.name for c in _channels() if c.level == "default"}
-    data = state.load()
-    data["migrated_from"] = "1.5"
-    state.save(data)
-    return {
+    result = {
         "migrated": True,
         "kept": "~/.agent-reach/config.yaml (keys and cookies unchanged)",
-        "suggested_channels": sorted(set(hints) - defaults),
+        "suggested_channels": sorted(hints - defaults),
+        "retired_channels": list(RETIRED_CHANNELS),
         "note": "Your own global tools were not removed. Browser login must be completed by the user in the Reach dedicated window.",
     }
+    data = state.load()
+    data["migrated_from"] = "1.5"
+    data["migration"] = result
+    state.save(data)
+    return result
+
+
+def _cleanup_old_copies() -> dict:
+    """From the uv install, remove 1.5 copies (pipx / ~/.agent-reach-venv) so they cannot shadow it."""
+    if install_method() != "uv":
+        return {"removed": [], "failed": []}
+    from . import legacy
+    return legacy.remove()
+
+
+def _old_copy_actions(old: dict) -> List[str]:
+    from . import legacy
+    return [f"An old Agent Reach copy could not be removed ({i['path']}); run `{legacy.manual_command(i)}`."
+            for i in old["failed"]]
 
 
 def _optional_entry(c) -> dict:
@@ -635,10 +661,14 @@ def _optional_entry(c) -> dict:
 
 def setup() -> dict:
     """Add the default channels (except ones the user removed) and place the skill."""
-    migration = migrate() if not state.exists() and (state.root() / "config.yaml").exists() else None
+    if not state.exists() and (state.root() / "config.yaml").exists():
+        migrate()
     if not state.exists():
         state.save(state.load())
-    user_actions = _retired_mcp_notice()
+    saved_migration = state.load()
+    migration = None if saved_migration.get("migration_reported") else saved_migration.get("migration")
+    old_copies = _cleanup_old_copies()
+    user_actions = _retired_mcp_notice() + _old_copy_actions(old_copies)
     if state.load()["tools"].get("mcporter", {}).get("owner") == tools.OURS:
         tools.remove_private("mcporter")  # retired LinkedIn MCP transport, only our private copy
     state.mutate(lambda saved: [saved.pop(key, None) for key in ("reuse_sources", "ask_pending", "pending")])
@@ -667,6 +697,7 @@ def setup() -> dict:
                     "when": "only_if_required"} for c in defaults if _has_login(c)],
         "capability_summary": capability_summary(registered, current),
         "migration": migration,
+        "old_copies": old_copies,
     }
     from agent_reach.utils.paths import PrivatePathError, atomic_write_private_text
 
@@ -679,6 +710,8 @@ def setup() -> dict:
         # The receipt remains in stdout even if its local copy cannot be saved.
         report["write_error"] = "安装报告未能保存；完整表格仍在 installation_report.markdown。"
     result["installation_report"] = report
+    if migration:
+        state.mutate(lambda saved: saved.__setitem__("migration_reported", True))
     return result
 
 
@@ -791,8 +824,53 @@ def sync() -> dict:
         expired = [a for a, code in (check.get("codes") or {}).items() if code == "NEED_LOGIN" and previous.get(a)]
         if expired:
             actions.append(f"The user needs to log in to {c.name} again: run `agent-reach login {c.name}`.")
+    old_copies = _cleanup_old_copies()
+    actions += _old_copy_actions(old_copies)
     return {"version": __version__, "tools": synced, "problems": problems, "removed_tools": _prune(state.load()),
-            "dropped_channels": dropped, "user_actions": actions, "skill": place_skill(), "migration": migration}
+            "dropped_channels": dropped, "user_actions": actions, "skill": place_skill(), "migration": migration,
+            "old_copies": old_copies}
+
+
+def _move_to_uv(info: dict) -> dict:
+    """This copy was installed with pip/pipx (1.5 style). Install the release with uv, let the
+    new copy set itself up (it removes known old copies), then remove this copy too."""
+    fresh = not state.exists()
+    if fresh and (state.root() / "config.yaml").exists():
+        migrate()  # recorded in state; the new copy's install report explains the upgrade
+    uv = tools.resolve("uv")
+    if not uv:
+        tools.ensure("uv")
+        uv = tools.resolve("uv")
+    if not uv:
+        raise ReachError(NEED_SETUP, "uv could not be installed",
+                         hint="Install uv: https://docs.astral.sh/uv/getting-started/installation/")
+    newest = update_notice.version_tuple(info["latest"]) >= update_notice.version_tuple(__version__)
+    cmd = upgrade_command(info["latest"] if newest else __version__)
+    proc = subprocess.run([uv, *cmd[1:]], capture_output=True, text=True, timeout=900)
+    if proc.returncode != 0:
+        raise ReachError(UPSTREAM_BROKEN, f"upgrade failed: {proc.stderr.strip()[-300:]}",
+                         hint=f"Run manually: {' '.join(cmd)}")
+    bin_dir = subprocess.run([uv, "tool", "dir", "--bin"], capture_output=True, text=True, timeout=60).stdout.strip()
+    exe = Path(bin_dir) / ("agent-reach.exe" if os.name == "nt" else "agent-reach")
+    child = [str(exe), "setup"] if fresh else [str(exe), "update", "--sync-only"]
+    out = subprocess.run(child, capture_output=True, text=True, timeout=1800)
+    try:
+        result = json.loads(out.stdout.strip().splitlines()[-1]).get("result") or {}
+    except (ValueError, IndexError):
+        result = {"raw": out.stdout[-500:]}
+    actions = list(result.get("user_actions") or [])
+    package = Path(__file__).resolve().parents[1]
+    if package.exists():  # a copy the new one does not know about (pip --user, conda, ...)
+        gone = subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "agent-reach"],
+                              capture_output=True, timeout=120).returncode == 0
+        if not gone:
+            actions.append(f"Remove the old Agent Reach copy: `{sys.executable} -m pip uninstall agent-reach`.")
+    found = shutil.which("agent-reach")
+    if not found or os.path.realpath(found) != os.path.realpath(exe):
+        actions.append("Open a new terminal so `agent-reach` runs the new version; if it still does not, "
+                       f"run `{uv} tool update-shell`.")
+    return {**info, "upgraded": True, "method": "moved_to_uv", "sync": result,
+            "installation_report": result.get("installation_report"), "user_actions": actions}
 
 
 def update(check_only: bool = False) -> dict:
@@ -801,14 +879,10 @@ def update(check_only: bool = False) -> dict:
     if check_only:
         return info
     method = install_method()
+    if method == "other":
+        return _move_to_uv(info)
     if info["update_available"] and method != "editable":
         cmd = upgrade_command(info["latest"])
-        if method != "uv":
-            raise ReachError(
-                NEED_SETUP, "this copy of Agent Reach was not installed with uv, so it cannot update itself",
-                hint=f"Reinstall once with uv: `{' '.join(cmd)}`, then remove the old copy "
-                     "(e.g. `pipx uninstall agent-reach` or `pip uninstall agent-reach`).",
-            )
         run = [tools.resolve("uv") or cmd[0], *cmd[1:]]
         try:
             proc = subprocess.run(run, capture_output=True, text=True, timeout=900)

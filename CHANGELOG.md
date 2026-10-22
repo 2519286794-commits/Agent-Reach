@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - 专用浏览器按扩展保存在它自己配置里的编号识别，不会再把用户日常的 Chrome 认成专用浏览器；登录窗口开着时查询不再把它收掉。
 - 浏览器渠道可以并行查询：同一平台最多 2 条、合计 4 条同时跑，多出来的排队而不是立刻报"正忙"；登录窗口、退出登录等操作等正在跑的查询结束再做。
 - 没登录时报"需要登录"而不是"上游工具坏了"：雪球社区（错误码 400016）、B站字幕（没有 B站登录）、LinkedIn（专用浏览器里没有 LinkedIn 登录）。
+- 从 1.5 升级更顺：update.md 先看版本再分流；`agent-reach update` 遇到 pip/pipx 装的旧版会自己换成 uv 安装；`setup` 删掉旧版 Agent Reach 程序（只删它自己，不动其他工具），安装汇报说明保留了什么、变了什么、以前用过哪些渠道可以加回来。安装地址改为始终指向最新正式版。
 
 English:
 - Browser channels share one profile, close after ten idle minutes and reopen on demand.
@@ -30,6 +31,7 @@ English:
 - The dedicated browser is identified by the id its extension saves inside its own profile, so the user's own Chrome is never mistaken for it; a query no longer closes an open login window.
 - Browser channels run queries in parallel: up to 2 per platform and 4 in total, with the rest queued instead of failing BUSY at once; login windows, logout and browser setup wait for running queries.
 - Report NEED_LOGIN instead of UPSTREAM_BROKEN when not logged in: Xueqiu community (error 400016), Bilibili subtitles (no Bilibili login), LinkedIn (no LinkedIn login in the dedicated browser).
+- Smoother upgrade from 1.5: update.md checks the version first; `agent-reach update` moves a pip/pipx install to uv by itself; `setup` removes the old Agent Reach program (only Agent Reach itself) and the install report explains what was kept, what changed and which old channels can be added back. Install URLs always point at the latest release.
 
 
 中文：
