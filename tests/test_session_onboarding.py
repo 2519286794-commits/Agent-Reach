@@ -71,6 +71,42 @@ def test_automatic_reuse_copies_only_the_requested_site_and_reuses_cache(monkeyp
     export.assert_called_once_with('daily','xiaohongshu.com')
 
 
+def test_saved_import_survives_an_hour_without_rereading_the_source(monkeypatch):
+    from agent_reach.runtime import session_reuse
+
+    saved = {'source': 'daily', 'copied_cookies': 1, 'cookie_snapshot': 1,
+             'at': '2020-01-01T00:00:00Z'}
+    state.mutate(lambda data: data.setdefault('session_reuse', {}).__setitem__('xiaohongshu', saved))
+    monkeypatch.setattr(browser, 'ensure_running', lambda: None)
+    monkeypatch.setattr(session_reuse, '_source_cookies',
+                        lambda *a: pytest.fail('reread the source just because time passed'))
+    monkeypatch.setattr(cdp, 'call', lambda *a, **k: pytest.fail('overwrote the saved session'))
+
+    assert session_reuse.prepare('xiaohongshu') == saved
+
+
+def test_explicit_import_can_refresh_a_saved_snapshot(monkeypatch):
+    from unittest.mock import Mock
+
+    from agent_reach.runtime import session_reuse
+
+    saved = {'source': 'daily', 'copied_cookies': 1, 'cookie_snapshot': 1, 'at': state.now()}
+    state.mutate(lambda data: data.setdefault('session_reuse', {}).__setitem__('xiaohongshu', saved))
+    incoming = [{'name': 'sid', 'value': 'refreshed', 'domain': '.xiaohongshu.com', 'path': '/'}]
+    source = Mock(return_value=(incoming, 'daily'))
+    call = Mock(return_value={})
+    monkeypatch.setattr(browser, 'ensure_running', lambda: None)
+    monkeypatch.setattr(browser, 'save_session', lambda: None)
+    monkeypatch.setattr(session_reuse, '_source_cookies', source)
+    monkeypatch.setattr(cdp, 'call', call)
+
+    result = session_reuse.prepare('xiaohongshu', force=True)
+
+    source.assert_called_once_with('xiaohongshu', ['xiaohongshu.com'])
+    call.assert_any_call('Storage.setCookies', {'cookies': incoming})
+    assert result['copied_cookies'] == 1 and result['cookie_snapshot'] == 1
+
+
 def test_multiple_local_accounts_are_not_guessed(monkeypatch):
     from agent_reach.backends import opencli
     from agent_reach.runtime import session_reuse

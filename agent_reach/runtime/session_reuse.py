@@ -90,7 +90,7 @@ def _source_cookies(channel: str, domains) -> tuple[list, str]:
 
 
 def prepare(channel: str, *, force: bool = False, action_locked: bool = False) -> dict:
-    """Try a local login once per hour/site; business success is verified separately."""
+    """Reuse an imported site session until explicitly refreshed; verify access separately."""
     from .manage import _channel, site_domains
     ch = _channel(channel)
     if not ch.login_url:
@@ -101,8 +101,7 @@ def prepare(channel: str, *, force: bool = False, action_locked: bool = False) -
         browser.ensure_running()
         record = state.load().get("session_reuse", {}).get(channel, {})
         if not force and (record.get("blocked") or record.get("source") == "manual"
-                          or (record.get("cookie_snapshot") == 1 and record.get("copied_cookies", 0) > 0
-                              and state.age_seconds(record.get("at")) < 3600)):
+                          or (record.get("cookie_snapshot") == 1 and record.get("copied_cookies", 0) > 0)):
             return record
         cookies, source = _source_cookies(channel, site_domains(ch))
         if cookies:
