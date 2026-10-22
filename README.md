@@ -164,7 +164,7 @@ flowchart LR
 | "看看 Agent Reach 状态" | `agent-reach doctor --text` | 每个渠道的状态：未开启 / 待配置 / 待登录 / 未验证 / 可用 / 故障，并标出"上次还好、现在坏了"的渠道 |
 | "加上小红书" / "去掉小红书" | `agent-reach add` / `remove <渠道>` | 开启渠道并装好它需要的一切，你只需登录或提供 Key / 关闭渠道并清掉它的登录和专用工具（默认渠道也能去掉） |
 | "B站登录过期了" / "退出登录" | `agent-reach login` / `logout <渠道>` | 登录（你本人操作）/ 清除登录 |
-| "升级 Agent Reach" | `agent-reach update` | 一次更新程序、各渠道的工具（升到最新）和 skill，并告诉你还需要做什么，见 [update.md](docs/update.md) |
+| "升级 Agent Reach" | `agent-reach update` | 一次更新程序、各渠道的工具（有已测版本的保持已测版本，其他用兼容范围内的最新版）和 skill，并告诉你还需要做什么，见 [update.md](docs/update.md) |
 | "卸载 Agent Reach" | `agent-reach uninstall` | 见下面"安全性"里的卸载说明 |
 | "让另一个 AI 也能用" | `agent-reach skill link <它的 skill 目录>` | 给不在自动名单里的 AI 也放一个说明链接 |
 
@@ -184,9 +184,9 @@ flowchart LR
 
 平台改版、工具失效是常态。换后端只是调整这个列表，Agent 的调用方式不变。
 
-### 📌 保持最新，私有安装
+### 📌 已测版本，私有安装
 
-Agent Reach 装的工具位于 `~/.agent-reach/tools/`，可复用现有 OpenCLI。部分工具固定为已测版本，Boss 固定到已验证提交；`doctor` 显示实际版本。
+Agent Reach 装的工具位于 `~/.agent-reach/tools/`，可复用现有 OpenCLI。有已测版本的工具按已测版本安装，`update` 也不会改动；其他工具用兼容范围内的最新版；Boss 固定到已验证提交；`doctor` 显示实际版本。
 
 ### 🩺 能用要靠实测
 

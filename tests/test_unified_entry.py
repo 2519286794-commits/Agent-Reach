@@ -564,9 +564,26 @@ def test_login_opens_site_in_dedicated_browser(capsys, monkeypatch, fake_browser
         login_url = "https://example.test/login"
 
     monkeypatch.setattr(unified, "get_all_channels", lambda: [BrowserChannel()])
+    from agent_reach.runtime import manage
+    added = []
+    # Hermetic: no check of the real OpenCLI install on this machine.
+    monkeypatch.setattr(manage, "add", lambda name, **k: added.append(name))
     code, out = _run(capsys, ["login", "web2"])
     assert code == 0
+    assert added == ["web2"]
     assert fake_browser["opened"] == ["https://example.test/login"]
+
+
+@pytest.mark.parametrize("argv", [["ask", "find VLA"], ["mcp"], ["cloak", "setup"], ["browser", "repair-opencli"],
+                                  ["ensure", "xiaohongshu"],
+                                  ["execute", "xiaohongshu", "search", "--params", '{"query":"VLA"}'],
+                                  ["resume", "op_x"]])
+def test_retired_commands_are_rejected_without_starting_any_service(argv, monkeypatch, capsys):
+    from agent_reach.runtime import browser, manage
+    monkeypatch.setattr(browser, "ensure_running", lambda *a, **k: pytest.fail("retired command started browser"))
+    monkeypatch.setattr(manage, "add", lambda *a, **k: pytest.fail("retired command installed tools"))
+    code, out = _run(capsys, argv)
+    assert code == 1 and out["error"]["code"] == "BAD_INPUT"
 
 
 @pytest.mark.parametrize(

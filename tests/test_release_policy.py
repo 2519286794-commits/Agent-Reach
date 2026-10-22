@@ -9,16 +9,15 @@ from agent_reach.runtime import bridge, browser, cdp, manage, state, tools
 from agent_reach.runtime.result import ReachError
 
 
-def test_cleanup_failure_retains_channel_tools_and_pending_request(monkeypatch):
+def test_cleanup_failure_retains_channel_and_tools(monkeypatch):
     from agent_reach.channels.xiaohongshu import XiaoHongShuChannel
     ch = XiaoHongShuChannel()
     state.mutate(lambda data: data["channels"].update(xiaohongshu={"added_at": state.now()}))
-    state.mutate(lambda data: data.update(pending={"id": {"channel": ch.name}}))
     monkeypatch.setattr(browser, "clear_site", Mock(side_effect=ReachError("UPSTREAM_BROKEN", "clear failed")))
     monkeypatch.setattr(tools, "prune", lambda *a: pytest.fail("pruned before cleanup succeeded"))
     with pytest.raises(ReachError, match="clear failed"):
         manage.remove(ch.name)
-    assert manage.is_added(ch) and "id" in state.load()["pending"]
+    assert manage.is_added(ch)
 
 
 def test_cleanup_includes_www_and_remembered_subdomains_preserving_other_sites(monkeypatch):
@@ -174,6 +173,7 @@ def test_install_and_uninstall_preserve_preexisting_unrecorded_cache(monkeypatch
 
 def test_temporary_work_is_private_recorded_and_removed_on_failure():
     from pathlib import Path
+
     from agent_reach.utils.paths import private_temporary_directory
     with pytest.raises(RuntimeError, match="work failed"):
         with private_temporary_directory("test-") as tmp:

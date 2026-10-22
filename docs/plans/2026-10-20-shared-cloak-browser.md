@@ -16,4 +16,4 @@
 
 ## Live acceptance record
 
-387 local core tests, Ruff and Mypy passed. Live Xiaohongshu search/read/comments, explicit session import, scoped cleanup and shortened idle/reopen tests passed. BOSS returned PLATFORM_BLOCKED and requires manual verification. Details: docs/validation/shared-browser-20261020.md. Browser creation and test imports are authorized by the user's current implementation request. Do not mark a platform authenticated merely because cookies were copied; verify with the upstream channel action. Do not send messages, submit applications, post comments, or otherwise write to platforms.
+387 local core tests, Ruff and Mypy passed. Live Xiaohongshu search/read/comments, explicit session import, scoped cleanup and shortened idle/reopen tests passed. BOSS returned PLATFORM_BLOCKED and requires manual verification. Browser creation and test imports are authorized by the user's current implementation request. Do not mark a platform authenticated merely because cookies were copied; verify with the upstream channel action. Do not send messages, submit applications, post comments, or otherwise write to platforms.

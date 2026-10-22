@@ -47,9 +47,8 @@ def test_opencli_comments_keep_replies_and_explicit_scope(monkeypatch):
 
 
 def test_comments_validate_before_prepare(monkeypatch):
-    from agent_reach.runtime import flow
-    from agent_reach.runtime.result import ReachError
-    monkeypatch.setattr(flow, "prepare", lambda *a, **k: pytest.fail("unexpected setup"))
-    with pytest.raises(ReachError) as caught:
-        flow.execute("xiaohongshu", "comments", {"target": "invalid", "limit": 999})
-    assert caught.value.code == "BAD_INPUT"
+    from agent_reach.runtime import browser, manage, session_reuse
+    for module, name in ((manage, "add"), (browser, "ensure_running"), (session_reuse, "prepare")):
+        monkeypatch.setattr(module, name, lambda *a, **k: pytest.fail("unexpected setup"))
+    result = run_action(XiaoHongShuChannel(), "comments", {"target": "invalid", "limit": 999})
+    assert result["error"]["code"] == "BAD_INPUT"

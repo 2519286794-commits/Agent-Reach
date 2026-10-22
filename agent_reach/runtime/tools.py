@@ -1,8 +1,8 @@
-"""Upstream tools and machine prerequisites Agent Reach installs, at their latest allowed version.
+"""Upstream tools and machine prerequisites Agent Reach installs, at their declared versions.
 
-New installations prefer the tested versions declared below. Each tool may set `floor` (oldest version we accept)
-and `exclude` (known-bad versions, added in a release when an upstream breaks);
-Unpinned tools use the newest version inside those limits. Existing user tools are not silently downgraded.
+Tools with `tested` are installed at that version, and `update` keeps them there. Each tool may set `floor`
+(oldest version we accept) and `exclude` (known-bad versions, added in a release when an upstream breaks);
+tools without `tested` use the newest version inside those limits. Existing user tools are not silently downgraded.
 state.json records the version actually installed.
 
 Kinds:
@@ -474,7 +474,8 @@ def record(name: str, version: Optional[str], *, owner: str = OURS, scope: str =
 def ensure(name: str, *, allow_upgrade: bool = False, upgrade: bool = False) -> dict:
     """Make sure the tool is installed inside its limits; record it in state.
 
-    `upgrade`: reinstall our private copy at the latest allowed version (update/sync).
+    `upgrade`: reinstall our private copy at its install spec (update/sync): the tested
+    version when declared, otherwise the newest version inside floor/exclude.
     Returns {"tool", "owner", "scope", "version"}; owner "system" = not ours, not recorded.
     """
     tool = TOOLS[name]

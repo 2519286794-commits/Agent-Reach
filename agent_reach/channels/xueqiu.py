@@ -9,7 +9,14 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from agent_reach.runtime.result import BAD_INPUT, NEED_LOGIN, NOT_FOUND, UPSTREAM_BROKEN, ReachError, make_item
+from agent_reach.runtime.result import (
+    BAD_INPUT,
+    NEED_LOGIN,
+    NOT_FOUND,
+    UPSTREAM_BROKEN,
+    ReachError,
+    make_item,
+)
 from agent_reach.runtime.run import http_request
 
 from .base import Action, Channel, Param

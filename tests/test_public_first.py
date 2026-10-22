@@ -7,7 +7,7 @@ import pytest
 
 from agent_reach.channels.linkedin import LinkedInChannel
 from agent_reach.channels.web import WebChannel
-from agent_reach.runtime import cli, flow, state
+from agent_reach.runtime import cli, manage, state, tools
 from agent_reach.runtime.dispatch import run_action
 from agent_reach.runtime.result import ReachError, make_item
 
@@ -24,11 +24,11 @@ def public_search(monkeypatch):
 
 def test_public_success_never_installs_binds_or_opens_a_browser(monkeypatch, public_search):
     from agent_reach.runtime import browser, dispatch
-    for module, name in ((flow, "prepare"), (browser, "ensure_running"), (dispatch, "execution_lock")):
+    for module, name in ((manage, "add"), (tools, "ensure"), (browser, "ensure_running"), (dispatch, "execution_lock")):
         monkeypatch.setattr(module, name, Mock(side_effect=AssertionError("public query touched browser setup")))
     monkeypatch.setattr(LinkedInChannel, "_jobs", Mock(side_effect=AssertionError("used site tool")))
-    out = flow.execute("linkedin", "jobs", {"query": "Data Engineer", "location": "深圳", "limit": 2})
-    assert out["ok"] and out["backend"] == "public-web" and "operation_id" not in out
+    out = run_action(LinkedInChannel(), "jobs", {"query": "Data Engineer", "location": "深圳", "limit": 2})
+    assert out["ok"] and out["backend"] == "public-web"
     query = public_search.call_args.kwargs["query"]
     assert "site:linkedin.com/jobs/view/" in query and "深圳" in query
     assert out["meta"]["access"]["scope"] == "search_results"
@@ -72,24 +72,19 @@ def test_web_provider_failure_does_not_become_platform_login_or_cooldown(monkeyp
 def test_no_hits_or_wrong_scope_only_trigger_site_attempt_not_login(monkeypatch, public_search, rows):
     public_search.return_value = rows
     monkeypatch.setattr(LinkedInChannel, "_jobs", Mock(side_effect=ReachError("TIMEOUT", "Site timed out")))
-    monkeypatch.setattr(flow, "prepare", lambda *a, **k: {"ok": True})
-    out = flow.execute("linkedin", "jobs", {"query": "Data"})
+    out = run_action(LinkedInChannel(), "jobs", {"query": "Data"})
     assert out["error"]["code"] == "TIMEOUT"
-    assert "required_action" not in out and "operation_id" not in out
 
 
-def test_actual_site_login_wall_is_resumable_only_after_public_attempt(monkeypatch, public_search):
+def test_actual_site_login_wall_is_reported_only_after_public_attempt(monkeypatch, public_search):
     public_search.return_value = []
-    calls = []
-    def prepare(*args, **kwargs):
-        calls.append("prepare")
+    def site(*args, **kwargs):
         assert public_search.call_count == 1
-        return {"ok": True}
-    monkeypatch.setattr(flow, "prepare", prepare)
-    monkeypatch.setattr(LinkedInChannel, "_jobs", Mock(side_effect=ReachError("NEED_LOGIN", "Site requires login")))
-    out = flow.execute("linkedin", "jobs", {"query": "Data"})
-    assert calls == ["prepare"] and out["required_action"]["type"] == "login"
-    assert state.load()["pending"][out["operation_id"]]["params"]["query"] == "Data"
+        raise ReachError("NEED_LOGIN", "Site requires login")
+    monkeypatch.setattr(LinkedInChannel, "_jobs", site)
+    out = run_action(LinkedInChannel(), "jobs", {"query": "Data"})
+    assert out["error"]["code"] == "NEED_LOGIN"
+    assert [a["backend"] for a in out["meta"]["attempts"]][-1] == "opencli"
 
 
 def test_public_read_accepts_full_text_beside_a_login_link(monkeypatch):
@@ -107,14 +102,6 @@ def test_short_public_post_beside_login_link_is_still_usable(monkeypatch):
     monkeypatch.setattr(LinkedInChannel, "_read", Mock(side_effect=AssertionError("unnecessary login path")))
     out = run_action(LinkedInChannel(), "read", {"target": URL})
     assert out["ok"] and out["backend"] == "public-web"
-
-
-def test_cold_preparation_does_not_consume_the_site_query_deadline(monkeypatch):
-    import time
-    monkeypatch.setattr(LinkedInChannel, "_jobs", Mock(return_value=[make_item(url=URL)]))
-    out = run_action(LinkedInChannel(), "jobs", {"query": "Data"}, only_backend="opencli",
-                     timeout=0.1, before_backends=lambda: time.sleep(0.2))
-    assert out["ok"]
 
 
 @pytest.mark.parametrize("title,text", [("LinkedIn", ""), ("Sign in | LinkedIn", TEXT),
@@ -159,31 +146,16 @@ def test_new_policy_leaves_comments_subtitles_and_user_search_semantics_unchange
                 assert not action.public_web, (ch.name, action.name)
 
 
-def test_resume_verifies_the_pending_site_path_instead_of_hiding_it_with_index_hits(monkeypatch, public_search):
-    public_search.return_value = []
-    monkeypatch.setattr(flow, "prepare", lambda *a, **k: {"ok": True})
-    site = Mock(side_effect=ReachError("NEED_LOGIN", "Login required"))
-    monkeypatch.setattr(LinkedInChannel, "_jobs", site)
-    waiting = flow.execute("linkedin", "jobs", {"query": "Data"})
-    public_search.return_value = [make_item(url=URL)]
-    site.side_effect = None
-    site.return_value = [make_item(url=URL, title="Verified site job")]
-    state.mutate(lambda saved: saved.get("request_starts", {}).pop("linkedin", None))
-    resumed = flow.resume(waiting["operation_id"])
-    assert resumed["backend"] == "opencli" and site.call_count == 2
-    assert public_search.call_count == 1 and not state.load()["pending"]
-
-
-def test_execute_backend_option_can_request_public_only(monkeypatch, public_search, capsys):
-    monkeypatch.setattr(flow, "prepare", Mock(side_effect=AssertionError("unexpected setup")))
-    assert cli.main(["execute", "linkedin", "jobs", "--params", '{"query":"Data"}',
-                     "--backend", "public-web"]) == 0
+def test_backend_option_can_request_public_only(monkeypatch, public_search, capsys):
+    monkeypatch.setattr(manage, "add", Mock(side_effect=AssertionError("unexpected setup")))
+    monkeypatch.setattr(LinkedInChannel, "_jobs", Mock(side_effect=AssertionError("public-only fell back")))
+    assert cli.main(["linkedin", "jobs", "Data", "--backend", "public-web"]) == 0
     assert json.loads(capsys.readouterr().out)["backend"] == "public-web"
 
 
-def test_invalid_backend_is_rejected_before_setup(monkeypatch, public_search):
-    monkeypatch.setattr(flow, "prepare", Mock(side_effect=AssertionError("unexpected setup")))
-    out = flow.execute("linkedin", "jobs", {"query": "Data"}, backend="unknown")
+def test_invalid_backend_is_rejected_before_any_access(monkeypatch, public_search):
+    monkeypatch.setattr(LinkedInChannel, "_jobs", Mock(side_effect=AssertionError("unexpected site access")))
+    out = run_action(LinkedInChannel(), "jobs", {"query": "Data"}, only_backend="unknown")
     assert out["error"]["code"] == "BAD_INPUT"
     public_search.assert_not_called()
 

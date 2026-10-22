@@ -667,19 +667,15 @@ def test_doctor_separates_needs_login_from_broken(env, monkeypatch):
     assert _status("bili") == "needs_login"
 
 
-def test_remove_browser_channel_forgets_grants_pending_and_only_its_login(env):
+def test_remove_browser_channel_forgets_grants_and_only_its_login(env):
     manage.add("site")
     manage.add("site2")
-    def seed(data):
-        data["reuse_sources"] = {"site":{"profile":"old-source"}, "site2":{"profile":"keep"}}
-        data["pending"] = {"a":{"channel":"site"}, "b":{"channel":"site2"}}
-    state.mutate(seed)
+    state.mutate(lambda data: data.update(reuse_sources={"site": {"profile": "old-source"}, "site2": {"profile": "keep"}}))
     env["calls"].clear()
     out = manage.remove("site")
     assert out["cleared_cookies"] == 3
     assert env["calls"] == [("clear_site", ("site.example",))]
     assert state.load()["reuse_sources"] == {"site2":{"profile":"keep"}}
-    assert state.load()["pending"] == {"b":{"channel":"site2"}}
 
 
 def test_setup_reports_legacy_mcp_without_editing_external_configuration(env):

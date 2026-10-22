@@ -166,7 +166,7 @@ Just tell your agent in plain words; it runs the command for you:
 | "How is Agent Reach doing?" | `agent-reach doctor --text` | status of every channel: not_added / needs_setup / needs_login / unverified / ready / broken, and which ones broke since the last check |
 | "Add Xiaohongshu" / "Remove Xiaohongshu" | `agent-reach add` / `remove <channel>` | turn a channel on and install everything it needs; you only log in or provide a key / turn it off and clear its login and private tools (default channels too) |
 | "My Bilibili login expired" / "Log out" | `agent-reach login` / `logout <channel>` | log in (you do it) / forget the login |
-| "Upgrade Agent Reach" | `agent-reach update` | update the program, every channel's tools (to their latest versions) and the skill in one go, and tell you anything left to do, see [update.md](update.md) |
+| "Upgrade Agent Reach" | `agent-reach update` | update the program, every channel's tools (tested versions stay put; others get the newest supported version) and the skill in one go, and tell you anything left to do, see [update.md](update.md) |
 | "Uninstall Agent Reach" | `agent-reach uninstall` | see Uninstall under Security below |
 | "Let my other AI use it too" | `agent-reach skill link <its skills folder>` | link the instructions for an AI not covered automatically |
 
@@ -184,9 +184,9 @@ Each action of each channel has an ordered list of backends. `bilibili read` tri
 
 Platforms change and tools break all the time. Switching backends only reorders that list; the way the agent calls Agent Reach stays the same.
 
-### 📌 Kept current, private installs
+### 📌 Tested versions, private installs
 
-Tools are private under ~/.agent-reach/tools/. Selected dependencies use tested versions; Boss is pinned to a verified Git commit. Do not overwrite this local fork with an upstream update.
+Tools are private under ~/.agent-reach/tools/. Tools with a tested version install at that version, and `update` keeps them there; other tools use the newest version inside their supported range; Boss is pinned to a verified Git commit. `doctor` shows the installed versions.
 
 ### 🩺 Working means live-tested
 

@@ -48,6 +48,7 @@ def test_exa_never_loops_after_two_truncated_reads():
 
 def test_exa_does_not_retry_http_limits_or_access_denials():
     import urllib.error
+
     from agent_reach.channels.web import _exa_call
     for code in (429, 403):
         with patch("agent_reach.channels.web.http_request", side_effect=urllib.error.HTTPError("https://mcp.exa.ai/mcp", code, "denied", {}, None)) as request:

@@ -9,7 +9,7 @@ agent-reach update
 One command does everything:
 
 - upgrades the program to the latest GitHub release (`uv tool install --force <release zip>`)
-- upgrades the tools of every added channel to their latest versions, even when Agent Reach itself has no new release (known-bad versions are skipped); tools no channel uses any more are removed
+- reinstalls the tools of every added channel, even when Agent Reach itself has no new release: tools with a tested version stay at that version, other tools get the newest version inside their supported range (known-bad versions are skipped); tools no channel uses any more are removed
 - refreshes the Agent Reach skill (the one real copy, and the links that let your other AIs read it)
 
 Default channels you removed stay removed; `agent-reach add <channel>` brings one back.

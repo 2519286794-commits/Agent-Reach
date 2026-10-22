@@ -27,27 +27,25 @@ def test_can_handle_rejects_non_reddit():
 
 
 def test_unconfigured_browser_is_prepared_without_assuming_login(monkeypatch):
-    from agent_reach.runtime import browser, flow
-    monkeypatch.setattr(flow.manage, "is_added", lambda *a: True)
-    monkeypatch.setattr(flow.tools, "present", lambda *a: True)
+    from agent_reach.runtime import browser, session_reuse
     launch = Mock()
     monkeypatch.setattr(browser, "ensure_running", launch)
-    result = flow.prepare("reddit", action="search")
-    assert result["status"] == "prepared" and launch.call_count == 1
-    assert "required_action" not in result
+    monkeypatch.setattr(browser, "connected_contexts", lambda: [])
+    monkeypatch.setattr(browser, "bound_context", lambda: None)
+    result = session_reuse.prepare("reddit")
+    assert launch.call_count == 1 and result["copied_cookies"] == 0
+    assert "required_action" not in result and not result.get("blocked")
 
 
-def test_actual_login_error_remains_resumable(monkeypatch):
+def test_actual_login_error_is_reported_as_need_login(monkeypatch):
     from agent_reach.channels import reddit
-    from agent_reach.runtime import flow, state
+    from agent_reach.runtime.dispatch import run_action
     from agent_reach.runtime.result import NEED_LOGIN, ReachError
-    monkeypatch.setattr(flow, "prepare", lambda *a, **k: {"ok": True, "backend": "opencli"})
     request = Mock(side_effect=ReachError(NEED_LOGIN, "Login wall on the selected browser path"))
     monkeypatch.setattr(reddit, "opencli_call", request)
-    result = flow.execute("reddit", "search", {"query": "DeepSeek"})
+    result = run_action(RedditChannel(), "search", {"query": "DeepSeek"}, only_backend="opencli")
     assert request.call_count == 1
-    assert result["required_action"]["type"] == "login"
-    assert state.load()["pending"][result["operation_id"]]["params"]["query"] == "DeepSeek"
+    assert result["error"]["code"] == NEED_LOGIN
 
 
 def test_bare_403_is_not_classified_as_login():

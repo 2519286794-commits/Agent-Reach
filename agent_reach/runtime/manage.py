@@ -349,10 +349,6 @@ def remove(name: str) -> dict:
             saved["removed_defaults"].append(name)
         for key in ("reuse_sources", "setup_failures", "backend_health", "cooldowns"):
             saved.get(key, {}).pop(name, None)
-        for key in ("pending", "ask_pending"):
-            for ident, task in list(saved.get(key, {}).items()):
-                if task.get("channel") == name:
-                    saved[key].pop(ident, None)
         saved.setdefault("session_revisions", {})[name] = state.now()
     state.mutate(forget)
     return {"channel": name, "removed": True, "removed_tools": _prune(state.load()),
@@ -643,7 +639,7 @@ def setup() -> dict:
     user_actions = _retired_mcp_notice()
     if state.load()["tools"].get("mcporter", {}).get("owner") == tools.OURS:
         tools.remove_private("mcporter")  # retired LinkedIn MCP transport, only our private copy
-    state.mutate(lambda saved: (saved.pop("reuse_sources", None), saved.pop("ask_pending", None)))
+    state.mutate(lambda saved: [saved.pop(key, None) for key in ("reuse_sources", "ask_pending", "pending")])
     skill = place_skill()
     data = state.load()
     defaults = [c for c in _channels() if c.level == "default" and is_added(c, data)]

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Facebook — Cloak search first; OpenCLI search/profile fallback."""
+"""Facebook search and profiles through OpenCLI in the shared Agent Reach browser."""
 
 from ._opencli_site import OpenCLISiteChannel
 from .base import Action, Param

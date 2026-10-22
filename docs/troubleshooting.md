@@ -13,7 +13,7 @@ Every failed command returns `ok: false` and an `error` with `code`, `message` a
 
 | Code | Meaning | What to do |
 |---|---|---|
-| `NEED_SETUP` | a tool, key or selected browser connection is missing | run `agent-reach doctor --text` and follow the problem listed for the channel; use `agent-reach ensure <channel>` for supported channel setup |
+| `NEED_SETUP` | a tool, key or selected browser connection is missing | run `agent-reach doctor --text` and follow the problem listed for the channel; use `agent-reach add <channel>` to install the channel's tools |
 | `NEED_LOGIN` | login is missing or expired | the user runs `agent-reach login <channel>` and logs in themselves; do not delete credentials to fix a connection or platform-verification error |
 | `UPSTREAM_BROKEN` | the upstream tool or platform failed | don't retry in a loop; try again later, inspect the upstream error and pinned dependency version, then `agent-reach check <channel>`; still broken → open an issue with the `message` |
 | `TIMEOUT` | no backend answered in time | retry later, or pass a larger `--timeout SECONDS`; on a restricted network set a proxy (below) |
@@ -26,7 +26,7 @@ Every failed command returns `ok: false` and an `error` with `code`, `message` a
 | Status | Meaning | What to do |
 |---|---|---|
 | `not_added` | optional channel not turned on | `agent-reach add <channel>` |
-| `needs_setup` | something is missing; `problems` says what | use `agent-reach ensure <channel>` or follow the specific setup step |
+| `needs_setup` | something is missing; `problems` says what | use `agent-reach add <channel>` or follow the specific setup step |
 | `needs_login` | the last live check failed only on login | `agent-reach login <channel>` (the user logs in) |
 | `unverified` | set up, but no live check in the last 24 hours | `agent-reach check <channel>` |
 | `search_ready` | search returned nonempty results in the last 24 hours | read and other actions need their own checks |

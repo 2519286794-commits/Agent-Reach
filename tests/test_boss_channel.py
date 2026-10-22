@@ -6,6 +6,7 @@ from agent_reach.channels.boss import BossChannel
 
 def test_ambiguous_upstream_detail_login_signal_is_not_a_login_instruction(monkeypatch):
     import pytest
+
     from agent_reach.backends import opencli
     from agent_reach.runtime.result import ReachError
     def broken(*a, **k):

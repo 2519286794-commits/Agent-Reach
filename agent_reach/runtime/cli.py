@@ -45,9 +45,6 @@ HELP = """agent-reach — internet access for AI agents (all output is JSON)
 
 For agents:
   agent-reach channels                    list channels, actions, params
-  agent-reach ensure CHANNEL              install/reuse/verify a channel; resumable
-  agent-reach execute CHANNEL ACTION --params JSON  prepare and run one action
-  agent-reach resume OPERATION_ID         continue after the user logs in
   agent-reach <channel> <action> [args]   e.g. agent-reach bilibili search python
   agent-reach read <url>                  read a link with the matching channel
   Search/read try declared public web routes first; --backend selects a site tool
@@ -521,42 +518,6 @@ def _cmd_browser(args: Sequence[str]) -> int:
         return _bad_input(None, "browser", str(exc))
 
 
-def _cmd_flow(head: str, args: Sequence[str]) -> int:
-    from . import flow
-
-    parser = _Parser(prog=head, add_help=False)
-    if head == "resume":
-        parser.add_argument("operation_id")
-    else:
-        parser.add_argument("channel")
-        if head == "execute":
-            parser.add_argument("channel_action")
-            parser.add_argument("--params", required=True)
-            parser.add_argument("--timeout", type=float, default=60.0)
-            parser.add_argument("--backend")
-        else:
-            parser.add_argument("--action")
-            parser.add_argument("--no-verify", action="store_true")
-    try:
-        ns = parser.parse_args(list(args))
-        if head == "resume":
-            from .flow import resume
-            result = resume(ns.operation_id)
-        elif head == "ensure":
-            result = flow.ensure(ns.channel, action=ns.action, verify=not ns.no_verify)
-        else:
-            params = json.loads(ns.params)
-            if not isinstance(params, dict):
-                raise _ArgError("--params must be a JSON object")
-            result = flow.execute(ns.channel, ns.channel_action, params, timeout=ns.timeout, backend=ns.backend)
-    except (ValueError, _ArgError) as exc:
-        return _bad_input(None, head, str(exc))
-    except ReachError as err:
-        return _emit(envelope(channel=None, action=head, error=err))
-    return _emit({"schema_version": SCHEMA_VERSION, "action": head, **result})
-
-
-
 def main(argv: Sequence[str]) -> int:
     global _SHOW_NOTICE
 
@@ -571,8 +532,6 @@ def main(argv: Sequence[str]) -> int:
     head, rest = argv[0], argv[1:]
     if head == "channels":
         return _cmd_channels(rest)
-    if head in ("ensure", "execute", "resume"):
-        return _cmd_flow(head, rest)
     if head == "check":
         return _cmd_check(rest)
     if head == "read":

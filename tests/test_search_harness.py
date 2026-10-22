@@ -221,16 +221,6 @@ def test_direct_dispatch_cannot_bypass_confirmed_platform_cooldown():
     ch.first.assert_not_called()
 
 
-def test_prepared_backend_is_first_and_can_still_fall_back():
-    ch = SearchChannel()
-    ch.first = Mock(return_value=[{"title": "first"}])
-    ch.second = Mock(return_value=[{"title": "selected"}])
-    assert run_action(ch, "search", {"query": "x"}, preferred_backend="second")["backend"] == "second"
-    ch.first.assert_not_called()
-    ch.second = Mock(side_effect=ReachError("TIMEOUT", "failed"))
-    assert run_action(ch, "search", {"query": "x"}, preferred_backend="second")["backend"] == "first"
-
-
 def test_browser_pacing_respects_budget_without_claiming_platform_rate_limit(monkeypatch):
     from agent_reach.runtime import dispatch
 
