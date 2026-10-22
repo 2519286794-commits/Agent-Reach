@@ -70,7 +70,7 @@ class BossChannel(Channel):
 
     def _native(self, payload: dict, timeout: float) -> list:
         from agent_reach.runtime import state
-        from agent_reach.runtime.browser_binding import execution_lock
+        from agent_reach.runtime.browser_binding import wait_lock
         from agent_reach.runtime.onboarding import require_boss_cdp
         endpoint = require_boss_cdp()
         exe = resolve("boss")
@@ -83,7 +83,7 @@ class BossChannel(Channel):
         limit = payload.get("limit", 1)
         runner = Path(__file__).parents[1] / "backends" / "boss_native.py"
         try:
-            with execution_lock(endpoint):
+            with wait_lock(endpoint, wait=timeout):
                 out = run_cmd([str(python), str(runner), json.dumps(payload)], timeout=timeout)
         except CommandFailed as exc:
             out = exc.stdout

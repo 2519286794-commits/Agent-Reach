@@ -418,7 +418,9 @@ def _cmd_login(args: Sequence[str]) -> int:
         try:
             from . import manage
             manage.add(ch.name)
-            browser.start(ch.login_url)
+            from .browser_binding import exclusive_browser
+            with exclusive_browser():  # opening the window may restart the browser
+                browser.start(ch.login_url)
             from . import state
             state.mutate(lambda data: data.setdefault("session_reuse", {}).__setitem__(ch.name, {"source": "manual", "at": state.now()}))
         except ReachError as err:
@@ -511,8 +513,14 @@ def _cmd_browser(args: Sequence[str]) -> int:
             return _mgmt("browser profiles", lambda: {"profiles": session_reuse.profiles()})
         if ns.profile:
             raise _ArgError("a profile ID applies only to browser use")
-        if ns.op == "setup":
-            return _mgmt("browser setup", browser.setup, retry_cloak=ns.retry_cloak)
+        if ns.op in ("setup", "stop"):
+            from .browser_binding import exclusive_browser
+            def run(fn, **kw):
+                with exclusive_browser():
+                    return fn(**kw)
+            if ns.op == "setup":
+                return _mgmt("browser setup", run, browser.setup, retry_cloak=ns.retry_cloak)
+            return _mgmt("browser stop", run, browser.stop)
         return _mgmt("browser " + ns.op, getattr(browser, ns.op))
     except _ArgError as exc:
         return _bad_input(None, "browser", str(exc))

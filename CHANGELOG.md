@@ -18,12 +18,16 @@ All notable changes to this project will be documented in this file.
 - 保留小宇宙转录；去掉额外模型配置和重复的网站抓取实现。
 - Bridge 随专用浏览器管理；按真实页面操作计时、定期保存登录。清理失败保留渠道，卸载只删台账文件。发布前必须有渠道真实验收。
 - 查询默认无头，优先只读复用本机已有的站点登录；显窗登录与无头查询共用配置。B站字幕、雪球社区自动同步登录，BOSS JD 使用上游浏览器接口。缺失接口和限流不再误报为需要重登。
+- 专用浏览器按扩展保存在它自己配置里的编号识别，不会再把用户日常的 Chrome 认成专用浏览器；登录窗口开着时查询不再把它收掉。
+- 浏览器渠道可以并行查询：同一平台最多 2 条、合计 4 条同时跑，多出来的排队而不是立刻报"正忙"；登录窗口、退出登录等操作等正在跑的查询结束再做。
 
 English:
 - Browser channels share one profile, close after ten idle minutes and reopen on demand.
 - Adding a channel prepares its tools; removal clears only that site's login.
 - Public content remains public-first, with a compact capability receipt.
 - Keep Xiaoyuzhou transcription; remove the extra planner and duplicate site extraction.
+- The dedicated browser is identified by the id its extension saves inside its own profile, so the user's own Chrome is never mistaken for it; a query no longer closes an open login window.
+- Browser channels run queries in parallel: up to 2 per platform and 4 in total, with the rest queued instead of failing BUSY at once; login windows, logout and browser setup wait for running queries.
 
 
 中文：

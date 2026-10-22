@@ -24,7 +24,7 @@ def public_search(monkeypatch):
 
 def test_public_success_never_installs_binds_or_opens_a_browser(monkeypatch, public_search):
     from agent_reach.runtime import browser, dispatch
-    for module, name in ((manage, "add"), (tools, "ensure"), (browser, "ensure_running"), (dispatch, "execution_lock")):
+    for module, name in ((manage, "add"), (tools, "ensure"), (browser, "ensure_running"), (dispatch, "query_slot")):
         monkeypatch.setattr(module, name, Mock(side_effect=AssertionError("public query touched browser setup")))
     monkeypatch.setattr(LinkedInChannel, "_jobs", Mock(side_effect=AssertionError("used site tool")))
     out = run_action(LinkedInChannel(), "jobs", {"query": "Data Engineer", "location": "深圳", "limit": 2})

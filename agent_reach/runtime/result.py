@@ -33,7 +33,7 @@ BAD_INPUT = "BAD_INPUT"
 FINAL_CODES = frozenset({NOT_FOUND, BAD_INPUT, PLATFORM_BLOCKED, RATE_LIMITED, NEED_LOGIN, "BUSY"})
 
 DEFAULT_HINTS = {
-    "BUSY": "Another command uses this browser profile. Wait for it to finish; do not switch profiles.",
+    "BUSY": "The shared browser stayed full while this command waited in line, or a login window is open. Retry later; do not switch profiles.",
     PLATFORM_BLOCKED: "Stop automation. Keep this profile; the user must resolve the platform verification in the official page. Do not switch backends or retry.",
     NEED_SETUP: "This backend is not installed. Ask the user to run `agent-reach doctor` for setup steps.",
     NEED_LOGIN: "The attempted saved/local session did not grant access. Offer site-scoped local reuse or let the user log in themselves; never ask for a password.",

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from agent_reach.channels.base import Action, Channel
 
 from . import state
-from .browser_binding import execution_lock
+from .browser_binding import query_slot, wait_lock
 from .clock import Clock, bind
 from .result import (
     BAD_INPUT,
@@ -133,14 +133,17 @@ def _remember(channel: Channel, action: str, backend: str, error: Optional[Reach
 def _pace_browser(channel: str, action: str, clock: Clock) -> None:
     if action not in {"search", "jobs"}:
         return
-    last = state.load().get("request_starts", {}).get(channel)
-    age = max(0, time.time() - last) if isinstance(last, (int, float)) else state.age_seconds(last)
-    wait = BROWSER_SEARCH_INTERVAL - age
-    if wait > 0:
-        if wait >= clock.remaining():
-            raise ReachError(TIMEOUT, "Search pacing exceeds the remaining timeout; retry later")
-        time.sleep(wait)
-    state.mutate(lambda saved: saved.setdefault("request_starts", {}).__setitem__(channel, time.time()))
+    # Same-site queries may now run side by side; read, wait and record the start
+    # under one lock so two of them cannot both skip the interval.
+    with wait_lock(f"pace:{channel}", wait=max(0.0, clock.remaining())):
+        last = state.load().get("request_starts", {}).get(channel)
+        age = max(0, time.time() - last) if isinstance(last, (int, float)) else state.age_seconds(last)
+        wait = BROWSER_SEARCH_INTERVAL - age
+        if wait > 0:
+            if wait >= clock.remaining():
+                raise ReachError(TIMEOUT, "Search pacing exceeds the remaining timeout; retry later")
+            time.sleep(wait)
+        state.mutate(lambda saved: saved.setdefault("request_starts", {}).__setitem__(channel, time.time()))
 
 
 def _call_with_deadline(fn, params: Dict[str, Any], clock: Clock) -> List[dict]:
@@ -239,10 +242,9 @@ def run_action(
                     return public
             elif public_only:
                 raise ReachError(BAD_INPUT, "This input has no public web route; use a full supported URL")
-        # One action per site keeps an agent's parallel requests from fighting
-        # over the same persistent session; worker-level profile locks remain.
+        # Browser queries wait in line: a few per site and overall share the browser at once.
         browser_action = any(b[0] in {"opencli", "boss-agent-cli"} for b in action.backends)
-        lock = execution_lock("browser:shared") if browser_action else nullcontext()
+        lock = query_slot(channel.name, clock) if browser_action else nullcontext()
         with lock:
             limited = cooldown(channel.name)
             if limited:

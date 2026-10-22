@@ -377,6 +377,8 @@ def fake_browser(monkeypatch, tmp_path):
 
     real_watcher_running = browser.watcher_running
     monkeypatch.setattr(browser, "connected_contexts", lambda: list(state["contexts"]))
+    # The dedicated profile's own saved OpenCLI id, readable only while it runs.
+    monkeypatch.setattr(browser, "dedicated_context", lambda: "dedicated" if state["running"] else None)
     monkeypatch.setattr(browser, "is_running", lambda: state["running"])
     monkeypatch.setattr(browser, "_profile_pids", lambda: [999] if state["running"] else [])
     monkeypatch.setattr(browser, "watcher_running", lambda: state["watched"] or real_watcher_running())
@@ -392,9 +394,8 @@ def fake_browser(monkeypatch, tmp_path):
 def _bind_dedicated(fake_browser):
     from agent_reach.runtime import browser
 
-    browser.bind()
     fake_browser["contexts"].append("dedicated")
-    browser.bind()
+    assert browser.bind()["status"] == "ready"
 
 
 def test_browser_action_sets_up_unbound_browser_by_itself(fake_browser):
@@ -495,22 +496,39 @@ def test_idle_watcher_exits_when_browser_is_closed(fake_browser):
     assert browser_watcher.watch(idle=600, poll=0.1) == "browser closed"
 
 
-def test_bind_ignores_profiles_that_were_already_connected(fake_browser):
+def test_bind_waits_for_the_dedicated_browsers_own_profile(fake_browser):
     from agent_reach.runtime import browser
 
+    fake_browser["contexts"].append("other")  # another Chrome with the extension connects first
     assert browser.bind()["status"] == "waiting_for_extension"
+    assert browser.bound_context() is None
     fake_browser["contexts"].append("dedicated")
     assert browser.bind() == {"status": "ready", "context": "dedicated"}
     assert browser.bound_context() == "dedicated"
 
 
-def test_bind_refuses_to_guess_between_two_new_profiles(fake_browser):
+def test_setup_never_binds_the_users_chrome_reconnecting_at_the_same_time(fake_browser, monkeypatch):
     from agent_reach.runtime import browser
 
-    browser.bind()
-    fake_browser["contexts"] += ["a", "b"]
-    assert browser.bind()["status"] == "ambiguous"
-    assert browser.bound_context() is None
+    real_launch = browser._launch
+
+    def launch_while_daily_reconnects(url, *, headless=True):
+        fake_browser["contexts"].remove("daily")  # the user's Chrome drops its Bridge connection ...
+        real_launch(url, headless=headless)
+        fake_browser["contexts"].insert(0, "daily")  # ... and reconnects while ours starts
+
+    monkeypatch.setattr(browser, "_launch", launch_while_daily_reconnects)
+    browser.setup()
+    assert browser.bound_context() == "dedicated"
+
+
+def test_wrong_record_is_repaired_before_a_query_uses_it(fake_browser):
+    from agent_reach.runtime import browser
+
+    browser.setup()
+    browser.update_state(opencli_context="daily")  # e.g. written by an older Agent Reach
+    browser.ensure_running()
+    assert browser.bound_context() == "dedicated"
 
 
 def test_windows_without_extension_still_needs_the_users_click(fake_browser, monkeypatch):
@@ -601,11 +619,22 @@ def test_opencli_errors_map_to_unified_codes(yaml_text, code):
     assert _opencli_error(yaml_text, "").code == code
 
 
-def test_next_query_returns_from_visible_login_to_headless(fake_browser):
+def test_query_uses_an_open_login_window_without_closing_it(fake_browser):
     from agent_reach.runtime import browser
     browser.setup()
-    context=browser.bound_context()
-    browser.update_state(headless=False)
+    browser.update_state(headless=False)  # the user is logging in in a visible window
     browser.ensure_running()
-    assert browser._load_state()['headless'] is True
-    assert browser.bound_context()==context and fake_browser['launches']==2
+    browser.setup()  # e.g. `agent-reach add` while the window is open
+    assert browser._load_state()["headless"] is False
+    assert fake_browser["running"] and fake_browser["launches"] == 1
+
+
+def test_open_login_window_without_extension_is_busy_not_closed(fake_browser):
+    from agent_reach.runtime import browser
+    browser.setup()
+    browser.update_state(headless=False)
+    fake_browser["contexts"].remove("dedicated")
+    with pytest.raises(ReachError) as info:
+        browser.setup()
+    assert info.value.code == "BUSY"
+    assert fake_browser["running"] and fake_browser["launches"] == 1

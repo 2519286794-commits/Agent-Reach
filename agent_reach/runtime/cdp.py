@@ -128,6 +128,20 @@ def cookies(domain: str) -> List[dict]:
     return [c for c in result.get("cookies", []) if domain_matches(c.get("domain", ""), domain)]
 
 
+def extension_value(key: str) -> Optional[str]:
+    """A string an extension saved in `chrome.storage.local` inside the dedicated browser, or None."""
+    expr = f"chrome.storage.local.get({json.dumps(key)}).then(r => r[{json.dumps(key)}] || null)"
+    for target in _json("/json/list") or []:
+        if target.get("type") != "service_worker" or not target.get("url", "").startswith("chrome-extension://"):
+            continue
+        result = call("Runtime.evaluate", {"expression": expr, "awaitPromise": True, "returnByValue": True},
+                      target_id=target.get("id"))
+        value = ((result or {}).get("result") or {}).get("value")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 class PipeConnection:
     """CDP over `--remote-debugging-pipe`: NUL-delimited JSON, we write `wfd`, read `rfd`.
 

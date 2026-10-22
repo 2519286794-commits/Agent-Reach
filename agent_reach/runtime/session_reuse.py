@@ -7,12 +7,11 @@ from __future__ import annotations
 
 import json
 import time
-from contextlib import nullcontext
 
 from agent_reach.utils.paths import PrivatePathError, read_small_text_no_follow
 
 from . import browser, cdp, state
-from .browser_binding import execution_lock
+from .browser_binding import wait_lock
 from .result import NEED_SETUP, UPSTREAM_BROKEN, ReachError
 
 
@@ -89,15 +88,14 @@ def _source_cookies(channel: str, domains) -> tuple[list, str]:
     return cookies, "saved-reach-session" if cookies else "saved-profile"
 
 
-def prepare(channel: str, *, force: bool = False, action_locked: bool = False) -> dict:
+def prepare(channel: str, *, force: bool = False) -> dict:
     """Reuse an imported site session until explicitly refreshed; verify access separately."""
     from .manage import _channel, site_domains
     ch = _channel(channel)
     if not ch.login_url:
         return {"source": "not_required", "copied_cookies": 0}
-    # Dispatch holds the shared lock in its calling thread while the backend
-    # runs in a deadline worker. Never reacquire that OS lock from the worker.
-    with nullcontext() if action_locked else execution_lock("browser:shared"):
+    # One copy per site at a time; queries of other sites keep running.
+    with wait_lock(f"session:{channel}"):
         browser.ensure_running()
         record = state.load().get("session_reuse", {}).get(channel, {})
         if not force and (record.get("blocked") or record.get("source") == "manual"

@@ -265,7 +265,9 @@ def _install_channel(ch, *, allow_upgrade: bool = False) -> List[dict]:
     installed = [tools.ensure(t, allow_upgrade=allow_upgrade) for t in channel_tools(ch)]
     if _uses_browser(ch):
         from . import browser
-        browser.setup()
+        from .browser_binding import exclusive_browser
+        with exclusive_browser():  # setup may restart the browser; let running queries finish first
+            browser.setup()
     ch.on_add()
     return installed
 

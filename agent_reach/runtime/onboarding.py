@@ -209,7 +209,7 @@ def cdp_status():
 
 def require_boss_cdp():
     from . import browser, session_reuse
-    session_reuse.prepare("boss", action_locked=True)
+    session_reuse.prepare("boss")
     if not cdp_status()['boss_tab_present']:
         browser.open_url('https://www.zhipin.com/web/geek/jobs')
     browser.touch()

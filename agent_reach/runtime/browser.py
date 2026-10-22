@@ -550,10 +550,11 @@ def ensure_running(context: Optional[str] = None) -> None:
     from .clock import off_the_clock
     from .result import NEED_SETUP, UPSTREAM_BROKEN, ReachError
     if is_running():
-        _require_owned()
-        if _load_state().get("headless") is not True:
-            setup()
-            return
+        _require_owned()  # a visible login window is used as-is, never closed for a query
+        own = dedicated_context()
+        if own and own != bound_context() and own in connected_contexts():
+            update_state(opencli_context=own)  # repair a record that points at another Chrome
+            context = own
     if context is None:
         context = bound_context()
         if not context:
@@ -674,8 +675,8 @@ def restore_session() -> None:
 
 
 def clear_site(domains: List[str]) -> int:
-    from .browser_binding import execution_lock
-    with execution_lock("browser:shared"):
+    from .browser_binding import exclusive_browser
+    with exclusive_browser():
         return _clear_site(domains)
 
 
@@ -782,37 +783,31 @@ def bound_context() -> Optional[str]:
     return _load_state().get("opencli_context") or None
 
 
-def bind() -> dict:
-    """Record which OpenCLI profile is the dedicated browser (Windows Web Store flow).
+# Key the OpenCLI extension uses to persist its profile id inside each browser profile.
+_CONTEXT_ID_KEY = "opencli_context_id_v1"
 
-    The first call snapshots profiles already connected (the user's own
-    Chrome). After the user installs the extension in the dedicated window,
-    the next call finds exactly one new profile and records it.
+
+def dedicated_context() -> Optional[str]:
+    """The OpenCLI profile id saved inside the running dedicated browser, read over its own CDP port.
+
+    Read from the dedicated profile itself, so another Chrome connecting at
+    the same moment can never be mistaken for it.
     """
-    state = _load_state()
-    now = connected_contexts()
-    if state.get("opencli_context") in now:
-        return {"status": "ready", "context": state["opencli_context"]}
-    if "baseline" not in state:
-        state["baseline"] = now
-        _save_state(state)
-    new = [c for c in now if c not in state["baseline"]]
-    if len(new) == 1:
-        state["opencli_context"] = new[0]
-        _save_state(state)
-        return {"status": "ready", "context": new[0]}
-    if len(new) > 1:
-        return {"status": "ambiguous", "candidates": new}
+    if not is_running():
+        return None
+    from . import cdp
+
+    return cdp.extension_value(_CONTEXT_ID_KEY)
+
+
+def bind() -> dict:
+    """Record the dedicated browser's OpenCLI profile once its extension is connected."""
+    own = dedicated_context()
+    if own and own in connected_contexts():
+        if own != bound_context():
+            update_state(opencli_context=own)
+        return {"status": "ready", "context": own}
     return {"status": "waiting_for_extension"}
-
-
-def _ambiguous(candidates: List[str]):
-    from .result import NEED_SETUP, ReachError
-
-    return ReachError(
-        NEED_SETUP, f"more than one new OpenCLI profile connected: {', '.join(candidates)}",
-        hint="Ask the user to close other Chrome windows that have the OpenCLI extension, then run setup again.",
-    )
 
 
 def setup(*, retry_cloak: bool = False, headless: bool = True) -> dict:
@@ -834,36 +829,33 @@ def setup(*, retry_cloak: bool = False, headless: bool = True) -> dict:
             refresh_extension()
         touch()
         with start_lock():
-            ctx = bound_context()
-            if (ctx and is_running() and watcher_running() and ctx in connected_contexts()
-                    and _load_state().get("running_backend") == _load_state().get("backend")
-                    and _load_state().get("headless") == headless):
-                return status()
+            state = _load_state()
+            visible = is_running() and state.get("headless") is False
+            if (is_running() and watcher_running() and state.get("running_backend") == state.get("backend")
+                    and (state.get("headless") == headless or visible)):
+                if bind()["status"] == "ready":
+                    return status()
+                if visible:
+                    from .result import ReachError
+                    raise ReachError("BUSY", "A login window is open in the Agent Reach browser",
+                                     hint="Wait until the user says they finished logging in; do not close the window.")
             _close_for_restart()  # release profile and watcher before switching modes
-            if ctx:  # let OpenCLI notice the old connection is gone before taking the snapshot
-                wait_for(lambda: ctx not in connected_contexts(), 10.0)
-            baseline = connected_contexts()
             _launch("about:blank", headless=headless)
-            found: List[str] = []
 
-            def new_context() -> bool:
+            def connected() -> bool:
                 if not is_running() and not watcher_running():
                     from .result import UPSTREAM_BROKEN, ReachError
                     raise ReachError(UPSTREAM_BROKEN, "The dedicated browser exited before its extension connected",
                                      hint=f"Browser launch failed; inspect {watcher_log_path()}. No login was requested.")
-                found[:] = [c for c in connected_contexts() if c not in baseline]
-                return len(found) == 1
+                return bind()["status"] == "ready"
 
-            if not wait_for(new_context, _remaining_start_wait(), interval=0.5):
+            if not wait_for(connected, _remaining_start_wait(), interval=0.5):
                 from .result import UPSTREAM_BROKEN, ReachError
 
-                if found:
-                    raise _ambiguous(found)
                 raise ReachError(
                     UPSTREAM_BROKEN, "the OpenCLI extension did not connect to OpenCLI in the Agent Reach browser",
                     hint=f"Details: {watcher_log_path()}. Check `opencli profile list` works.",
                 )
-            update_state(opencli_context=found[0], baseline=None)
         touch()
         return status()
 
@@ -883,8 +875,9 @@ def _setup_from_store() -> dict:
                 NEED_SETUP, "waiting for the OpenCLI extension in the Agent Reach browser",
                 hint="Ask the user to click 'Add to Chrome' in the window that just opened, then run `agent-reach browser setup` again.",
             )
-    if result["status"] == "ambiguous":
-        raise _ambiguous(result["candidates"])
+    if result["status"] != "ready":
+        raise ReachError(NEED_SETUP, "waiting for the OpenCLI extension in the Agent Reach browser",
+                         hint="Run `agent-reach browser setup` again after the extension is added.")
     return status()
 
 
