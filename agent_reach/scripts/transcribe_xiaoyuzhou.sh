@@ -98,7 +98,11 @@ MAX_AUDIO_BYTES=1073741824
 MAX_API_RESPONSE_BYTES=33554432
 MAX_DURATION_SECONDS=10800
 
-TEMP_ROOT="${TMPDIR:-/tmp}"
+TEMP_ROOT="${TMPDIR:-$HOME/.agent-reach/tmp}"
+if command -v cygpath >/dev/null 2>&1; then
+    TEMP_ROOT=$(cygpath -u "$TEMP_ROOT")
+fi
+mkdir -p -- "$TEMP_ROOT" || exit 1
 if ! WORK_DIR=$(mktemp -d "${TEMP_ROOT%/}/agent-reach-xiaoyuzhou.XXXXXX"); then
     echo "❌ 无法创建临时目录" >&2
     exit 1

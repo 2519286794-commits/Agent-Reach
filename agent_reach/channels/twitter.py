@@ -8,15 +8,14 @@ from agent_reach.utils.url import host_matches
 from .base import Action, Channel, Param
 
 _TWITTER_LOGIN_HINT = (
-    "Ask the user to log in to x.com in their own Chrome (the one with the "
-    "OpenCLI extension). Never log in or read browser cookies for them."
+    "Ask the user to log in to x.com in the Agent Reach dedicated browser. Never log in on their behalf."
 )
 
 
 def _x(args, timeout: float) -> list:
     items = opencli_items(opencli_call("twitter", list(args), timeout=timeout, login_hint=_TWITTER_LOGIN_HINT))
     if not items:
-        raise ReachError(UPSTREAM_BROKEN, "OpenCLI returned nothing; the page most likely did not load")
+        raise ReachError(UPSTREAM_BROKEN, "OpenCLI finished but returned no items")
     return items
 
 
@@ -32,9 +31,9 @@ class TwitterChannel(Channel):
     prereqs = ("node", "chrome")
 
     def setup_problems(self):
-        from agent_reach.runtime.browser import setup_problems
+        from agent_reach.runtime.browser_binding import setup_problems
 
-        return setup_problems()
+        return setup_problems(self.name)
 
     actions = (
         Action(
@@ -46,6 +45,7 @@ class TwitterChannel(Channel):
             ),
             (("opencli", "_opencli_search"),),
             live_test={"query": "openai", "limit": 2},
+            public_web=("x.com/", "twitter.com/"),
         ),
         Action(
             "profile",
@@ -78,6 +78,7 @@ class TwitterChannel(Channel):
 
     def _opencli_search(self, *, query: str, limit: int, timeout: float) -> list:
         return _x(["search", query, "--limit", str(limit)], timeout)[:limit]
+
 
     def _opencli_profile(self, *, username: str, timeout: float) -> list:
         return _x(["profile", username.lstrip("@")], timeout)[:1]

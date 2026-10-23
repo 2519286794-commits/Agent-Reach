@@ -5,8 +5,10 @@ This channel is a fallback: agents that already have working built-in web
 search / fetch should use those first.
 """
 
+import http.client
 import json
 import re
+import time
 import urllib.request
 
 from agent_reach.runtime.result import (
@@ -26,6 +28,24 @@ _MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 _ANTIBOT_SCAN_BYTES = 4096
 _EXA_MCP = "https://mcp.exa.ai/mcp"
 _EXA_HEADER_RE = re.compile(r"^(Title|URL|Published|Author):\s*(.*)$")
+_EXA_LIMIT_RE = re.compile(
+    r"\b429\b|rate[ _-]?limit|too many requests|\bquota\b|"
+    r"(?:usage|request|daily|monthly|free)[ _-]+limit|"
+    r"(?:credit|credits|balance).{0,40}(?:exhaust|deplet|insufficient|exceed|reach)|"
+    r"(?:out of|insufficient|exhausted).{0,20}credits?",
+    re.IGNORECASE,
+)
+
+
+def _exa_error(text: str, rpc_code=None) -> ReachError:
+    if rpc_code in (-32602, "-32602"):
+        return ReachError(BAD_INPUT, f"Exa rejected the arguments: {text[:300]}")
+    if rpc_code in (429, "429") or _EXA_LIMIT_RE.search(text):
+        return ReachError(
+            RATE_LIMITED, f"Exa: {text[:300]}",
+            hint="Exa's hosted search limit was reached. Use the agent's built-in web search or wait before retrying.",
+        )
+    return ReachError(UPSTREAM_BROKEN, f"Exa: {text[:300]}")
 
 
 def _is_antibot_page(body: bytes) -> bool:
@@ -59,23 +79,28 @@ def _exa_call(tool: str, arguments: dict, timeout: float) -> str:
     body = json.dumps(
         {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
     ).encode("utf-8")
-    raw = http_request(
-        _EXA_MCP,
-        timeout=timeout,
-        data=body,
-        headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
-    ).decode("utf-8", errors="replace")
+    started = time.monotonic()
+    for attempt in range(2):
+        try:
+            raw = http_request(
+                _EXA_MCP, timeout=max(0.1, timeout - (time.monotonic() - started)), data=body,
+                headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
+            ).decode("utf-8", errors="replace")
+            break
+        except http.client.IncompleteRead:
+            # Read-only provider requests: one retry for a truncated transport,
+            # within the original budget. Never retry HTTP 429/403 or tool errors.
+            if attempt or time.monotonic() - started >= timeout:
+                raise
     payloads = [ln[5:].strip() for ln in raw.splitlines() if ln.startswith("data:")] or [raw]
     msg = json.loads(payloads[-1])
     if "error" in msg:
         text = str(msg["error"].get("message", msg["error"]))
-        code = RATE_LIMITED if "rate" in text.lower() or "limit" in text.lower() else UPSTREAM_BROKEN
-        raise ReachError(code, f"Exa: {text}")
+        raise _exa_error(text, msg["error"].get("code"))
     result = msg.get("result") or {}
     text = "\n".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
     if result.get("isError"):
-        code = RATE_LIMITED if "rate" in text.lower() else UPSTREAM_BROKEN
-        raise ReachError(code, f"Exa: {text[:300]}")
+        raise _exa_error(text)
     return text
 
 
@@ -178,7 +203,12 @@ class WebChannel(Channel):
 
     def _exa_search(self, *, query: str, limit: int, timeout: float) -> list:
         text = _exa_call("web_search_exa", {"query": query, "objective": query, "numResults": limit}, timeout)
-        return _parse_exa_text(text)[:limit]
+        items = _parse_exa_text(text)
+        if not items:
+            # Do not report an unrecognized response as a successful zero-hit
+            # search. The hosted MCP does not give us a verified empty schema.
+            raise ReachError(UPSTREAM_BROKEN, "Exa returned no recognizable search results")
+        return items[:limit]
 
     def _exa_read(self, *, target: str, timeout: float) -> list:
         url = _public_url(target)

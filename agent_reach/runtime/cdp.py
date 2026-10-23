@@ -74,9 +74,13 @@ def _send(sock: socket.socket, text: str) -> None:
     sock.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
 
 
-def call(method: str, params: Optional[dict] = None) -> Optional[dict]:
+def call(method: str, params: Optional[dict] = None, *, page: bool = False,
+         target_id: Optional[str] = None) -> Optional[dict]:
     """One browser-level CDP call; returns `result` or None if unreachable."""
-    ws = (_json("/json/version") or {}).get("webSocketDebuggerUrl")
+    target = (next((t for t in (_json("/json/list") or []) if
+                    (t.get("id") == target_id if target_id else t.get("type") == "page")), {})
+              if page or target_id else (_json("/json/version") or {}))
+    ws = target.get("webSocketDebuggerUrl")
     if not ws:
         return None
     u = urlparse(ws)
@@ -124,6 +128,20 @@ def cookies(domain: str) -> List[dict]:
     return [c for c in result.get("cookies", []) if domain_matches(c.get("domain", ""), domain)]
 
 
+def extension_value(key: str) -> Optional[str]:
+    """A string an extension saved in `chrome.storage.local` inside the dedicated browser, or None."""
+    expr = f"chrome.storage.local.get({json.dumps(key)}).then(r => r[{json.dumps(key)}] || null)"
+    for target in _json("/json/list") or []:
+        if target.get("type") != "service_worker" or not target.get("url", "").startswith("chrome-extension://"):
+            continue
+        result = call("Runtime.evaluate", {"expression": expr, "awaitPromise": True, "returnByValue": True},
+                      target_id=target.get("id"))
+        value = ((result or {}).get("result") or {}).get("value")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 class PipeConnection:
     """CDP over `--remote-debugging-pipe`: NUL-delimited JSON, we write `wfd`, read `rfd`.
 
@@ -155,8 +173,8 @@ class PipeConnection:
                     except ValueError:
                         continue
                     with self._lock:
-                        msg_id = msg.get("id") if isinstance(msg, dict) else None
-                        slot = self._waiting.get(msg_id) if isinstance(msg_id, int) else None
+                        message_id = msg.get("id") if isinstance(msg, dict) else None
+                        slot = self._waiting.get(message_id) if isinstance(message_id, int) else None
                     if slot is not None:
                         slot.append(msg)
                         slot[0].set()

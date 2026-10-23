@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Instagram — OpenCLI backend using the user's logged-in Chrome session."""
+"""Instagram users, profiles and posts through OpenCLI in the shared Agent Reach browser."""
 
 from ._opencli_site import OpenCLISiteChannel
 from .base import Action, Param

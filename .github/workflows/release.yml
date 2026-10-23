@@ -35,6 +35,9 @@ jobs:
           pip install -c constraints.txt -e ".[dev]"
           pytest -q
 
+      - name: Require real channel acceptance for this source
+        run: python scripts/check_release_acceptance.py
+
       - name: Build and smoke-install the wheel
         run: |
           python -m pip install build
@@ -43,6 +46,12 @@ jobs:
           /tmp/smoke/bin/pip install --quiet dist/*.whl
           /tmp/smoke/bin/agent-reach version
           /tmp/smoke/bin/agent-reach channels > /dev/null
+          # Fixed name so docs can always point at
+          # releases/latest/download/agent-reach.zip instead of a version number.
+          git archive --format=zip --prefix=agent-reach/ -o dist/agent-reach.zip HEAD
+          python -m venv /tmp/smoke-zip
+          /tmp/smoke-zip/bin/pip install --quiet dist/agent-reach.zip
+          /tmp/smoke-zip/bin/agent-reach version
 
       - name: Release notes from CHANGELOG
         run: |

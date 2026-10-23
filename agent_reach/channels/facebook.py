@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Facebook — OpenCLI backend using the user's logged-in Chrome session."""
+"""Facebook search and profiles through OpenCLI in the shared Agent Reach browser."""
 
 from ._opencli_site import OpenCLISiteChannel
 from .base import Action, Param
@@ -25,6 +25,7 @@ class FacebookChannel(OpenCLISiteChannel):
             ),
             (("opencli", "_opencli_search"),),
             live_test={"query": "openai", "limit": 2},
+            public_web=("facebook.com/",),
         ),
         Action(
             "profile",

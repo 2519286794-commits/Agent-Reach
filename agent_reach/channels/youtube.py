@@ -7,17 +7,17 @@ import os
 import re
 import shutil
 import sys
-import tempfile
 
 from agent_reach.runtime.result import (
     BAD_INPUT,
-    NEED_LOGIN,
     NOT_FOUND,
+    PLATFORM_BLOCKED,
     RATE_LIMITED,
     ReachError,
     make_item,
 )
 from agent_reach.runtime.run import CommandFailed, run_cmd
+from agent_reach.utils.paths import private_temporary_directory
 
 from .base import Action, Channel, Param
 
@@ -54,11 +54,11 @@ def _run_ytdlp(args: list, timeout: float, cwd=None) -> str:
         err = exc.stderr.lower()
         if any(s in err for s in ("video unavailable", "private video", "has been removed", "does not exist")):
             raise ReachError(NOT_FOUND, exc.message) from None
-        if "sign in to confirm" in err:
+        if "sign in to confirm" in err or "not a bot" in err:
             raise ReachError(
-                NEED_LOGIN,
+                PLATFORM_BLOCKED,
                 exc.message,
-                hint="YouTube is asking for a bot check. Ask the user whether to configure YouTube cookies; never sign in for them.",
+                hint="YouTube returned a verification challenge. Stop this request; this does not establish that the public video requires login.",
             ) from None
         if "429" in err or "too many requests" in err:
             raise ReachError(RATE_LIMITED, exc.message) from None
@@ -176,7 +176,7 @@ class YouTubeChannel(Channel):
     def _ytdlp_subtitle(self, *, target: str, lang: str, timeout: float) -> list:
         url = _video_url(target)
         wanted = [x.strip() for x in lang.split(",") if x.strip()]
-        with tempfile.TemporaryDirectory(prefix="agent-reach-subs-") as tmp:
+        with private_temporary_directory(prefix="agent-reach-subs-") as tmp:
             out = _run_ytdlp(
                 [
                     "--skip-download", "--no-simulate",

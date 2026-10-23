@@ -6,11 +6,10 @@ Management commands: setup, add, remove, login, logout, browser, skill, doctor,
 
 Everything prints one JSON object to stdout so agents never parse prose; logs
 go to stderr. Exit code 0 = ok, 1 = error. Exceptions for humans: `help`, and
-`--text` on doctor / check. `login` shows the upstream's interactive
+`--text` on setup / doctor / check. `login` shows the upstream's interactive
 output (QR codes, prompts) on stderr so stdout still carries only the JSON.
 
-When a newer release is known (cached by a background check at most once a
-day, never waited on), every JSON object carries meta.update = {current, latest, notes}.
+When a newer release is known (cached by an explicit update --check), every JSON object carries meta.update = {current, latest, notes}.
 """
 
 from __future__ import annotations
@@ -48,16 +47,19 @@ For agents:
   agent-reach channels                    list channels, actions, params
   agent-reach <channel> <action> [args]   e.g. agent-reach bilibili search python
   agent-reach read <url>                  read a link with the matching channel
+  Search/read try declared public web routes first; --backend selects a site tool
+  --backend public-web                  public access only; no browser fallback
 
 For the user:
-  agent-reach setup                       first run: install the default channels and the agent skill
-  agent-reach add <channel>               add a channel; installs everything it needs, opens its login
+  agent-reach setup [--text]              install defaults and skill; --text displays the capability tables
+  agent-reach add <channel>               install channel dependencies and prepare its browser
   agent-reach remove <channel>            remove a channel (defaults too) and what only it used
   agent-reach login|logout <channel>      log in (the user does it) / forget the login
-  agent-reach browser setup|status        the Agent Reach browser for browser-login channels
+  agent-reach browser setup|status|stop   headless shared browser; login opens a window
+  agent-reach browser profiles|use ID    choose an existing local login source
   agent-reach skill [link <skills-dir>]   where the agent skill is; link it for another AI
   agent-reach doctor [--text]             status of every channel and installed tool versions (no network)
-  agent-reach check [channel] [--text]    live-test channels
+  agent-reach check [channel] [--text]    live-test channels; --search tests search/jobs only
   agent-reach update [--check]            upgrade Agent Reach, every added channel's tools and the skill
   agent-reach configure <key> [value]     groq-key | openai-key | proxy | github-token
   agent-reach uninstall [--dry-run]       remove everything Agent Reach installed
@@ -131,6 +133,8 @@ def _parse_action_args(action: Action, args: Sequence[str]) -> Dict[str, object]
             parser.add_argument(p.name, nargs="+" if p.type is str else None)
         else:
             parser.add_argument(f"--{p.name}", dest=p.name, default=None)
+    parser.add_argument("--backend", choices=[b[0] for b in action.backends] +
+                        (["public-web"] if action.public_web else []), default=None)
     parser.add_argument("--timeout", type=float, default=action.timeout or DEFAULT_TIMEOUT)
     ns = vars(parser.parse_args(list(args)))
     for p in action.params:
@@ -152,12 +156,14 @@ def _cmd_action(channel: Channel, args: Sequence[str]) -> int:
     except _ArgError as exc:
         return _bad_input(channel.name, action.name, f"{exc}; usage: {_usage(channel, action)}")
     timeout = cast(float, ns.pop("timeout"))
-    return _emit(run_action(channel, action.name, ns, timeout=timeout))
+    backend = cast(Optional[str], ns.pop("backend"))
+    return _emit(run_action(channel, action.name, ns, timeout=timeout, only_backend=backend))
 
 
 def _cmd_read(args: Sequence[str]) -> int:
     parser = _Parser(prog="read", add_help=False)
     parser.add_argument("url")
+    parser.add_argument("--backend", default=None)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     try:
         ns = parser.parse_args(list(args))
@@ -166,10 +172,12 @@ def _cmd_read(args: Sequence[str]) -> int:
     readers = [ch for ch in unified_channels() if find_action(ch, "read")]
     specific = [ch for ch in readers if ch.name != "web"]
     target = next((ch for ch in specific if ch.can_handle(ns.url)), None)
+    if target is not None and target.name == "reddit" and ns.backend in ("jina", "exa"):
+        target = next((ch for ch in readers if ch.name == "web"), None) or target
     target = target or next((ch for ch in readers if ch.name == "web"), None)
     if target is None:
         return _bad_input(None, "read", "no channel can read this URL")
-    return _emit(run_action(target, "read", {"target": ns.url}, timeout=ns.timeout))
+    return _emit(run_action(target, "read", {"target": ns.url}, timeout=ns.timeout, only_backend=ns.backend))
 
 
 def _cmd_channels(_args: Sequence[str]) -> int:
@@ -197,6 +205,7 @@ def _cmd_channels(_args: Sequence[str]) -> int:
                             for p in a.params
                         ],
                         "backends": [label for label, _ in a.backends],
+                        "public_web": list(a.public_web),
                     }
                     for a in ch.actions
                 ],
@@ -222,9 +231,10 @@ def _cmd_check(args: Sequence[str]) -> int:
     parser.add_argument("channels", nargs="*")
     parser.add_argument("--text", action="store_true")
     parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--search", action="store_true", help="Verify search/jobs through the normal route only")
     try:
         ns = parser.parse_args(list(args))
-        out = manage.run_checks(ns.channels or None, timeout=ns.timeout)
+        out = manage.run_checks(ns.channels or None, timeout=ns.timeout, search_only=ns.search)
     except _ArgError as exc:
         return _bad_input(None, "check", str(exc))
     except ReachError as err:
@@ -283,7 +293,9 @@ def _cmd_management(head: str, args: Sequence[str]) -> int:
     from . import manage
 
     parser = _Parser(prog=head, add_help=False)
-    if head in ("add", "remove"):
+    if head == "setup":
+        parser.add_argument("--text", action="store_true")
+    elif head in ("add", "remove"):
         parser.add_argument("channel")
         if head == "add":
             parser.add_argument("--allow-upgrade", action="store_true")
@@ -301,6 +313,19 @@ def _cmd_management(head: str, args: Sequence[str]) -> int:
     except _ArgError as exc:
         return _bad_input(None, head, str(exc))
     if head == "setup":
+        if ns.text:
+            try:
+                result = manage.setup()
+            except ReachError as err:
+                sys.stdout.write(f"安装未完成：{err.code} {err.message}\n{err.hint or ''}\n")
+                return 1
+            sys.stdout.write(result['installation_report']['markdown'])
+            report = result['installation_report']
+            if report.get('path'):
+                sys.stdout.write(f"\n完整报告已保存：{report['path']}\n")
+            if report.get('write_error'):
+                sys.stdout.write(f"\n{report['write_error']}\n")
+            return 0 if all(row['ok'] for row in result['default_channels']) else 1
         return _mgmt(head, manage.setup)
     if head == "add":
         return _mgmt(head, manage.add, ns.channel, allow_upgrade=ns.allow_upgrade)
@@ -315,7 +340,12 @@ def _cmd_management(head: str, args: Sequence[str]) -> int:
     if head == "configure":
         value = ns.value
         if ns.stdin:
-            value = sys.stdin.read().strip()
+            if sys.stdin.isatty() and ns.key.endswith("-key"):
+                import getpass
+
+                value = getpass.getpass(f"{ns.key}: ").strip()
+            else:
+                value = sys.stdin.read().strip()
         elif value is None and sys.stdin.isatty():
             import getpass
 
@@ -326,6 +356,13 @@ def _cmd_management(head: str, args: Sequence[str]) -> int:
 
 def _apply_saved_proxy() -> None:
     """Use the proxy saved by `configure proxy` unless the shell already sets one."""
+    # Local browser/MCP endpoints must never be sent through the outbound proxy.
+    bypass = list(dict.fromkeys(x.strip() for key in ("NO_PROXY", "no_proxy")
+                               for x in os.environ.get(key, "").split(",") if x.strip()))
+    for host in ("localhost", "127.0.0.1", "::1"):
+        if host not in bypass:
+            bypass.append(host)
+    os.environ["NO_PROXY"] = os.environ["no_proxy"] = ",".join(bypass)
     if os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"):
         return
     try:
@@ -356,7 +393,7 @@ def _login_channel(cmd: str, args: Sequence[str]):
     ch = _channel(ns.channel)
     if ch is None:
         raise _ArgError(f"unknown channel: {ns.channel}")
-    if cmd == "logout" and not (ch.session or ch.logout_keys):
+    if cmd == "logout" and not (ch.session or ch.logout_keys or ch.login_url):
         hint = " Log out in the Agent Reach browser window instead." if ch.login_url else ""
         raise _ArgError(f"{ch.name} has no login state managed by Agent Reach.{hint}")
     if cmd == "login" and not (ch.session or ch.login_url):
@@ -369,6 +406,9 @@ def _cmd_login(args: Sequence[str]) -> int:
         ch, ns = _login_channel("login", args)
     except _ArgError as exc:
         return _bad_input(None, "login", str(exc))
+    if ns.import_existing and ch.login_url:
+        from . import session_reuse
+        return _mgmt("reuse login", session_reuse.prepare, ch.name, force=True)
     if ns.import_existing and ch.session:
         copied = import_legacy_state(ch.session, ch.legacy_state)
         if copied:
@@ -376,7 +416,13 @@ def _cmd_login(args: Sequence[str]) -> int:
                                   items=[{"imported": copied}]))
     if ch.login_url and not ns.sync:
         try:
-            browser.start(ch.login_url)
+            from . import manage
+            manage.add(ch.name)
+            from .browser_binding import exclusive_browser
+            with exclusive_browser():  # opening the window may restart the browser
+                browser.start(ch.login_url)
+            from . import state
+            state.mutate(lambda data: data.setdefault("session_reuse", {}).__setitem__(ch.name, {"source": "manual", "at": state.now()}))
         except ReachError as err:
             return _emit(envelope(channel=ch.name, action="login", error=err))
         from . import manage
@@ -409,6 +455,8 @@ def _cmd_login(args: Sequence[str]) -> int:
     if code != 0 or not has_login_state(ch.session):
         return _emit(envelope(channel=ch.name, action="login",
                               error=ReachError(UPSTREAM_BROKEN, f"login did not complete (exit {code})")))
+    from . import state
+    state.mutate(lambda data: data.setdefault("session_reuse", {}).__setitem__(ch.name, {"source": "manual", "at": state.now()}))
     return _emit(envelope(channel=ch.name, action="login", backend=ch.session, items=[{"logged_in": True}]))
 
 
@@ -418,6 +466,21 @@ def _cmd_logout(args: Sequence[str]) -> int:
     except _ArgError as exc:
         return _bad_input(None, "logout", str(exc))
     removed = clear_session(ch.session) if ch.session else False
+    if ch.login_url:
+        from . import manage, state
+        browser.clear_site(manage.site_domains(ch))
+        # Retired per-site snapshots must not revive a login after logout.
+        legacy = state.root() / "sessions" / (ch.name + "-cloak")
+        if state.owned_path(legacy):
+            manage._remove(legacy)
+        def forget(saved):
+            saved["checks"].pop(ch.name, None)
+            saved.setdefault("session_reuse", {})[ch.name] = {"blocked": True, "at": state.now()}
+            saved.get("reuse_sources", {}).pop(ch.name, None)
+            saved.setdefault("session_migrations", {})[ch.name] = {"at": state.now(), "logged_out": True}
+            saved.setdefault("session_revisions", {})[ch.name] = state.now()
+        state.mutate(forget)
+        removed = True
     if ch.logout_keys:
         from agent_reach.config import Config
 
@@ -426,23 +489,41 @@ def _cmd_logout(args: Sequence[str]) -> int:
             if cfg.get(key):
                 cfg.delete(key)
                 removed = True
+    if not ch.login_url:
+        from . import state
+        state.mutate(lambda data: data.setdefault("session_reuse", {}).__setitem__(ch.name, {"blocked": True, "at": state.now()}))
     return _emit(envelope(channel=ch.name, action="logout", backend=ch.session or "config", items=[{"removed": removed}]))
 
 
 def _cmd_browser(args: Sequence[str]) -> int:
     parser = _Parser(prog="browser", add_help=False)
-    parser.add_argument("op", choices=("setup", "status"))
+    parser.add_argument("op", choices=("setup", "status", "stop", "profiles", "use"))
+    parser.add_argument("--retry-cloak", action="store_true")
+    parser.add_argument("profile", nargs="?")
     try:
         ns = parser.parse_args(list(args))
+        if ns.retry_cloak and ns.op != "setup":
+            raise _ArgError("--retry-cloak applies only to browser setup")
+        if ns.op in ("profiles", "use"):
+            from . import session_reuse
+            if ns.op == "use":
+                if not ns.profile:
+                    raise _ArgError("browser use requires a connected profile ID")
+                return _mgmt("browser use", session_reuse.use, ns.profile)
+            return _mgmt("browser profiles", lambda: {"profiles": session_reuse.profiles()})
+        if ns.profile:
+            raise _ArgError("a profile ID applies only to browser use")
+        if ns.op in ("setup", "stop"):
+            from .browser_binding import exclusive_browser
+            def run(fn, **kw):
+                with exclusive_browser():
+                    return fn(**kw)
+            if ns.op == "setup":
+                return _mgmt("browser setup", run, browser.setup, retry_cloak=ns.retry_cloak)
+            return _mgmt("browser stop", run, browser.stop)
+        return _mgmt("browser " + ns.op, getattr(browser, ns.op))
     except _ArgError as exc:
-        return _bad_input(None, "browser", f"{exc}; usage: agent-reach browser setup|status")
-    action = f"browser {ns.op}"
-    try:
-        item = browser.setup() if ns.op == "setup" else browser.status()
-    except ReachError as err:
-        return _emit(envelope(channel=None, action=action, error=err))
-    return _emit(envelope(channel=None, action=action, backend="agent-reach-browser", items=[item]))
-
+        return _bad_input(None, "browser", str(exc))
 
 
 def main(argv: Sequence[str]) -> int:
@@ -451,12 +532,10 @@ def main(argv: Sequence[str]) -> int:
     if not argv or argv[0] in ("help", "-h", "--help"):
         sys.stdout.write(HELP)
         return 0
-    from . import tools, update_notice
+    from . import tools
 
     tools.extend_path()
     _SHOW_NOTICE = argv[0] != "update"
-    if argv[0] not in ("update", "uninstall"):
-        update_notice.maybe_refresh()
     _apply_saved_proxy()
     head, rest = argv[0], argv[1:]
     if head == "channels":

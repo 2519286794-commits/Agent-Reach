@@ -11,7 +11,6 @@ import json
 import os
 import re
 import shutil
-import time
 
 import pytest
 
@@ -89,6 +88,9 @@ def _fake_version(exe):
 
 @pytest.fixture
 def env(monkeypatch):
+    # A private npm fixture exercises dependency installation without shipping MCP.
+    monkeypatch.setitem(tools.TOOLS, "mcporter", tools.Tool("mcporter", "npm", "mcporter", ("mcporter",), needs=("node",)))
+    monkeypatch.setitem(tools._BY_COMMAND, "mcporter", tools.TOOLS["mcporter"])
     monkeypatch.setenv("PATH", os.environ.get("PATH", ""))  # cli.main extends PATH; restore it
     chans = [Web(), Vid(), Bili(), Bili2(), Needy(), Site(), Site2(), Linky()]
     monkeypatch.setattr(manage, "_channels", lambda: chans)
@@ -99,7 +101,7 @@ def env(monkeypatch):
 
     def fake_install(tool, *, global_=False):
         installs.append(tool.name)
-        version = versions.get(tool.name, "1.2.3")
+        version = versions.get(tool.name, "1.8.7" if tool.name == "opencli" else "1.2.3")
         if tool.kind in ("pip", "ffmpeg"):
             shutil.rmtree(tools.tool_dir(tool.name) / "venv", ignore_errors=True)  # as the real installer
         paths = ([tools._npm_global_bin() / (c + (".cmd" if tools._WIN else "")) for c in tool.commands] if global_
@@ -171,9 +173,10 @@ def test_old_record_without_version_gets_one_without_reinstall(env):
     assert env["installs"] == ["bili-cli"]
 
 
-def test_install_spec_is_unpinned_and_honours_floor_and_exclude():
-    assert tools.install_spec(tools.TOOLS["bili-cli"]) == "bilibili-cli"
-    assert "git+" not in tools.install_spec(tools.TOOLS["boss-agent-cli"])
+def test_install_spec_uses_tested_versions_or_floor_and_exclude():
+    assert tools.install_spec(tools.TOOLS["bili-cli"]) == "bilibili-cli==0.6.2"
+    spec = tools.install_spec(tools.TOOLS["boss-agent-cli"])
+    assert "git+" not in spec and spec.endswith("/4c991b77086a203173bf08a4cb64a23af6514fe6.zip")
     assert tools.install_spec(tools.Tool("y", "pip", "pkg", ("y",), floor="1.0", exclude=("1.5",))) == "pkg>=1.0,!=1.5"
     npm = tools.Tool("x", "npm", "pkg", ("x",), floor="1.0.0", exclude=("1.2.0", "1.1.0"))
     assert tools.install_spec(npm) == "pkg@>=1.0.0 <1.1.0 || >1.1.0 <1.2.0 || >1.2.0"
@@ -184,7 +187,7 @@ def test_install_spec_is_unpinned_and_honours_floor_and_exclude():
     "user_version, allow, expect_install, expect_owner, expect_version",
     [("1.9.0", False, [], "user", "1.9.0"),
      ("1.8.0", True, [("user-upgrade", "opencli")], "user", "1.9.0"),
-     (None, False, ["opencli"], "agent-reach", "1.2.3")],
+     (None, False, ["opencli"], "agent-reach", "1.8.7")],
 )
 def test_singleton_reuses_user_copy_and_upgrades_only_with_consent(
     env, user_version, allow, expect_install, expect_owner, expect_version
@@ -239,18 +242,20 @@ def test_npm_tool_gets_private_node_first(env):
     assert "agent-reach login linky" in out["next"]
 
 
-def test_browser_channel_add_opens_login_and_remove_cleans_up(env):
+def test_browser_channel_add_never_opens_login_and_explicit_dedicated_remove_cleans_up(env):
     out = manage.add("site")
     assert "ensure_chrome" in env["calls"]
-    assert env["calls"][-2:] == ["setup", ("start", "https://www.site.example/login")]
-    assert isinstance(out["next"], str) and "logs in" in out["next"]
+    assert env["calls"] == ["ensure_chrome", "setup"]
+    assert "If access requires login" in out["next"] and "agent-reach login site" in out["next"]
+    assert out["capability_summary"]["channels"][0]["reach_status"] == "unverified"
     manage.add("site2")
     browser.profile_dir().mkdir(parents=True)
     first = manage.remove("site")
     assert ("clear_site", ("site.example",)) in env["calls"] and first["cleared_cookies"] == 3
     assert first["removed_tools"] == [] and "delete_profile" not in env["calls"]
     last = manage.remove("site2")
-    assert "delete_profile" in env["calls"] and last["browser_deleted"] is True
+    assert ("clear_site", ("site.example",)) in env["calls"]
+    assert "delete_profile" not in env["calls"] and last["browser_deleted"] is False
     assert set(last["removed_tools"]) == {"opencli", "node"}
     assert state.load()["tools"] == {}
     assert not tools.tool_dir("node").exists()
@@ -290,7 +295,7 @@ def test_sync_upgrades_prunes_drops_and_reports(env):
     data = state.load()
     data["tools"]["old-tool"] = {"owner": "agent-reach", "scope": "private", "version": "0.1.0"}
     data["tools"]["user-thing"] = {"owner": "user", "scope": "global", "version": "1.0.0"}
-    data["channels"]["gone"] = {"added_at": "2026-01-01T00:00:00Z"}
+    data["channels"]["xiaoyuzhou"] = {"added_at": "2026-01-01T00:00:00Z"}
     data["checks"]["bili"] = {"at": state.now(), "actions": {"search": False}, "codes": {"search": "NEED_LOGIN"},
                               "previous": {"search": True}}
     state.save(data)
@@ -301,8 +306,8 @@ def test_sync_upgrades_prunes_drops_and_reports(env):
     assert set(state.load()["tools"]) == {"bili-cli"}, "records of unused user copies are dropped, the copies kept"
     assert state.load()["tools"]["bili-cli"]["version"] == "2.0.0"
     assert env["installs"].count("bili-cli") == 2, "shared tools upgrade once per sync"
-    assert out["dropped_channels"] == ["gone"] and "gone" not in state.load()["channels"]
-    assert any("gone" in a for a in out["user_actions"])
+    assert out["dropped_channels"] == ["xiaoyuzhou"] and "xiaoyuzhou" not in state.load()["channels"]
+    assert any("xiaoyuzhou" in a for a in out["user_actions"])
     assert any("log in to bili" in a for a in out["user_actions"]), "a login that worked before and now fails"
 
 
@@ -330,14 +335,92 @@ def test_upgrade_reinstalls_the_release_with_uv():
     assert cmd[:4] == ["uv", "tool", "install", "--force"] and cmd[-1].endswith("/v2.0.1.zip")
 
 
-def test_update_from_a_non_uv_install_asks_for_one_uv_reinstall(monkeypatch):
+def test_update_from_a_non_uv_install_moves_itself_to_uv(env, monkeypatch, tmp_path):
     monkeypatch.setattr(manage, "update_check", lambda: {"current": "2.0.0", "latest": "2.0.1",
                                                          "update_available": True})
     monkeypatch.setattr(manage, "install_method", lambda: "other")
-    monkeypatch.setattr(manage.subprocess, "run", lambda *a, **k: pytest.fail("must not run an installer"))
-    with pytest.raises(ReachError) as info:
-        manage.update()
-    assert "uv tool install --force" in info.value.hint
+    monkeypatch.setattr(manage.tools, "resolve", lambda c: "/fake/uv" if c == "uv" else None)
+    calls = []
+
+    class Done:
+        def __init__(self, stdout=""):
+            self.returncode, self.stdout, self.stderr = 0, stdout, ""
+
+    exe = tmp_path / ("agent-reach.exe" if os.name == "nt" else "agent-reach")
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        if cmd[1:4] == ["tool", "dir", "--bin"]:
+            return Done(str(tmp_path))
+        if cmd[0] == str(exe):
+            return Done(json.dumps({"ok": True, "result": {"user_actions": ["log in to x"],
+                                                           "installation_report": {"markdown": "r"}}}))
+        return Done()
+
+    monkeypatch.setattr(manage.subprocess, "run", run)
+    out = manage.update()
+    assert calls[0][:4] == ["/fake/uv", "tool", "install", "--force"] and calls[0][-1].endswith("/v2.0.1.zip")
+    assert calls[2] == [str(exe), "setup"]  # no state yet: the new copy sets itself up
+    assert out["upgraded"] and out["installation_report"] == {"markdown": "r"}
+    assert "log in to x" in out["user_actions"]
+
+
+def test_migration_suggests_channels_from_the_old_config(env):
+    (state.root()).mkdir(parents=True, exist_ok=True)
+    (state.root() / "config.yaml").write_text("twitter_auth_token: t\nxueqiu_cookie: c\n")
+    result = manage.migrate()
+    assert result["suggested_channels"] == ["twitter", "xueqiu"]
+    assert result["retired_channels"] == ["rss", "exa_search"]
+    assert state.load()["migration"] == result
+
+
+def test_upgrade_report_explains_the_move_from_1_5():
+    from agent_reach.runtime import onboarding
+    assert onboarding._upgrade_lines({"migration": None}) == []
+    text = "\n".join(onboarding._upgrade_lines({
+        "migration": {"suggested_channels": ["twitter"]},
+        "old_copies": {"removed": [], "failed": [{"kind": "pipx", "path": "/x"}]}}))
+    assert "1.5" in text and "X / Twitter" in text and "pipx uninstall agent-reach" in text
+
+
+def _old_venv(root):
+    site = root / ("Lib/site-packages" if os.name == "nt" else "lib/python3.12/site-packages")
+    (site / "agent_reach").mkdir(parents=True)
+    return root
+
+
+def test_old_pipx_copy_and_its_launcher_are_removed(monkeypatch, tmp_path):
+    from agent_reach.runtime import legacy
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("PIPX_HOME", raising=False)
+    monkeypatch.delenv("PIPX_BIN_DIR", raising=False)
+    monkeypatch.setattr(legacy, "_pipx_reported_venvs", lambda: "")
+    venv = _old_venv(tmp_path / ".local" / "pipx" / "venvs" / "agent-reach")
+    (venv / "bin").mkdir()
+    (venv / "bin" / "agent-reach").write_text("")
+    shim = tmp_path / ".local" / "bin" / "agent-reach"
+    shim.parent.mkdir(parents=True)
+    if os.name != "nt":  # pipx links its launcher on macOS/Linux; on Windows uv overwrites the copy
+        shim.symlink_to(venv / "bin" / "agent-reach")
+    (tmp_path / ".agent-reach-venv").mkdir()  # a venv without Agent Reach is not ours to touch
+    assert [i["kind"] for i in legacy.find()] == ["pipx"]
+    out = legacy.remove()
+    assert len(out["removed"]) == 1 and not venv.exists() and not shim.is_symlink()
+    assert (tmp_path / ".agent-reach-venv").is_dir()
+
+
+def test_old_shared_venv_only_loses_agent_reach(monkeypatch, tmp_path):
+    from agent_reach.runtime import legacy
+    monkeypatch.setattr(legacy, "_pipx_reported_venvs", lambda: "")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("PIPX_HOME", raising=False)
+    venv = _old_venv(tmp_path / ".agent-reach-venv")
+    ran = []
+    monkeypatch.setattr(legacy.subprocess, "run",
+                        lambda cmd, **k: ran.append(cmd) or type("P", (), {"returncode": 0})())
+    out = legacy.remove()
+    assert len(out["removed"]) == 1 and venv.is_dir()  # the venv stays; only the package is uninstalled
+    assert ran[0][-4:] == ["uninstall", "-y", "-q", "agent-reach"]
 
 
 def test_update_without_new_release_still_upgrades_tools(env, monkeypatch):
@@ -374,30 +457,22 @@ def test_every_json_output_carries_meta_update_only_when_newer(env, capsys, monk
     assert "meta" not in _cli_json(capsys, ["doctor"])
 
 
-def test_background_check_starts_at_most_once_a_day(monkeypatch):
-    monkeypatch.delenv(update_notice.DISABLE_ENV)
-    started = []
-    monkeypatch.setattr(update_notice.subprocess, "Popen", lambda argv, **k: started.append(argv))
-    update_notice.maybe_refresh()
-    update_notice.maybe_refresh()
-    assert len(started) == 1 and started[0][-1] == "agent_reach.runtime.update_notice"
-    old = time.time() - update_notice.INTERVAL - 5
-    os.utime(update_notice.started_path(), (old, old))
-    update_notice.maybe_refresh()
-    assert len(started) == 2
+def test_queries_never_spawn_background_update_checks(env, monkeypatch, capsys):
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: pytest.fail("background process"))
+    assert _cli_json(capsys, ["doctor"])["ok"]
+    assert not hasattr(update_notice, "maybe_refresh")
 
 
-def test_background_check_writes_cache_or_stays_silent(monkeypatch):
-    def offline(timeout=10):
+def test_explicit_update_check_preserves_offline_error_and_writes_success_cache(env, monkeypatch):
+    monkeypatch.setattr(update_notice, "fetch_latest", lambda **k: {"latest": "9.9.9", "notes": "n"})
+    assert manage.update_check()["latest"] == "9.9.9"
+    assert update_notice.read_cache()["latest"] == "9.9.9"
+    def offline(**kwargs):
         raise OSError("offline")
-
     monkeypatch.setattr(update_notice, "fetch_latest", offline)
-    assert update_notice._main() == 1 and not update_notice.cache_path().exists()
-    monkeypatch.setattr(update_notice, "fetch_latest", lambda timeout=10: {"latest": "9.9.9", "notes": "n"})
-    assert update_notice._main() == 0 and update_notice.read_cache()["latest"] == "9.9.9"
-
-
-# ── doctor ──
+    with pytest.raises(ReachError, match="offline"):
+        manage.update_check()
 
 
 def _status(name):
@@ -418,6 +493,7 @@ def test_doctor_states(env):
         Bili.passes = True
     data = state.load()
     data["checks"]["bili"]["at"] = "2000-01-01T00:00:00Z"
+    data["checks"]["bili"]["evidence"]["search"]["at"] = "2000-01-01T00:00:00Z"
     state.save(data)
     assert _status("bili") == "unverified"
 
@@ -443,6 +519,9 @@ def test_doctor_marks_regressed_only_when_the_previous_check_passed(env):
     try:
         manage.run_checks(["bili"])
         assert _doctor("bili")["regressed"] is True
+        state.mutate(lambda data: data["tools"].__setitem__("bili-cli", {"version": "changed"}))
+        assert _doctor("bili")["status"] == "unverified"
+        assert _doctor("bili")["regressed"] is False, "stale evidence cannot prove regression"
         manage.run_checks(["bili"])
         assert _doctor("bili")["regressed"] is False, "an already-broken channel is not a regression"
     finally:
@@ -474,12 +553,57 @@ def test_setup_adds_default_channels_and_survives_a_failing_install(env, monkeyp
     assert by_name["web"]["ok"] is True
     assert by_name["broken"]["ok"] is False and by_name["broken"]["error"]["code"] == "UPSTREAM_BROKEN"
     assert "prerequisites" not in result, "prerequisites are installed, not reported"
-    assert result["logins"] == [{"channel": "broken", "command": "agent-reach login broken"}]
+    assert result["logins"] == [{"channel": "broken", "command": "agent-reach login broken",
+                                  "when": "only_if_required"}]
     optional = {c["channel"]: c["needs"] for c in result["optional_channels"]}
     assert set(optional) == {"bili", "bili2", "needy", "site", "site2", "linky"}
-    assert optional["needy"] == [] and optional["site"] == ["login"]
+    assert optional["needy"] == [] and optional["site"] == ["login_if_required"]
+    capabilities = {c["channel"]: c for c in result["capability_summary"]["channels"]}
+    assert capabilities["site"]["reach_status"] == "not_added"
+    assert capabilities["broken"]["reach_status"] == "needs_setup"
+    assert capabilities["site"]["authentication"]["when"] == "only_if_required"
+    assert capabilities["web"]["verified_actions"] == [], "installation is not a live acceptance"
     assert result["skill"]["installed"] is True
     assert env["calls"] == [], "setup opens no login window"
+    report = result['installation_report']
+    assert report['markdown'] == (state.root() / 'installation-report.md').read_text(encoding='utf-8')
+    assert report['path'] == str(state.root() / 'installation-report.md')
+    assert '安装失败：UPSTREAM_BROKEN' in report['markdown']
+
+
+def test_setup_text_displays_compact_capability_table_and_keeps_json_mode(env, capsys, monkeypatch):
+    from agent_reach.runtime import cli, onboarding
+
+    monkeypatch.setattr(onboarding, '_local_greeting', lambda: '早上好呀，想搜点什么？☀️')
+
+    assert cli.main(['setup', '--text']) == 0
+    text = capsys.readouterr().out
+    assert text.startswith('早上好呀，想搜点什么？☀️\n')
+    assert '| 平台 | 不登录可以查什么 | 需要登录后再试 |' in text
+    assert text.count('|---|---|---|') == 1
+    assert '完整报告已保存：' in text
+    assert not text.startswith('{')
+    assert cli.main(['setup']) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload['ok']
+    assert payload['result']['installation_report']['markdown'] == text.split('\n完整报告已保存：')[0]
+
+
+def test_setup_receipt_never_overwrites_a_linked_foreign_file(env, tmp_path):
+    manage.setup()
+    report = state.root() / 'installation-report.md'
+    report.unlink()
+    foreign = tmp_path / 'keep.txt'
+    foreign.write_text('keep this')
+    try:
+        report.symlink_to(foreign)
+    except OSError:
+        pytest.skip('symlink creation not available')
+    result = manage.setup()
+    assert foreign.read_text() == 'keep this'
+    assert result['installation_report']['path'] is None
+    assert result['installation_report']['write_error']
+    assert '| 平台 | 不登录可以查什么 | 需要登录后再试 |' in result['installation_report']['markdown']
 
 
 # ── uninstall ──
@@ -488,7 +612,8 @@ def test_setup_adds_default_channels_and_survives_a_failing_install(env, monkeyp
 def test_uninstall_removes_only_what_we_own(env):
     manage.add("bili")
     root = state.root()
-    (root / "config.yaml").write_text("x: 1")
+    from agent_reach.config import Config
+    Config().set("test", 1)
     (root / "my-notes").mkdir()
     (root / "tools" / "someone-elses-tool").mkdir(parents=True)
     update_notice.write_cache({"latest": "1.0.0", "notes": ""})
@@ -505,7 +630,7 @@ def test_uninstall_removes_only_what_we_own(env):
 
 def test_uninstall_closes_the_browser_instead_of_refusing(env):
     manage.uninstall()
-    assert env["stopped"] == [True]
+    assert env["stopped"] == [], "no owned browser was recorded"
 
 # ── skill ──
 
@@ -531,6 +656,8 @@ def test_skill_one_real_copy_linked_only_for_present_ais(env):
     result = manage.place_skill()
     real = home / ".agents" / "skills" / "agent-reach"
     assert (real / "SKILL.md").is_file()
+    for name in ("sessions.md", "maintenance.md"):
+        assert (real / "references" / name).is_file()
     for link in (home / ".claude" / "skills" / "agent-reach", home / ".openclaw" / "skills" / "agent-reach"):
         assert link.is_symlink() and os.path.realpath(link) == os.path.realpath(real)
     assert not (home / ".codex" / "skills").exists(), "codex reads ~/.agents/skills itself"
@@ -549,10 +676,10 @@ def test_skill_replaces_our_old_copy_but_not_a_foreign_one(env):
     native_old = home / ".codex" / "skills" / "agent-reach"
     _seed_our_copy(native_old)
     result = manage.place_skill()
-    assert ours.is_symlink()
+    assert ours.is_dir() and not ours.is_symlink()
     assert not foreign.is_symlink() and "someone-else" in (foreign / "SKILL.md").read_text(encoding="utf-8")
     assert [n["agent"] for n in result["not_linked"]] == ["cursor"]
-    assert not native_old.exists() and result["removed_old_copies"] == [str(native_old)]
+    assert native_old.exists() and result["removed_old_copies"] == [], "unrecorded files are retained"
 
 
 def test_skill_falls_back_to_a_copy_without_symlink_rights(env, monkeypatch):
@@ -566,6 +693,9 @@ def test_skill_falls_back_to_a_copy_without_symlink_rights(env, monkeypatch):
     result = manage.place_skill()
     copy = home / ".claude" / "skills" / "agent-reach"
     assert not copy.is_symlink() and (copy / "SKILL.md").is_file()
+    for name in ("sessions.md", "maintenance.md", "capabilities.md"):
+        assert (copy / "references" / name).read_text(encoding="utf-8") == (
+            manage.skill_dir() / "references" / name).read_text(encoding="utf-8")
     assert result["copies"] == [str(copy)] and result["links"] == []
     (copy / "SKILL.md").write_text("---\nname: agent-reach\n---\nstale\n")
     manage.place_skill()
@@ -581,13 +711,14 @@ def test_skill_link_for_an_unlisted_ai_and_uninstall_removes_everything(env):
     other = home / "my-ai" / "skills"
     manage.link_skill(str(other))
     assert (other / "agent-reach").is_symlink()
+    manage.place_skill()
     stray = home / ".gemini" / "skills" / "agent-reach"
     stray.parent.mkdir(parents=True)
     stray.symlink_to(home / ".agents" / "skills" / "agent-reach")
-    manage.place_skill()
     assert (other / "agent-reach").is_symlink(), "update keeps recorded links"
     manage.uninstall()
-    for p in (other / "agent-reach", home / ".claude" / "skills" / "agent-reach", stray,
+    assert stray.is_symlink(), "unrecorded shortcut is retained"
+    for p in (other / "agent-reach", home / ".claude" / "skills" / "agent-reach",
               home / ".agents" / "skills" / "agent-reach"):
         assert not p.exists() and not p.is_symlink()
 
@@ -612,3 +743,57 @@ def test_doctor_separates_needs_login_from_broken(env, monkeypatch):
     manage.add("bili")
     manage.run_checks(["bili"])
     assert _status("bili") == "needs_login"
+
+
+def test_remove_browser_channel_forgets_grants_and_only_its_login(env):
+    manage.add("site")
+    manage.add("site2")
+    state.mutate(lambda data: data.update(reuse_sources={"site": {"profile": "old-source"}, "site2": {"profile": "keep"}}))
+    env["calls"].clear()
+    out = manage.remove("site")
+    assert out["cleared_cookies"] == 3
+    assert env["calls"] == [("clear_site", ("site.example",))]
+    assert state.load()["reuse_sources"] == {"site2":{"profile":"keep"}}
+
+
+def test_setup_reports_legacy_mcp_without_editing_external_configuration(env):
+    path=home_dir()/".cursor"/"mcp.json"
+    path.parent.mkdir()
+    entry={"command":"/test/agent-reach","args":["mcp"]}
+    path.write_text(json.dumps({"mcpServers":{"agent-reach":entry,"keep":{"command":"other"}}}))
+    state.mutate(lambda data:data.update(mcp={"cursor":{"path":str(path),"entry":entry}}))
+    result = manage.setup()
+    assert json.loads(path.read_text())["mcpServers"]["agent-reach"] == entry
+    assert result["user_actions"] and "mcp" in state.load()
+
+
+def test_setup_preserves_unowned_or_changed_mcp_configuration(env):
+    path=home_dir()/".cursor"/"mcp.json"
+    path.parent.mkdir()
+    original=json.dumps({"mcpServers":{"agent-reach":{"command":"foreign"}}})
+    path.write_text(original)
+    manage.setup()
+    assert path.read_text()==original
+
+
+@pytest.mark.parametrize("owner", [tools.OURS, "user"])
+def test_setup_prunes_only_our_retired_mcp_transport(env, owner):
+    folder = tools.tool_dir("mcporter")
+    folder.mkdir(parents=True)
+    (folder / "keep-or-remove").write_text("fixture")
+    state.mutate(lambda data: data["tools"].update(mcporter={"owner": owner}))
+    manage.setup()
+    assert folder.exists() == (owner != tools.OURS)
+
+
+def test_retired_mcp_cleanup_preserves_changed_private_path(env, monkeypatch):
+    from agent_reach.utils import paths
+    path = home_dir() / ".cursor/mcp.json"
+    path.parent.mkdir()
+    path.write_text("unchanged")
+    state.mutate(lambda data: data.update(mcp={"cursor": {"path": str(path), "entry": {}}}))
+    def changed(*args, **kwargs):
+        raise paths.PrivatePathError("externally changed path")
+    monkeypatch.setattr(paths, "read_small_text_no_follow", changed)
+    assert manage._retired_mcp_notice()
+    assert path.read_text() == "unchanged"

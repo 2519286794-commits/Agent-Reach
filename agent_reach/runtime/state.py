@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import time
 from pathlib import Path
+from typing import Callable, TypeVar
 
 from agent_reach.utils.paths import (
     PrivatePathError,
@@ -30,6 +32,7 @@ from agent_reach.utils.paths import (
 )
 
 STATE_VERSION = 1
+T = TypeVar("T")
 
 
 def root() -> Path:
@@ -60,8 +63,31 @@ def load() -> dict:
 
 
 def save(data: dict) -> None:
+    data.setdefault("owned_paths", {})["state.json"] = "state ledger"
+    import hashlib
+    name = hashlib.sha256(b"reach-state-write").hexdigest() + ".lock"
+    data["owned_paths"]["browser-locks/" + name] = "state lock"
     make_private_dir(root())
     atomic_write_private_text(state_path(), json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def mutate(change: Callable[[dict], T]) -> T:
+    """Serialize short state read-modify-write operations across CLI processes."""
+    from .browser_binding import execution_lock
+    from .result import ReachError
+
+    for _ in range(100):
+        try:
+            with execution_lock("reach-state-write"):
+                data = load()
+                result = change(data)
+                save(data)
+                return result
+        except ReachError as exc:
+            if exc.code != "BUSY":
+                raise
+            time.sleep(0.05)
+    raise ReachError("BUSY", "Reach state is being updated by another command")
 
 
 def now() -> str:
@@ -74,3 +100,24 @@ def age_seconds(iso: str) -> float:
     except (TypeError, ValueError):
         return float("inf")
     return (_dt.datetime.now(_dt.timezone.utc) - then).total_seconds()
+
+
+def owned_path(path: Path, data: dict | None = None) -> bool:
+    """Deletion permission comes from the ledger, never a familiar filename."""
+    try:
+        relative = Path(path).absolute().relative_to(root().absolute()).as_posix()
+    except ValueError:
+        return False
+    return relative in (data if data is not None else load()).get("owned_paths", {})
+
+
+def remember_path(path: Path, purpose: str) -> None:
+    from agent_reach.utils.paths import ensure_no_symlink_path
+
+    ensure_no_symlink_path(path, "owned path")
+    relative = Path(path).absolute().relative_to(root().absolute()).as_posix()
+    if relative in {".", ""} or ".." in Path(relative).parts:
+        raise ValueError("Cannot own the entire Reach root")
+    if owned_path(path):
+        return
+    mutate(lambda data: data.setdefault("owned_paths", {}).update({relative: purpose}))

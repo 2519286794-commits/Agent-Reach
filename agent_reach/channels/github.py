@@ -11,9 +11,10 @@ from urllib.parse import urlencode
 
 from agent_reach.runtime.result import (
     BAD_INPUT,
-    NEED_LOGIN,
+    NEED_SETUP,
     NOT_FOUND,
     RATE_LIMITED,
+    UPSTREAM_BROKEN,
     ReachError,
     make_item,
 )
@@ -59,7 +60,7 @@ def _gh_get(path: str, timeout: float, accept: str = "application/vnd.github+jso
         if "http 404" in err or "not found" in err:
             raise ReachError(NOT_FOUND, exc.message) from None
         if "gh auth login" in err or "authentication" in err:
-            raise ReachError(NEED_LOGIN, "gh is not logged in") from None
+            raise ReachError(NEED_SETUP, "gh has no usable credentials; try the public GitHub API") from None
         if "rate limit" in err:
             raise ReachError(RATE_LIMITED, exc.message) from None
         raise
@@ -78,8 +79,12 @@ def _api_get(path: str, timeout: float, accept: str = "application/vnd.github+js
     try:
         return http_request(f"{_API}{path}", timeout=timeout, headers=headers)
     except urllib.error.HTTPError as exc:
-        if exc.code == 403:
+        if exc.code == 429 or (exc.code == 403 and (
+            exc.headers.get("X-RateLimit-Remaining") == "0" or exc.headers.get("Retry-After")
+        )):
             raise ReachError(RATE_LIMITED, "GitHub API rate limit (60/hour without a token)") from None
+        if exc.code == 403:
+            raise ReachError(UPSTREAM_BROKEN, "GitHub API denied this request (HTTP 403); no rate-limit evidence") from None
         raise
 
 

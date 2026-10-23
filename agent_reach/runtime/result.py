@@ -25,20 +25,21 @@ NEED_LOGIN = "NEED_LOGIN"
 UPSTREAM_BROKEN = "UPSTREAM_BROKEN"
 TIMEOUT = "TIMEOUT"
 RATE_LIMITED = "RATE_LIMITED"
+PLATFORM_BLOCKED = "PLATFORM_BLOCKED"
 NOT_FOUND = "NOT_FOUND"
 BAD_INPUT = "BAD_INPUT"
 
 #: Codes where trying another backend cannot help.
-FINAL_CODES = frozenset({NOT_FOUND, BAD_INPUT})
+FINAL_CODES = frozenset({NOT_FOUND, BAD_INPUT, PLATFORM_BLOCKED, RATE_LIMITED, NEED_LOGIN, "BUSY"})
 
 DEFAULT_HINTS = {
+    "BUSY": "The shared browser stayed full while this command waited in line, or a login window is open. Retry later; do not switch profiles.",
+    PLATFORM_BLOCKED: "Stop automation. Keep this profile; the user must resolve the platform verification in the official page. Do not switch backends or retry.",
     NEED_SETUP: "This backend is not installed. Ask the user to run `agent-reach doctor` for setup steps.",
-    NEED_LOGIN: "Login is required or expired. Guide the user to log in themselves; never log in on their behalf.",
-    UPSTREAM_BROKEN: ("The upstream tool failed. Suggest the user run `agent-reach update` once (the upstream may "
-                      "already be fixed); if it still fails, tell them this channel is unavailable right now. "
-                      "Do not retry in a loop."),
-    TIMEOUT: "No backend answered in time. Retry later, or pass a larger --timeout.",
-    RATE_LIMITED: "Rate limited by the platform. Wait a while before retrying.",
+    NEED_LOGIN: "The attempted saved/local session did not grant access. Offer site-scoped local reuse or let the user log in themselves; never ask for a password.",
+    UPSTREAM_BROKEN: "This channel is temporarily not working; `message` is what was reported. Tell the user in plain words which platform has a problem, without naming tools; suggest `agent-reach update` only if the message points to an outdated tool; do not retry in a loop.",
+    TIMEOUT: "The operation timed out. Inspect channel status and the failed stage; do not reopen login windows or repeat requests in a loop.",
+    RATE_LIMITED: "The platform reported a rate limit. Reach pauses this channel; respect retry_after_seconds and do not switch backends.",
     NOT_FOUND: "The requested content does not exist. Check the link or id.",
     BAD_INPUT: "Invalid arguments. Run `agent-reach channels` to see valid usage.",
 }
@@ -47,7 +48,7 @@ _MAX_MESSAGE_CHARS = 500
 
 
 class ReachError(Exception):
-    """An upstream failure already mapped to a unified error code."""
+    """A failure with a unified code; upstream messages and hints are passed through unchanged."""
 
     def __init__(self, code: str, message: str, hint: Optional[str] = None):
         super().__init__(message)

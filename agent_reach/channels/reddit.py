@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Reddit — OpenCLI in the Agent Reach browser. Login is mandatory.
+"""Reddit browser actions supplement public web search and reading.
 
-Live-verified 2026-06: there is NO zero-config path. Anonymous .json
-endpoints are blocked (403 anti-bot, all variants), and the official API
-closed self-service registration in 2025-11.
+Public posts and some comments can be available through an agent's existing
+web tools without Reddit login. A blocked anonymous JSON endpoint does not
+establish a site-wide login requirement. These actions use managed browser
+sessions; request authentication only when the selected path requires it.
 """
 
 from agent_reach.backends.opencli import opencli_call, opencli_items
@@ -12,15 +13,14 @@ from agent_reach.runtime.result import BAD_INPUT, UPSTREAM_BROKEN, ReachError
 from .base import Action, Channel, Param
 
 _REDDIT_LOGIN_HINT = (
-    "Ask the user to log in to reddit.com in their own Chrome (the one with the "
-    "OpenCLI extension). Never log in or read browser cookies for them."
+    "Ask the user to log in to reddit.com in the Agent Reach dedicated browser. Never log in on their behalf."
 )
 
 
 def _reddit(args, timeout: float) -> list:
     items = opencli_items(opencli_call("reddit", list(args), timeout=timeout, login_hint=_REDDIT_LOGIN_HINT))
     if not items:
-        raise ReachError(UPSTREAM_BROKEN, "OpenCLI returned nothing; the page most likely did not load")
+        raise ReachError(UPSTREAM_BROKEN, "OpenCLI finished but returned no items")
     return items
 
 
@@ -34,26 +34,28 @@ class RedditChannel(Channel):
     prereqs = ("node", "chrome")
 
     def setup_problems(self):
-        from agent_reach.runtime.browser import setup_problems
+        from agent_reach.runtime.browser_binding import setup_problems
 
-        return setup_problems()
+        return setup_problems(self.name)
 
     actions = (
         Action(
             "search",
-            "Search posts",
+            "Search public posts first; --backend opencli uses site search",
             (
                 Param("query", "what to search for"),
                 Param("limit", "max results", required=False, type=int, default=5),
             ),
             (("opencli", "_opencli_search"),),
             live_test={"query": "python", "limit": 2},
+            public_web=("reddit.com/r/",),
         ),
         Action(
             "read",
-            "Read a post and its top comments",
+            "Read public page text first; --backend opencli requests the post and top comments",
             (Param("target", "post link or id"),),
             (("opencli", "_opencli_read"),),
+            public_web=("reddit.com/r/", "redd.it/"),
         ),
         Action(
             "subreddit",
@@ -76,6 +78,7 @@ class RedditChannel(Channel):
 
     def _opencli_search(self, *, query: str, limit: int, timeout: float) -> list:
         return _reddit(["search", query, "--limit", str(limit)], timeout)[:limit]
+
 
     def _opencli_read(self, *, target: str, timeout: float) -> list:
         t = str(target).strip()

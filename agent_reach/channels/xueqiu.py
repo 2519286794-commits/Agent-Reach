@@ -9,7 +9,14 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from agent_reach.runtime.result import BAD_INPUT, NEED_LOGIN, NOT_FOUND, ReachError, make_item
+from agent_reach.runtime.result import (
+    BAD_INPUT,
+    NEED_LOGIN,
+    NOT_FOUND,
+    UPSTREAM_BROKEN,
+    ReachError,
+    make_item,
+)
 from agent_reach.runtime.run import http_request
 
 from .base import Action, Channel, Param
@@ -149,7 +156,7 @@ def _xueqiu_symbol(market: str, code: str) -> str:
 
 
 def _import_from_browser() -> bool:
-    """Copy the Xueqiu session the user has in the Agent Reach browser (only on `login --sync`)."""
+    """Sync the reused Xueqiu site session into the existing native API client."""
     global _cookies_initialized
     from agent_reach.runtime import browser, cdp
 
@@ -166,14 +173,31 @@ def _import_from_browser() -> bool:
     return True
 
 
+def _prepare_community_session() -> None:
+    from agent_reach.runtime import session_reuse
+
+    session_reuse.prepare("xueqiu")
+    _import_from_browser()
+
+
 def _xq_json(url: str) -> Any:
     try:
         return _get_json(url)
-    except (urllib.error.HTTPError, json.JSONDecodeError) as exc:
-        rejected = isinstance(exc, json.JSONDecodeError) or exc.code in (400, 401, 403)
-        if not rejected:
-            raise
-        raise ReachError(NEED_LOGIN, "Xueqiu rejected the session", hint=_XQ_LOGIN_HINT) from None
+    except json.JSONDecodeError:
+        raise ReachError(UPSTREAM_BROKEN, "Xueqiu returned an unreadable response; login expiry was not established") from None
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            raise ReachError(NEED_LOGIN, "Xueqiu rejected the session", hint=_XQ_LOGIN_HINT) from None
+        if exc.code == 400 and _error_code(exc) == "400016":  # Xueqiu: login token missing or expired
+            raise ReachError(NEED_LOGIN, "Xueqiu requires a logged-in session", hint=_XQ_LOGIN_HINT) from None
+        raise
+
+
+def _error_code(exc: urllib.error.HTTPError) -> str:
+    try:
+        return str(json.loads(exc.read().decode("utf-8")).get("error_code", ""))
+    except Exception:  # noqa: BLE001 - an unreadable body is not login evidence
+        return ""
 
 
 _HOT_POSTS_URL = (
@@ -330,6 +354,7 @@ class XueqiuChannel(Channel):
         ]
 
     def _xq_hot_posts(self, *, limit: int, timeout: float) -> list:
+        _prepare_community_session()
         limit = max(0, min(limit, 50))
         posts = _parse_hot_posts(_xq_json(_HOT_POSTS_URL.format(limit=limit)), limit) if limit else []
         return [
@@ -338,6 +363,7 @@ class XueqiuChannel(Channel):
         ]
 
     def _xq_hot_stocks(self, *, limit: int, timeout: float) -> list:
+        _prepare_community_session()
         data = _xq_json(f"https://stock.xueqiu.com/v5/stock/hot_stock/list.json?size={limit}&type=10")
         return [
             make_item(

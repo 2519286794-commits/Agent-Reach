@@ -147,6 +147,9 @@ class Config:
         if self.read_only:
             raise ConfigReadOnlyError("当前配置是只读的，不能保存")
         self._ensure_dir()
+        if self.config_path == home_dir() / ".agent-reach" / "config.yaml":
+            from agent_reach.runtime import state
+            state.remember_path(self.config_path, "configuration")
         _atomic_write_yaml(self.config_path, self.data)
 
     def get(self, key: str, default: Any = None) -> Any:

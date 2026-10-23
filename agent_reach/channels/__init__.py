@@ -32,9 +32,9 @@ ALL_CHANNELS: List[Channel] = [
     XiaoHongShuChannel(),
     LinkedInChannel(),
     BossChannel(),
-    XiaoyuzhouChannel(),
     V2EXChannel(),
     XueqiuChannel(),
+    XiaoyuzhouChannel(),
     WebChannel(),
 ]
 

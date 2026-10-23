@@ -44,6 +44,9 @@ class Action:
     live_test: Optional[Dict[str, object]] = None
     #: Default timeout in seconds for slow actions (e.g. transcription); None = global default.
     timeout: Optional[float] = None
+    #: Public URL scopes tried through the existing Web channel before site tools.
+    #: Search results/page text are labelled separately from authenticated site data.
+    public_web: Tuple[str, ...] = ()
 
 
 class Channel(ABC):
@@ -85,6 +88,9 @@ class Channel(ABC):
     def setup_problems(self) -> List[str]:
         """What still blocks this channel after its tools are installed (keys, browser...)."""
         return []
+
+    def validate_params(self, action: str, params: dict) -> None:
+        """Reject site-specific invalid input before installation or session setup."""
 
     def on_add(self) -> None:
         """Extra setup after tools are installed (e.g. register an MCP server)."""
