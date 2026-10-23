@@ -20,7 +20,7 @@ _REDDIT_LOGIN_HINT = (
 def _reddit(args, timeout: float) -> list:
     items = opencli_items(opencli_call("reddit", list(args), timeout=timeout, login_hint=_REDDIT_LOGIN_HINT))
     if not items:
-        raise ReachError(UPSTREAM_BROKEN, "OpenCLI returned nothing; the page most likely did not load")
+        raise ReachError(UPSTREAM_BROKEN, "OpenCLI finished but returned no items")
     return items
 
 

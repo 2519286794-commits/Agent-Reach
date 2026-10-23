@@ -72,7 +72,7 @@ class XiaoHongShuChannel(Channel):
         if not items:
             raise ReachError(
                 UPSTREAM_BROKEN,
-                "OpenCLI returned no notes; the page most likely did not load",
+                "OpenCLI finished but returned no notes",
             )
         return items
 

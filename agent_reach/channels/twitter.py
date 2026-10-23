@@ -15,7 +15,7 @@ _TWITTER_LOGIN_HINT = (
 def _x(args, timeout: float) -> list:
     items = opencli_items(opencli_call("twitter", list(args), timeout=timeout, login_hint=_TWITTER_LOGIN_HINT))
     if not items:
-        raise ReachError(UPSTREAM_BROKEN, "OpenCLI returned nothing; the page most likely did not load")
+        raise ReachError(UPSTREAM_BROKEN, "OpenCLI finished but returned no items")
     return items
 
 
