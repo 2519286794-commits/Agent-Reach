@@ -34,6 +34,14 @@ def validate(data: dict, required: set[tuple[str, str]], digest: str) -> list[st
         errors.append("Acceptance still has pending actions or required validation")
     if not isinstance(data.get("results"), list):
         return errors + ["Acceptance results must be a list"]
+    # Maintainer-approved for this release: listed actions may ship untested, each with a reason.
+    waived = set()
+    for entry in data.get("waived") or []:
+        key = (entry.get("channel"), entry.get("action")) if isinstance(entry, dict) else None
+        if key not in required or not str(entry.get("reason") or "").strip():
+            errors.append(f"Invalid waiver: {entry}")
+            continue
+        waived.add(key)
     passed = set()
     for row in data.get("results", []):
         if not isinstance(row, dict):
@@ -55,7 +63,8 @@ def validate(data: dict, required: set[tuple[str, str]], digest: str) -> list[st
                 and type(row.get("item_count")) is int and row["item_count"] > 0
                 and row.get("backend") and row.get("os") and 0 <= age <= 7 * 86400):
             passed.add(key)
-    errors += [f"Missing real acceptance: {channel}/{action}" for channel, action in sorted(required - passed)]
+    errors += [f"Missing real acceptance: {channel}/{action}"
+               for channel, action in sorted(required - passed - waived)]
     return errors
 
 

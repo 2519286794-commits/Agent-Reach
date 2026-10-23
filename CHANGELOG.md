@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ---
 
 
-## [1.6.0] - unreleased
+## [1.6.0] - 2026-10-23
 
 中文：
 
@@ -27,6 +27,7 @@ English:
 1.6 是重构版本：Agent 只调一个命令 `agent-reach`，Agent Reach 装的、存的东西全部在 `~/.agent-reach/` 下。
 
 中文（技术细节）：
+- 本版发布前已真实测通 28/40 个动作；以下未在发布机上测通，经维护者批准随本版发布：Reddit（测试网络被拦）、Instagram（限流）、B站字幕、LinkedIn、雪球热帖热股（未登录）、小宇宙（未配 Key）。
 - 修复未登录 gh 阻断公开 API、公开行情触发浏览器、错误认证提示和未登记缓存清理；临时音频/字幕保存在 Reach 内。BOSS 站内搜索优先官方 OpenCLI，JD 上游适配故障单列；PR 与发版均检查真实验收和待验状态。
 - CLI 对已声明的公开搜索/阅读先复用网页工具，成功后不准备浏览器；结果标注来源和内容范围，站内路径明确要求认证时才提示登录。可指定后端保留原有站内能力。
 - 浏览器渠道共用一份登录，闲置十分钟自动关闭，下次使用自动打开。
@@ -43,6 +44,7 @@ English:
 - 平台出错时，报错原话和自带的处理建议原样交给 AI，由 AI 用平台名告诉用户哪个平台暂时有问题；不再用 Reach 自己编的建议覆盖（"要登录"仍给 Reach 自己专用浏览器的登录步骤）。
 
 English (technical):
+- 28 of 40 actions passed real acceptance before release; these shipped untested with maintainer approval: Reddit (test network blocked), Instagram (rate limited), Bilibili subtitles, LinkedIn, Xueqiu hot posts/stocks (no login), Xiaoyuzhou (no key).
 - Browser channels share one profile, close after ten idle minutes and reopen on demand.
 - Adding a channel prepares its tools; removal clears only that site's login. Default platforms can be removed and updates won't add them back.
 - Updating keeps tools that have a tested version at that version; other tools get the newest version inside their supported range.

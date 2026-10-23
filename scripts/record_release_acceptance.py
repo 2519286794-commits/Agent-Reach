@@ -122,9 +122,12 @@ def main() -> int:
             print(f"{ch.name}/{action.name}: {'ok' if passed else code} ({len(items)} items)")
     required = {(c.name, a.name) for c in unified_channels() for a in c.actions}
     passed_keys = {(r["channel"], r["action"]) for r in rows if r.get("passed")}
-    pending = [p for p in pending if (p["channel"], p["action"]) not in passed_keys]
-    record = {"source_sha256": digest, "release_ready": not pending and required <= passed_keys,
-              "pending": pending, "results": sorted(rows, key=lambda r: (r["channel"], r["action"]))}
+    waived = old.get("waived") or []  # maintainer decisions survive re-recording
+    waived_keys = {(w.get("channel"), w.get("action")) for w in waived}
+    pending = [p for p in pending if (p["channel"], p["action"]) not in passed_keys | waived_keys]
+    record = {"source_sha256": digest, "release_ready": not pending and required <= passed_keys | waived_keys,
+              "pending": pending, "waived": waived,
+              "results": sorted(rows, key=lambda r: (r["channel"], r["action"]))}
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(record, ensure_ascii=False, indent=1) + "\n", "utf-8")
     print(f"\nrelease_ready: {record['release_ready']}  passed {len(passed_keys & required)}/{len(required)}  "

@@ -156,6 +156,19 @@ def test_gate_cannot_ignore_release_flag_pending_validation_or_invalid_time():
     assert validate({**data, "results": [{**row, "at": None}]}, required, "s")
     assert validate({**data, "results": [{**row, "item_count": True}]}, required, "s")
 
+def test_gate_lets_only_listed_reasoned_waivers_through():
+    from scripts.check_release_acceptance import validate
+    row = {"channel": "web", "action": "search", "passed": True, "item_count": 1,
+           "backend": "exa", "os": "macOS", "at": state.now(), "method": "real-cli", "source_sha256": "s"}
+    required = {("web", "search"), ("reddit", "search")}
+    data = {"source_sha256": "s", "release_ready": True, "results": [row]}
+    assert validate(data, required, "s")  # reddit untested, not waived: blocked
+    waiver = {"channel": "reddit", "action": "search", "reason": "network blocked by Reddit"}
+    assert not validate({**data, "waived": [waiver]}, required, "s")
+    assert validate({**data, "waived": [{**waiver, "reason": " "}]}, required, "s")  # a reason is required
+    assert validate({**data, "waived": [{**waiver, "action": "nope"}]}, required, "s")  # only real actions
+
+
 
 def test_install_and_uninstall_preserve_preexisting_unrecorded_cache(monkeypatch):
     cache = state.root() / "cache"
