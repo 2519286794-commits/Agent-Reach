@@ -12,15 +12,13 @@ OPENCLI_EXTENSION_URL = (
     f"https://chromewebstore.google.com/detail/opencli/{OPENCLI_EXTENSION_ID}"
 )
 
-_NAV_REJECTED_HINT = (
-    "OpenCLI's browser extension could not open the page. This is a known open "
-    "OpenCLI issue on recent Chrome (github.com/jackwener/opencli/issues/2487); "
-    "retrying a few seconds later sometimes works. Do not retry in a loop."
-)
-
 
 def _opencli_error(text: str, login_hint: str):
-    """Map OpenCLI's YAML error block (printed even with -f json) to a ReachError."""
+    """Turn OpenCLI's YAML error block (printed even with -f json) into a ReachError.
+
+    OpenCLI's own `message` and `help` are passed through unchanged. The code only
+    decides Reach's control flow (stop, pause the channel, try the next backend).
+    """
     # Node warnings can precede the upstream YAML envelope on stdout. Parse the
     # envelope itself so warnings neither hide error codes nor flood the user.
     import re
@@ -41,22 +39,21 @@ def _opencli_error(text: str, login_hint: str):
     except yaml.YAMLError:
         doc = None
     err = (doc or {}).get("error") if isinstance(doc, dict) else None
-    code = str((err or {}).get("code", "")).upper()
-    message = str((err or {}).get("message", "") or text.strip()[:300] or "OpenCLI failed")[:300]
+    err = err if isinstance(err, dict) else {}
+    code = str(err.get("code", "")).upper()
+    message = str(err.get("message", "") or text.strip() or "OpenCLI failed")[:500]
+    upstream_hint = str(err.get("help") or err.get("hint") or "").strip() or None
     low = message.lower()
     if any(w in low for w in ("环境异常", "环境存在异常", "browser environment", "captcha", "验证码", "安全验证", "account_risk")) or code in {"ACCOUNT_RISK", "CAPTCHA_REQUIRED"}:
-        return ReachError(PLATFORM_BLOCKED, message)
+        return ReachError(PLATFORM_BLOCKED, message, hint=upstream_hint, source="opencli")
     if code in {"RATE_LIMITED", "RATE_LIMIT"} or any(w in low for w in ("http 429", "too many requests", "访问过于频繁")):
-        return ReachError(RATE_LIMITED, message)
-    if re.search(r"\bHTTP 404\b", message, re.I) and code not in {"AUTH_REQUIRED", "LOGIN_REQUIRED"}:
-        return ReachError(UPSTREAM_BROKEN, message,
-                          hint="The upstream route returned HTTP 404. Repeated login will not repair a missing endpoint.")
+        return ReachError(RATE_LIMITED, message, source="opencli")
     login_words = ("login", "log in", "logged in", "sign in", "http 401", "登录")
-    if "AUTH" in code or "LOGIN" in code or any(w in low for w in login_words):
-        return ReachError(NEED_LOGIN, message, hint=login_hint or None)
-    if "navigation rejected" in low:
-        return ReachError(UPSTREAM_BROKEN, message, hint=_NAV_REJECTED_HINT)
-    return ReachError(UPSTREAM_BROKEN, f"OpenCLI: {message}")
+    if not re.search(r"\bHTTP 404\b", message, re.I) and (
+            "AUTH" in code or "LOGIN" in code or any(w in low for w in login_words)):
+        # Upstream would send the user to their own Chrome; Reach logs in in its own browser.
+        return ReachError(NEED_LOGIN, message, hint=login_hint or None, source="opencli")
+    return ReachError(UPSTREAM_BROKEN, message, hint=upstream_hint, source="opencli")
 
 
 def opencli_call(site: str, args, *, timeout: float, login_hint: str = ""):

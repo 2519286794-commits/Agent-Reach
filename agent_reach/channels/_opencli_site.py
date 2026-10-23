@@ -40,7 +40,7 @@ class OpenCLISiteChannel(Channel):
         try:
             items = opencli_items(opencli_call(self.site, list(args), timeout=timeout, login_hint=hint))
             if not items and empty_is_error:
-                raise ReachError(UPSTREAM_BROKEN, "OpenCLI returned nothing; the page most likely did not load")
+                raise ReachError(UPSTREAM_BROKEN, "OpenCLI finished but returned no items")
         except ReachError as err:
             if err.code == UPSTREAM_BROKEN and self._logged_out():
                 raise ReachError(NEED_LOGIN, f"Not logged in to {self.login_hint}", hint=hint) from None
