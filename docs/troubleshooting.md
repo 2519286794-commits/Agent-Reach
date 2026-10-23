@@ -56,7 +56,7 @@ Search-only acceptance is shown as search_ready, not proof that every action wor
 
 ## Install, update and roll back
 
-Agent Reach is installed with uv only. If `agent-reach update` says the program was installed another way, reinstall once as in [install.md](install.md); your channels, keys and logins under `~/.agent-reach/` are kept.
+Agent Reach is installed with uv. A copy installed another way (pip or pipx, as 1.5 was) moves itself to uv on the next `agent-reach update`; your channels, keys and logins under `~/.agent-reach/` are kept.
 
 A new version broke something? Go back to the previous release, then line the tools and skill up with it:
 
