@@ -111,7 +111,7 @@ jobs:
           cd /tmp && /tmp/smoke/bin/python -c "import agent_reach; from importlib.resources import files; assert (files('agent_reach')/'skill'/'SKILL.md').is_file(); print('SKILL.md ships in site-packages OK')"
 
   # Most users are on 1.5 (installed with pipx). Rehearse the documented
-  # upgrade (docs/update.md step 3) on every OS: the new copy must win on PATH,
+  # upgrade (docs/install.md, "Upgrade from 1.5") on every OS: the new copy must win on PATH,
   # keep the old config, explain the upgrade and remove the old pipx copy.
   upgrade-from-1-5:
     runs-on: ${{ matrix.os }}
@@ -155,7 +155,7 @@ jobs:
           v="$(agent-reach version)"; echo "$v"
           echo "$v" | grep -q "v1.5"
 
-      - name: Upgrade as docs/update.md step 3 says
+      - name: Upgrade as docs/install.md says
         run: |
           uv tool install --force .
           echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"

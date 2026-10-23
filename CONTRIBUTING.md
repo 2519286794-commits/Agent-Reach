@@ -75,7 +75,7 @@ Every version section in `CHANGELOG.md` starts with a short plain summary for us
 
 ## Releasing (maintainers)
 
-Users install and update from the latest GitHub release, and 1.5 users read `docs/update.md` on `main`, so the merge and the release must land together:
+Users install and update from the latest GitHub release, and 1.5 users are sent to `docs/update.md` on `main`, which points to `docs/install.md`, so the merge and the release must land together:
 
 1. On the release branch, with the needed logins and keys in place, run `python scripts/record_release_acceptance.py` until it prints `release_ready: True` (`--only <channel>` rechecks some channels and keeps the rest). Commit `.github/release-acceptance.json`. Any later change under `agent_reach/` invalidates it; the record is valid for 7 days.
 2. Set the version's date in `CHANGELOG.md`.
