@@ -45,15 +45,15 @@ def _opencli_error(text: str, login_hint: str):
     upstream_hint = str(err.get("help") or err.get("hint") or "").strip() or None
     low = message.lower()
     if any(w in low for w in ("环境异常", "环境存在异常", "browser environment", "captcha", "验证码", "安全验证", "account_risk")) or code in {"ACCOUNT_RISK", "CAPTCHA_REQUIRED"}:
-        return ReachError(PLATFORM_BLOCKED, message, hint=upstream_hint, source="opencli")
+        return ReachError(PLATFORM_BLOCKED, message, hint=upstream_hint)
     if code in {"RATE_LIMITED", "RATE_LIMIT"} or any(w in low for w in ("http 429", "too many requests", "访问过于频繁")):
-        return ReachError(RATE_LIMITED, message, source="opencli")
+        return ReachError(RATE_LIMITED, message)
     login_words = ("login", "log in", "logged in", "sign in", "http 401", "登录")
     if not re.search(r"\bHTTP 404\b", message, re.I) and (
             "AUTH" in code or "LOGIN" in code or any(w in low for w in login_words)):
         # Upstream would send the user to their own Chrome; Reach logs in in its own browser.
-        return ReachError(NEED_LOGIN, message, hint=login_hint or None, source="opencli")
-    return ReachError(UPSTREAM_BROKEN, message, hint=upstream_hint, source="opencli")
+        return ReachError(NEED_LOGIN, message, hint=login_hint or None)
+    return ReachError(UPSTREAM_BROKEN, message, hint=upstream_hint)
 
 
 def opencli_call(site: str, args, *, timeout: float, login_hint: str = ""):

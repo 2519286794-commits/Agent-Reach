@@ -43,7 +43,7 @@ agent-reach read <url>                    # picks the channel from the URL
 |---|---|
 | `NEED_SETUP` | Missing dependency or key. Run `agent-reach add <channel>` as hinted; for a key, the user provides it, then `agent-reach configure <key>` |
 | `NEED_LOGIN` | Keep existing results and tell the user login is needed; `agent-reach login <channel>` opens the browser and the user logs in themselves. Never log in for them or ask for a password |
-| `UPSTREAM_BROKEN` | The upstream tool failed; `message` is its own wording (`source` names the tool). Tell the user what it says; run `agent-reach update` once, after they agree, only if the message points to an outdated tool; never retry in a loop |
+| `UPSTREAM_BROKEN` | This platform is temporarily not working; `message` is what was reported. Tell the user which platform is unavailable and roughly why, by platform name, without naming tools; run `agent-reach update` once, after they agree, only if the message points to an outdated tool; never retry in a loop |
 | `TIMEOUT` | Check the failed stage and channel status (`agent-reach doctor --text`); do not retry or reopen windows in a loop |
 | `RATE_LIMITED` | The platform rate-limited; Reach paused the channel. Wait `retry_after_seconds`; do not switch backends |
 | `PLATFORM_BLOCKED` | The platform wants verification (captcha/risk check). Stop; the user resolves it on the official page. Do not switch accounts or backends |

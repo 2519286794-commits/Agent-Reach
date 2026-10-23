@@ -42,7 +42,7 @@ agent-reach read <链接>                   # 按链接自动选渠道
 |---|---|
 | `NEED_SETUP` | 缺依赖或密钥。按提示 `agent-reach add <渠道>`；要密钥时请用户本人提供，再 `agent-reach configure <key>` |
 | `NEED_LOGIN` | 保留已有结果，告诉用户需要登录；`agent-reach login <渠道>` 打开浏览器，由用户本人登录，你绝不代登、不要密码 |
-| `UPSTREAM_BROKEN` | 上游工具出错，`message` 是它的原话（`source` 写着是哪个工具）。把原话的意思告诉用户；原话说明工具过时，才在用户同意后跑一次 `agent-reach update`；不循环重试 |
+| `UPSTREAM_BROKEN` | 这个平台暂时有问题，`message` 是出错时的原话。用平台名告诉用户哪个平台暂时用不了、大概是什么原因，不说工具名；原话说明工具过时，才在用户同意后跑一次 `agent-reach update`；不循环重试 |
 | `TIMEOUT` | 看失败阶段和渠道状态（`agent-reach doctor --text`）；不反复重试、不反复开窗 |
 | `RATE_LIMITED` | 平台限流，Reach 已暂停该渠道；按 `retry_after_seconds` 等，不换后端 |
 | `PLATFORM_BLOCKED` | 平台要求验证（验证码/风控）。停下，请用户在官方页面处理；不换账号、不换后端 |

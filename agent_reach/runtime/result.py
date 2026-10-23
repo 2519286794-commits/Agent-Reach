@@ -37,7 +37,7 @@ DEFAULT_HINTS = {
     PLATFORM_BLOCKED: "Stop automation. Keep this profile; the user must resolve the platform verification in the official page. Do not switch backends or retry.",
     NEED_SETUP: "This backend is not installed. Ask the user to run `agent-reach doctor` for setup steps.",
     NEED_LOGIN: "The attempted saved/local session did not grant access. Offer site-scoped local reuse or let the user log in themselves; never ask for a password.",
-    UPSTREAM_BROKEN: "The upstream tool failed; `message` is its own wording. Tell the user what it says; do not retry in a loop, and suggest `agent-reach update` only if the message points to an outdated tool.",
+    UPSTREAM_BROKEN: "This channel is temporarily not working; `message` is what was reported. Tell the user in plain words which platform has a problem, without naming tools; suggest `agent-reach update` only if the message points to an outdated tool; do not retry in a loop.",
     TIMEOUT: "The operation timed out. Inspect channel status and the failed stage; do not reopen login windows or repeat requests in a loop.",
     RATE_LIMITED: "The platform reported a rate limit. Reach pauses this channel; respect retry_after_seconds and do not switch backends.",
     NOT_FOUND: "The requested content does not exist. Check the link or id.",
@@ -48,15 +48,13 @@ _MAX_MESSAGE_CHARS = 500
 
 
 class ReachError(Exception):
-    """A failure with a unified code. `source` names who wrote `message`/`hint`:
-    an upstream tool (passed through unchanged) or None for Agent Reach itself."""
+    """A failure with a unified code; upstream messages and hints are passed through unchanged."""
 
-    def __init__(self, code: str, message: str, hint: Optional[str] = None, source: Optional[str] = None):
+    def __init__(self, code: str, message: str, hint: Optional[str] = None):
         super().__init__(message)
         self.code = code
         self.message = message
         self.hint = hint
-        self.source = source
 
 
 def _clean(text: object) -> str:
@@ -140,6 +138,5 @@ def envelope(
             "code": error.code,
             "message": error.message,
             "hint": error.hint or DEFAULT_HINTS.get(error.code, ""),
-            "source": getattr(error, "source", None) or "agent-reach",
         },
     }

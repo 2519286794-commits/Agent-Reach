@@ -71,14 +71,14 @@ def _bili_json(args: list, timeout: float) -> Any:
         message = str(err.get("message", "bili-cli failed"))[:500]
         upstream_hint = str(err.get("hint") or "").strip() or None
         if any(word in code.lower() for word in ("risk", "captcha", "verification")):
-            raise ReachError(PLATFORM_BLOCKED, message, hint=upstream_hint, source="bili-cli")
+            raise ReachError(PLATFORM_BLOCKED, message, hint=upstream_hint)
         if "rate" in code.lower() or "频繁" in message:
-            raise ReachError(RATE_LIMITED, message, source="bili-cli")
+            raise ReachError(RATE_LIMITED, message)
         if code == "not_found":
-            raise ReachError(NOT_FOUND, message, source="bili-cli")
+            raise ReachError(NOT_FOUND, message)
         if "login" in code or "auth" in code or "credential" in code:
-            raise ReachError(NEED_LOGIN, message, hint=_BILI_LOGIN_HINT, source="bili-cli")
-        raise ReachError(UPSTREAM_BROKEN, message, hint=upstream_hint, source="bili-cli")
+            raise ReachError(NEED_LOGIN, message, hint=_BILI_LOGIN_HINT)
+        raise ReachError(UPSTREAM_BROKEN, message, hint=upstream_hint)
     return payload.get("data") or {}
 
 
