@@ -224,10 +224,12 @@ Star 一下，下次需要的时候能找到。⭐
 
 ## 业务合作 / 交流群
 
-有相关合作，或者想加交流群，加我微信：
+有相关合作，或者想加交流群，加我微信，或直接加入 Discord 社区：
 
 <p align="center">
   <img src="docs/wechat-group-qr.jpg" width="280" alt="WeChat QR">
+  &nbsp;&nbsp;
+  <a href="https://discord.gg/NSZz22R39"><img src="https://img.shields.io/badge/Discord-加入社区-5865F2?style=for-the-badge&amp;logo=discord&amp;logoColor=white" alt="加入 Agent Reach Discord 社区"></a>
 </p>
 
 > Bug 反馈和功能请求请用 [GitHub Issues](https://github.com/Panniantong/Agent-Reach/issues)，更容易跟踪。
