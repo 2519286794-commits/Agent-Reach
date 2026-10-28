@@ -21,7 +21,7 @@ jobs:
 
       - name: Sync upstream
         run: |
-          git remote add upstream https://github.com/kkk-bot/HowToGetAlong.git
+          git remote add upstream https://github.com/Panniantong/Agent-Reach.git
           git fetch upstream main
           git merge --ff-only upstream/main
           git push origin HEAD:main
